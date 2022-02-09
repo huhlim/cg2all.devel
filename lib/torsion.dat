@@ -1,0 +1,98 @@
+RESI ALA
+XI  1.1 3   N   CA  CB      HB1 HB2 HB3
+
+RESI CYS
+CHI 1   1   N   CA  CB      SG  HB1 HB2
+XI  2.1 1   CA  CB  SG      HG1
+
+RESI ASP
+CHI 1   1   N   CA  CB      CG  HB1 HB2
+CHI 2   2   CA  CB  CG      OD1 OD2
+
+RESI GLU
+CHI 1   1   N   CA  CB      CG  HB1 HB2
+CHI 2   1   CA  CB  CG      CD  HG1 HG2
+CHI 3   2   CB  CG  CD      OE1 OE2
+
+RESI PHE
+CHI 1   1   N   CA  CB      CG  HB1 HB2
+CHI 2   2   CA  CB  CG      CD1 CD2 CE1 CE2 CZ*  HD1 HD2 HE1 HE2 HZ*
+
+RESI GLY
+
+RESI HSD
+CHI 1   1   N   CA  CB      CG  HB1 HB2
+CHI 2   1   CA  CB  CG      ND1 CD2 CE1 NE2 HD1 HD2 HE1
+
+RESI HSE
+CHI 1   1   N   CA  CB      CG  HB1 HB2
+CHI 2   1   CA  CB  CG      ND1 CD2 CE1 NE2 HD2 HE1 HE2
+
+RESI ILE
+CHI 1   1   N   CA  CB      CG1 CG2 HB
+CHI 2   1   CA  CB  CG1     CD  HG11 HG12
+XI  2.2 3   CA  CB  CG2     HG21 HG22 HG23 
+XI  3.1 3   CB  CG1 CD      HD1 HD2 HD3
+
+RESI LYS
+CHI 1   1   N   CA  CB      CG  HB1 HB2
+CHI 2   1   CA  CB  CG      CD  HG1 HG2
+CHI 3   1   CB  CG  CD      CE  HD1 HD2
+CHI 4   1   CG  CD  CE      NZ  HE1 HE2
+XI  5.1 3   CD  CE  NZ      HZ1 HZ2 HZ3
+
+RESI LEU
+CHI 1   1   N   CA  CB      CG  HB1 HB2
+CHI 2   1   CA  CB  CG      CD1 CD2 HG
+XI  3.1 3   CB  CG  CD1     HD11 HD12 HD13
+XI  3.2 3   CB  CG  CD2     HD21 HD22 HD23
+
+RESI MET
+CHI 1   1   N   CA  CB      CG  HB1 HB2
+CHI 2   1   CA  CB  CG      SD  HG1 HG2
+CHI 3   1   CB  CG  SD      CE
+XI  4.1 3   CG  SD  CE      HE1 HE2 HE3
+
+RESI ASN
+CHI 1   1   N   CA  CB      CG  HB1 HB2
+CHI 2   1   CA  CB  CG      OD1 ND2 HD21 HD22
+
+RESI PRO
+CHI 1   1   N   CA  CB      CG  HB1 HB2
+CHI 2   1   CA  CB  CG      CD  HG1 HG2
+CHI 3   1   CB  CG  CD      N   HD1 HD2
+#XI  3.1 1   CB  CG  CD      HD1 HD2
+
+RESI GLN
+CHI 1   1   N   CA  CB      CG  HB1 HB2
+CHI 2   1   CA  CB  CG      CD  HG1 HG2
+CHI 3   1   CB  CG  CD      OE1 NE2 HE21 HE22
+
+RESI ARG
+CHI 1   1   N   CA  CB      CG  HB1 HB2
+CHI 2   1   CA  CB  CG      CD  HG1 HG2
+CHI 3   1   CB  CG  CD      NE  HD1 HD2
+CHI 4   1   CG  CD  NE      CZ  NH1 NH2 HH11 HH12 HH21 HH22 HE
+
+RESI SER
+CHI 1   1   N   CA  CB      OG  HB1 HB2
+XI  2.1 1   CA  CB  OG      HG1
+
+RESI THR
+CHI 1   1   N   CA  CB      OG1 CG2 HB
+XI  2.1 1   CA  CB  OG1     HG1
+XI  2.2 3   CA  CB  CG2     HG21 HG22 HG23
+
+RESI VAL
+CHI 1   1   N   CA  CB      CG1 CG2 HB
+XI  2.1 3   CA  CB  CG1     HG11 HG12 HG13
+XI  2.2 3   CA  CB  CG2     HG21 HG22 HG23
+
+RESI TRP
+CHI 1   1   N   CA  CB      CG  HB1 HB2
+CHI 2   1   CA  CB  CG      CD1 CD2 NE1 CE2 CE3 CZ2 CZ3 CH2 HD1 HE1 HE3 HZ2 HZ3 HH2
+
+RESI TYR
+CHI 1   1   N   CA  CB      CG  HB1 HB2
+CHI 2   2   CA  CB  CG      CD1 CD2 CE1 CE2 CZ* OH* HD1 HD2 HE1 HE2
+XI  3.1 1   CE1 CZ  OH      HH
