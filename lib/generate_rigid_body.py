@@ -10,6 +10,8 @@ from numpy_basics import *
 from residue_constants import *
 import json
 
+from libconfig import DATA_HOME
+
 # %%
 def build_structure_from_ic(residue):
     def rotate(v, axis=None, angle=0.):
@@ -119,7 +121,7 @@ def get_rigid_groups(residue_s, tor_s):
             tor, t_ang, R = data[atom_name]
             to_json[residue_name].append(\
                 [atom_name, tor.name, tor.index, tor.sub_index, tor.index_prev, t_ang, tuple(R.tolist())])
-    with open("rigid_groups.json", 'wt') as fout:
+    with open(DATA_HOME / "rigid_groups.json", 'wt') as fout:
         fout.write(json.dumps(to_json, indent=2))
     return rigid_groups
                 
@@ -167,7 +169,7 @@ def get_rigid_body_transformation_between_frames(rigid_group_s):
             # align the torsion axis
             v21 = v_norm(Q[2] - Q[1])
             torsion_axis = v_norm(P[2] - P[1])
-            angle = np.arccos(v21.dot(torsion_axis))
+            angle = np.arccos(np.clip(v21.dot(torsion_axis), -1., 1.))
             if angle != 0.:
                 axis = v_norm(np.cross(v21, torsion_axis))
                 q = Quaternion.from_axis_and_angle(axis, angle)
@@ -201,7 +203,7 @@ def get_rigid_body_transformation_between_frames(rigid_group_s):
             to_json[residue_name].append(\
                 [(tor.name, tor.index, tor.sub_index), (tor_prev.name, tor_prev.index), \
                     (translation.tolist(), rotation.tolist())])
-    with open("rigid_body_transformation_between_frames.json", 'wt') as fout:
+    with open(DATA_HOME / "rigid_body_transformation_between_frames.json", 'wt') as fout:
         fout.write(json.dumps(to_json, indent=2))
 
 get_rigid_body_transformation_between_frames(rigid_group_s)

@@ -2,6 +2,8 @@
 
 #%%
 # load modules
+import os
+import sys
 import numpy as np
 import mdtraj
 from numpy_basics import *
@@ -38,7 +40,7 @@ class PDB(object):
                 if atom_name.startswith("D"):
                     continue
                 if atom_name not in ref_res.atom_s:
-                    print (residue_name, atom_name)
+                    sys.stderr.write(f"Unrecognized atom_name: {residue_name} {atom_name}\n")
                     continue
                 i_atm = ref_res.atom_s.index(atom_name)
                 self.R[:, i_res, i_atm, :] = self.pdb.xyz[:, atom.index, :]
@@ -82,7 +84,7 @@ class PDB(object):
             for tor in tor_s:
                 if tor is None:
                     continue
-                if tor.name in ['BB', 'PHI', 'PSI']:
+                if tor.name in ['BB']:#, 'PHI', 'PSI']:
                     continue
                 #
                 amb = get_ambiguous_atom_list(residue_name, tor.name, tor.index)
@@ -105,7 +107,6 @@ class PDB(object):
             elif residue_name == 'ARG':
                 update_by_guanidium_method(self.R, i_res, ref_res)
 
-
     # print out as a PDB file
     def to_pdb(self, fn):
         wrt = []
@@ -127,8 +128,15 @@ class PDB(object):
         with open(fn, 'w') as f:
             f.write(''.join(wrt))
 
-pdb = PDB("../pdb/1VII.pdb")
-pdb.to_atom()
-pdb.make_atom_names_consistent()
-pdb.to_pdb('renamed.pdb')
 # %%
+def main():
+    in_pdb = sys.argv[1]
+    out_pdb = sys.argv[2]
+    #
+    pdb = PDB(in_pdb)
+    pdb.to_atom()
+    pdb.make_atom_names_consistent()
+    pdb.to_pdb(out_pdb)
+
+if __name__ == '__main__':
+    main()

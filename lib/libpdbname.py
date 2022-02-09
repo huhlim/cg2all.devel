@@ -6,13 +6,16 @@ from residue_constants import *
 from collections import namedtuple
 import itertools
 
+from libconfig import DATA_HOME
+
 # %%
 # read ambiguous atom list
 def read_ambiguous_atom_list():
     Ambiguous = namedtuple("AmbiguousAtomName", \
         ("residue_name", "atom_s", "method", "torsion_name", "torsion_index", "torsion_atom_s"))
+    
     amb_s = []
-    with open("ambiguous_names.dat", 'r') as fp:
+    with open(DATA_HOME / "ambiguous_names.dat", 'r') as fp:
         for line in fp:
             if line.startswith("#"):
                 continue

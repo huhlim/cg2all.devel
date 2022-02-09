@@ -5,13 +5,15 @@ import json
 import numpy as np
 from collections import namedtuple
 
+from libconfig import DATA_HOME
+
 # %%
 AMINO_ACID_s = ('ALA', 'CYS', 'ASP', 'GLU', 'PHE', 'GLY', 'HSD', "HSE", 'ILE', 'LYS', 'LEU',\
                 'MET', 'ASN', 'PRO', 'GLN', 'ARG', 'SER', 'THR', 'VAL', 'TRP', 'TYR')
 BACKBONE_ATOM_s = ('N', 'CA', 'C', 'O')
 AMINO_ACID_ALT_s = {"HIS": "HSD"}
 ATOM_NAME_ALT_s = {}
-with open("rename_atoms.dat") as fp:
+with open(DATA_HOME / "rename_atoms.dat") as fp:
     for line in fp:
         x = line.strip().split()
         if x[0] == '*':
@@ -99,7 +101,7 @@ def read_torsion(fn):
                 continue
     return tor_s
 
-torsion_s = read_torsion("torsion.dat")
+torsion_s = read_torsion(DATA_HOME / "torsion.dat")
 # %%
 class Residue(object):
     def __init__(self, residue_name: str) -> None:
@@ -220,17 +222,17 @@ def read_CHARMM_rtf(fn):
                 residue.append_ic(atom_s, param_s)
     return residue_s
 
-residue_s = read_CHARMM_rtf('toppar/top_all36_prot.rtf')
+residue_s = read_CHARMM_rtf(DATA_HOME / 'toppar/top_all36_prot.rtf')
 for residue_name, residue in residue_s.items():
     torsion = torsion_s[residue_name]
     residue.add_torsion_info(torsion)
 
 # %%
-if os.path.exists("rigid_groups.json") and \
-    os.path.exists("rigid_body_transformation_between_frames.json"):
-    with open("rigid_groups.json") as fp:
+if os.path.exists(DATA_HOME / "rigid_groups.json") and \
+    os.path.exists(DATA_HOME / "rigid_body_transformation_between_frames.json"):
+    with open(DATA_HOME / "rigid_groups.json") as fp:
         rigid_groups = json.load(fp)
-    with open("rigid_body_transformation_between_frames.json") as fp:
+    with open(DATA_HOME / "rigid_body_transformation_between_frames.json") as fp:
         rigid_group_transformations = json.load(fp)
 for residue_name, residue in residue_s.items():
     if (residue_name not in rigid_groups) or (residue_name not in rigid_group_transformations):
