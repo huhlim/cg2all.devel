@@ -25,7 +25,7 @@ with open(DATA_HOME / "rename_atoms.dat") as fp:
 MAX_ATOM = 24
 MAX_TORSION_CHI = 4
 MAX_TORSION_XI = 2
-
+MAX_TORSION = MAX_TORSION_CHI + MAX_TORSION_XI + 2  # 2 for phi/psi
 # %%
 class Torsion(object):
     def __init__(self, i, name, index, sub_index, index_prev, atom_s, periodic=1):

@@ -25,6 +25,7 @@ class PDB(object):
         self.n_residue = self.top.n_residues
         self.residue_name = []
         self.residue_index = np.zeros(self.n_residue, dtype=np.int16)
+
     def to_atom(self):
         self.R = np.zeros((self.n_frame, self.n_residue, MAX_ATOM, 3))
         self.atom_mask = np.zeros((self.n_residue, MAX_ATOM), dtype=np.float16)
@@ -38,7 +39,7 @@ class PDB(object):
             #
             for atom in residue.atoms:
                 atom_name = ATOM_NAME_ALT_s.get((residue_name, atom.name), atom.name)
-                if atom_name in ['OXT', "H1", "H2", "H3"]:
+                if atom_name in ['OXT', "H2", "H3"]:    # at this moment, I ignore N/C-terminal specific atoms
                     continue
                 if atom_name.startswith("D"):
                     continue
@@ -69,7 +70,11 @@ class PDB(object):
         return top
     
     # get backbone orientations by placing rigid body atoms (N, CA, C)
-    def get_backbone_orientation(self, i_res, residue_name):
+    def get_backbone_orientation(self, i_res):
+        mask = np.all(self.atom_mask[i_res,:3])
+        if not mask:
+            return mask, [np.eye(3), np.zeros(3)]
+
         # find BB orientations
         opr_s = [[], []]
         for k in range(self.n_frame):
@@ -78,16 +83,65 @@ class PDB(object):
             opr_s[0].append(frame[0].T)
             opr_s[1].append(frame[1])
         opr_s = [np.array(opr_s[0]), np.array(opr_s[1])]
+        return mask, opr_s
+    
+    # get torsion angles for a residue
+    def get_torsion_angles(self, i_res):
+        residue_name = self.residue_name[i_res]
+        ref_res = residue_s[residue_name]
         #
-        # place BB atoms
-        t_ang0, atom_s, rigid = get_rigid_group_by_torsion(residue_name, "BB")
-        rigid_s = [translate_and_rotate(rigid, opr_s[0][i], opr_s[1][i]) for i in range(self.n_frame)]
-        return opr_s, atom_s, np.array(rigid_s)
+        torsion_mask = np.zeros(MAX_TORSION, dtype=np.float16)
+        torsion_angle_s = np.zeros((self.n_frame, MAX_TORSION), dtype=np.float16)  # this is a list of torsion angles to rotate rigid bodies
+        i_tor = -1
+        for tor in torsion_s[self.residue_name[i_res]]:
+            if tor is None or tor.name in ['BB']:
+                continue
+            #
+            i_tor += 1
+            t_ang0, atom_s, rigid = get_rigid_group_by_torsion(residue_name, tor.name, tor.index)
+            index = [ref_res.atom_s.index(atom) for atom in tor.atom_s[:4]]
+            mask = self.atom_mask[i_res, index]
+            if not np.all(mask):    # if any of the atoms are missing, skip this torsion
+                continue
+            #
+            t_ang = torsion_angle(self.R[:,i_res, index,:]) - t_ang0
+            torsion_mask[i_tor] = 1.
+            torsion_angle_s[:,i_tor] = t_ang
+        return torsion_mask, torsion_angle_s
+    
+    def get_structure_information(self):
+        self.bb_mask = np.zeros(self.n_residue, dtype=np.float16)
+        self.bb = [np.zeros((self.n_frame, self.n_residue, 3,3), dtype=np.float16), \
+                   np.zeros((self.n_frame, self.n_residue, 3), dtype=np.float16)]
+        self.torsion_mask = np.zeros((self.n_residue, MAX_TORSION), dtype=np.float16)
+        self.torsion = np.zeros((self.n_frame, self.n_residue, MAX_TORSION), dtype=np.float16)
+        for i_res in range(self.n_residue):
+            mask, opr_s = self.get_backbone_orientation(i_res)
+            self.bb_mask[i_res] = mask
+            self.bb[0][:,i_res,:,:] = opr_s[0]
+            self.bb[1][:,i_res,:] = opr_s[1]
+            #
+            mask, tor_s = self.get_torsion_angles(i_res)
+            self.torsion_mask[i_res,:] = mask
+            self.torsion[:,i_res,:] = tor_s
 
-    def write(self, pdb_fn, dcd_fn=None):
+    def generate_structure_from_opr_and_torsion(self, bb, torsion):
+        # takes bb and torsion and generates structures
+        n_frame = bb[0].shape[0]
+        R = np.zeros((n_frame, self.n_residue, MAX_ATOM, 3), dtype=np.float16)
+        #
+        for i_res in range(self.n_residue):
+            residue_name = self.residue_name[i_res]
+            ref_res = residue_s[residue_name]
+            #
+            t_ang0, atom_s, rigid = get_rigid_group_by_torsion(residue_name, 'BB')
+
+
+        return R
+    def write(self, R, pdb_fn, dcd_fn=None):
         top = self.create_new_topology()
         mask = np.where(self.atom_mask)
-        xyz = self.R[:,mask[0],mask[1],:]
+        xyz = R[:,mask[0],mask[1],:]
         #
         traj = mdtraj.Trajectory(xyz, top)
         traj.save(pdb_fn)
@@ -95,3 +149,12 @@ class PDB(object):
         if dcd_fn is not None:
             traj = mdtraj.Trajectory(xyz[:1], top)
             traj.save(dcd_fn)
+
+try:
+    pdb = PDB("../pdb.processed/1VII.pdb")
+    pdb.to_atom()
+    pdb.get_structure_information()
+    pdb.generate_structure_from_opr_and_torsion(pdb.bb, pdb.torsion)
+except:
+    pass
+# %%

@@ -10,7 +10,7 @@ from numpy_basics import *
 from residue_constants import *
 import json
 
-from libconfig import DATA_HOME
+from libconfig import DATA_HOME, SMALL_NUMBER
 
 # %%
 def build_structure_from_ic(residue):
@@ -170,8 +170,9 @@ def get_rigid_body_transformation_between_frames(rigid_group_s):
             v21 = v_norm(Q[2] - Q[1])
             torsion_axis = v_norm(P[2] - P[1])
             angle = np.arccos(np.clip(v21.dot(torsion_axis), -1., 1.))
-            if angle != 0.:
-                axis = v_norm(np.cross(v21, torsion_axis))
+            axis = np.cross(v21, torsion_axis)
+            if v_size(axis) > 0.:
+                axis = v_norm(axis)
                 q = Quaternion.from_axis_and_angle(axis, angle)
                 rotation_1 = q.rotate()
             else:

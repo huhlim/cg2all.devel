@@ -99,7 +99,7 @@ def apply_closest_rule(ref_res, amb, periodic_s, atom_s, rigid, R):
     R[index_orig,:] = R[index_min,:]
 
 # %%
-def update_by_closest_method(R, i_res, ref_res, tor, amb, opr_dict):
+def update_by_closest_method(R, atom_mask, i_res, ref_res, tor, amb, opr_dict):
     # get rigid-body transformation
     prev, rigid_tR = get_rigid_transform_by_torsion(ref_res.residue_name, tor.name, tor.index)
     t_ang0, atom_s, rigid = get_rigid_group_by_torsion(ref_res.residue_name, tor.name, tor.index)
@@ -107,6 +107,10 @@ def update_by_closest_method(R, i_res, ref_res, tor, amb, opr_dict):
     # calculate the torsion angle
     torsion_angle_atom_s = tor.atom_s[:4]
     index = [ref_res.atom_s.index(atom) for atom in torsion_angle_atom_s]
+    mask = np.all(atom_mask[i_res, index])
+    if not mask:
+        return None, None, None
+    #
     r = R[:, i_res, index, :]
     t_ang = torsion_angle(r)
     t_delta = t_ang - t_ang0
@@ -114,12 +118,15 @@ def update_by_closest_method(R, i_res, ref_res, tor, amb, opr_dict):
     opr_s = [[], []]
     rigid_s = []
     opr_prev = opr_dict[tuple(prev)]
+    if opr_prev is None:
+        return None, None, None
+    #
     for k in range(r.shape[0]):
         opr = rotate_x(t_delta[k])
         opr = combine_opr_s([opr, rigid_tR, (opr_prev[0][k], opr_prev[1][k])])
         opr_s[0].append(opr[0])
         opr_s[1].append(opr[1])
-        rigid_s.append(translate_and_rotate(rigid, *opr))
+    rigid_s = translate_and_rotate(rigid, np.array(opr_s[0]), np.array(opr_s[1]))
 
     if amb is not None:
         periodic_s = [[atom] for atom in amb.atom_s]
@@ -128,7 +135,7 @@ def update_by_closest_method(R, i_res, ref_res, tor, amb, opr_dict):
     opr_s = [np.array(opr_s[0]), np.array(opr_s[1])]
     return opr_s, atom_s, np.array(rigid_s)
 
-def update_by_permute_method(R, i_res, ref_res, tor, amb, opr_dict):
+def update_by_permute_method(R, atom_mask, i_res, ref_res, tor, amb, opr_dict):
     # get rigid-body transformation
     prev, rigid_tR = get_rigid_transform_by_torsion(ref_res.residue_name, tor.name, tor.index)
     t_ang0, atom_s, rigid = get_rigid_group_by_torsion(ref_res.residue_name, tor.name, tor.index)
@@ -146,12 +153,18 @@ def update_by_permute_method(R, i_res, ref_res, tor, amb, opr_dict):
         for swap, atom in enumerate(amb.atom_s):
             torsion_angle_atom_s = amb.torsion_atom_s + [atom]
             index = [ref_res.atom_s.index(atom) for atom in torsion_angle_atom_s]
+            mask = np.all(atom_mask[i_res, index])
+            if not mask:
+                return None, None, None
+            #
             r = R[k, i_res, index, :]
             t_ang = torsion_angle(r)
-
             t_delta = t_ang - t_ang0
+            #
             opr = rotate_x(t_delta)
             opr_prev = opr_dict[tuple(prev)]
+            if opr_prev is None:
+                return None, None, None
             opr = combine_opr_s([opr, rigid_tR, (opr_prev[0][k], opr_prev[1][k])])
 
             rigid_try = translate_and_rotate(rigid, *opr)
@@ -173,7 +186,7 @@ def update_by_permute_method(R, i_res, ref_res, tor, amb, opr_dict):
     opr_s = [np.array(opr_s[0]), np.array(opr_s[1])]
     return opr_s, atom_s, np.array(rigid_s)
 
-def update_by_periodic_method(R, i_res, ref_res, tor, amb, opr_dict):
+def update_by_periodic_method(R, atom_mask, i_res, ref_res, tor, amb, opr_dict):
     # get rigid-body transformation
     if tor.name == 'XI':
         prev, rigid_tR = get_rigid_transform_by_torsion(ref_res.residue_name, tor.name, tor.index, tor.sub_index)
@@ -187,6 +200,9 @@ def update_by_periodic_method(R, i_res, ref_res, tor, amb, opr_dict):
     for torsion_angle_atom_s in tor.atom_alt_s:
         index = [ref_res.atom_s.index(atom) for atom in torsion_angle_atom_s]
         r = R[:, i_res, index, :]
+        mask = np.all(atom_mask[i_res, index])
+        if not mask:
+            return None, None, None
         t_ang = torsion_angle(r)
         selected = (np.abs(t_ang) < np.abs(t_ang_min))
         t_ang_min[selected] = t_ang[selected]
@@ -199,14 +215,16 @@ def update_by_periodic_method(R, i_res, ref_res, tor, amb, opr_dict):
     for k in range(R.shape[0]):
         opr = rotate_x(t_delta[k])
         opr_prev = opr_dict[tuple(prev)]
+        if opr_prev is None:
+            return None, None, None
         opr = combine_opr_s([opr, rigid_tR, (opr_prev[0][k], opr_prev[1][k])])
         opr_s[0].append(opr[0])
         opr_s[1].append(opr[1])
-        rigid_s.append(translate_and_rotate(rigid, *opr))
-        #
+    opr_s = [np.array(opr_s[0]), np.array(opr_s[1])]
+    rigid_s = translate_and_rotate(rigid, opr_s[0], opr_s[1])
+    for k in range(R.shape[0]):
         apply_closest_rule(ref_res, amb, periodic_s, atom_s, rigid_s[k], R[k, i_res, :, :])
         #
-    opr_s = [np.array(opr_s[0]), np.array(opr_s[1])]
     return opr_s, atom_s, np.array(rigid_s)
 
 def update_by_glycine_backbone_method(R, i_res, ref_res, amb, atom_s, rigid_s):
@@ -214,10 +232,14 @@ def update_by_glycine_backbone_method(R, i_res, ref_res, amb, atom_s, rigid_s):
     for k in range(R.shape[0]):
         apply_closest_rule(ref_res, amb, periodic_s, atom_s, rigid_s[k], R[k, i_res, :, :])
 
-def update_by_special_method(R, i_res, ref_res):
+def update_by_special_method(R, atom_mask, i_res, ref_res):
     amb = get_ambiguous_atom_list(ref_res.residue_name, 'special')
     index_amb = [ref_res.atom_s.index(atom) for atom in amb.atom_s]
     index_tor = [ref_res.atom_s.index(atom) for atom in amb.torsion_atom_s]
+    if not np.all(atom_mask[i_res,index_amb]):
+        return
+    if not np.all(atom_mask[i_res,index_tor]):
+        return
 
     # calculate the torsion angle
     index = index_tor + [index_amb[0]]
@@ -236,6 +258,10 @@ def update_by_guanidium_method(R, i_res, ref_res):
         #
         index_amb = [ref_res.atom_s.index(atom) for atom in amb.atom_s]
         index_tor = [ref_res.atom_s.index(atom) for atom in amb.torsion_atom_s]
+        if not np.all(atom_mask[i_res,index_amb]):
+            return
+        if not np.all(atom_mask[i_res,index_tor]):
+            return
 
         # calculate the torsion angle
         index = index_tor + [index_amb[0]]

@@ -22,8 +22,13 @@ class ProcessPDB(PDB):
             opr_s = {}
             #
             # find BB orientations
-            opr_bb, atom_s, rigid_s = self.get_backbone_orientation(i_res, residue_name)
+            mask, opr_bb = self.get_backbone_orientation(i_res)
+            if not mask: continue
             opr_s[("BB", 0)] = opr_bb
+            #
+            # place BB atoms
+            t_ang0, atom_s, rigid = get_rigid_group_by_torsion(self.residue_name[i_res], "BB")
+            rigid_s = translate_and_rotate(rigid, opr_bb[0], opr_bb[1])
             for atom in atom_s:
                 self.R_ideal[:,i_res,ref_res.atom_s.index(atom),:] = rigid_s[:,atom_s.index(atom),:]
             #
@@ -40,11 +45,11 @@ class ProcessPDB(PDB):
                 #
                 amb = get_ambiguous_atom_list(residue_name, tor.name, tor.index)
                 if amb is None or amb.method == 'closest':
-                    opr_sc, atom_s, rigid_s = update_by_closest_method(self.R, i_res, ref_res, tor, amb, opr_s)
+                    opr_sc, atom_s, rigid_s = update_by_closest_method(self.R, self.atom_mask, i_res, ref_res, tor, amb, opr_s)
                 elif amb.method == 'permute':
-                    opr_sc, atom_s, rigid_s = update_by_permute_method(self.R, i_res, ref_res, tor, amb, opr_s)
+                    opr_sc, atom_s, rigid_s = update_by_permute_method(self.R, self.atom_mask, i_res, ref_res, tor, amb, opr_s)
                 elif amb.method == 'periodic':
-                    opr_sc, atom_s, rigid_s = update_by_periodic_method(self.R, i_res, ref_res, tor, amb, opr_s)
+                    opr_sc, atom_s, rigid_s = update_by_periodic_method(self.R, self.atom_mask, i_res, ref_res, tor, amb, opr_s)
                 else:
                     raise ValueError("Unknown ambiguous method: %s" % amb.method)
                 opr_s[(tor.name, tor.index)] = opr_sc
@@ -54,10 +59,14 @@ class ProcessPDB(PDB):
             #
             # special torsion angles, only for Asn, Gln, Arg
             if residue_name in ['ASN', 'GLN']:
-                update_by_special_method(self.R, i_res, ref_res)
+                update_by_special_method(self.R, self.atom_mask, i_res, ref_res)
             elif residue_name == 'ARG':
-                update_by_guanidium_method(self.R, i_res, ref_res)
+                update_by_guanidium_method(self.R, self.atom_mask, i_res, ref_res)
 
+pdb = ProcessPDB('../pdb/1VII.pdb')
+pdb.to_atom()
+pdb.make_atom_names_consistent()
+pdb.write(pdb.R_ideal, "../pdb/1VII_ideal.pdb")
 # %%
 def main():
     in_pdb = sys.argv[1]
@@ -66,7 +75,7 @@ def main():
     pdb = ProcessPDB(in_pdb)
     pdb.to_atom()
     pdb.make_atom_names_consistent()
-    pdb.write(out_pdb)
+    pdb.write(pdb.R, out_pdb)
 
 if __name__ == '__main__':
     main()
