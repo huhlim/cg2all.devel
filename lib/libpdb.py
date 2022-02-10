@@ -125,19 +125,55 @@ class PDB(object):
             self.torsion_mask[i_res,:] = mask
             self.torsion[:,i_res,:] = tor_s
 
-    def generate_structure_from_opr_and_torsion(self, bb, torsion):
+    def generate_structure_from_bb_and_torsion(self, bb, torsion):
         # takes bb and torsion and generates structures
         n_frame = bb[0].shape[0]
         R = np.zeros((n_frame, self.n_residue, MAX_ATOM, 3), dtype=np.float16)
         #
+        def apply_pos(i_res, ref_res, atom_s, pos):
+            for i,atom in enumerate(atom_s):
+                R[:,i_res,ref_res.atom_s.index(atom),:] = pos[:,i]
+
         for i_res in range(self.n_residue):
             residue_name = self.residue_name[i_res]
             ref_res = residue_s[residue_name]
+            opr_s = {}
             #
+            # backbone
             t_ang0, atom_s, rigid = get_rigid_group_by_torsion(residue_name, 'BB')
-
-
+            pos = translate_and_rotate(rigid, bb[0][:,i_res], bb[1][:,i_res])
+            apply_pos(i_res, ref_res, atom_s, pos)
+            opr_s[("BB", 0)] = [bb[0][:,i_res], bb[1][:,i_res]]
+            #
+            # torsion
+            i_tor = -1
+            for tor in torsion_s[residue_name]:
+                if tor is None or tor.name in ['BB']:
+                    continue
+                #
+                i_tor += 1
+                t_ang = torsion[:,i_res,i_tor]
+                #
+                # get rigid-body transformation between frames
+                if tor.name == 'XI':
+                    prev, rigid_tR = get_rigid_transform_by_torsion(ref_res.residue_name, tor.name, tor.index, tor.sub_index)
+                    t_ang0, atom_s, rigid = get_rigid_group_by_torsion(ref_res.residue_name, tor.name, tor.index, tor.sub_index)
+                else:
+                    prev, rigid_tR = get_rigid_transform_by_torsion(ref_res.residue_name, tor.name, tor.index)
+                    t_ang0, atom_s, rigid = get_rigid_group_by_torsion(ref_res.residue_name, tor.name, tor.index)
+                opr_prev = opr_s[tuple(prev)]
+                #
+                opr_sc = [np.zeros((n_frame, 3, 3)), np.zeros((n_frame, 3))]
+                for k in range(n_frame):
+                    opr = rotate_x(t_ang[k])
+                    opr = combine_opr_s([opr, rigid_tR, (opr_prev[0][k], opr_prev[1][k])])
+                    opr_sc[0][k] = opr[0]
+                    opr_sc[1][k] = opr[1]
+                pos = translate_and_rotate(rigid, opr_sc[0], opr_sc[1])
+                apply_pos(i_res, ref_res, atom_s, pos)
+                opr_s[(tor.name, tor.index)] = opr_sc
         return R
+
     def write(self, R, pdb_fn, dcd_fn=None):
         top = self.create_new_topology()
         mask = np.where(self.atom_mask)
@@ -150,11 +186,11 @@ class PDB(object):
             traj = mdtraj.Trajectory(xyz[:1], top)
             traj.save(dcd_fn)
 
-try:
-    pdb = PDB("../pdb.processed/1VII.pdb")
-    pdb.to_atom()
-    pdb.get_structure_information()
-    pdb.generate_structure_from_opr_and_torsion(pdb.bb, pdb.torsion)
-except:
-    pass
-# %%
+pdb = PDB("../pdb.processed/1VII.pdb")
+pdb.to_atom()
+pdb.get_structure_information()
+bb = pdb.bb
+bb[1] += np.random.random(size=bb[1].shape)
+torsion = pdb.torsion
+R = pdb.generate_structure_from_bb_and_torsion(bb, torsion)
+pdb.write(R, 'test.pdb')
