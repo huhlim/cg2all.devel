@@ -186,11 +186,3 @@ class PDB(object):
             traj = mdtraj.Trajectory(xyz[:1], top)
             traj.save(dcd_fn)
 
-pdb = PDB("../pdb.processed/1VII.pdb")
-pdb.to_atom()
-pdb.get_structure_information()
-bb = pdb.bb
-bb[1] += np.random.random(size=bb[1].shape)
-torsion = pdb.torsion
-R = pdb.generate_structure_from_bb_and_torsion(bb, torsion)
-pdb.write(R, 'test.pdb')

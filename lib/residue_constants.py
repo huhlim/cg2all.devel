@@ -22,6 +22,7 @@ with open(DATA_HOME / "rename_atoms.dat") as fp:
         else:
             ATOM_NAME_ALT_s[(x[0], x[1])] = x[2]
 
+MAX_RESIDUE_TYPE = len(AMINO_ACID_s)
 MAX_ATOM = 24
 MAX_TORSION_CHI = 4
 MAX_TORSION_XI = 2
@@ -77,17 +78,17 @@ def read_torsion(fn):
                     tor_s[residue_name].append(Torsion(0, 'BB', 0, -1, -1, atom_s, 1))
                 if residue_name not in ['PRO']:
                     atom_s = backbone_rigid[::-1] + ['HN']
-                    tor_s[residue_name].append(Torsion(0, 'PHI', 1, -1, 0, atom_s, 1))
+                    tor_s[residue_name].append(Torsion(1, 'PHI', 1, -1, 0, atom_s, 1))
                 else:
                     tor_s[residue_name].append(None)
                 atom_s = backbone_rigid + ['O']
-                tor_s[residue_name].append(Torsion(0, 'PSI', 1, -1, 0, atom_s, 1))
+                tor_s[residue_name].append(Torsion(2, 'PSI', 1, -1, 0, atom_s, 1))
             elif line.startswith("CHI"):
                 x = line.strip().split()
                 tor_no = int(x[1])
                 periodic = int(x[2])
                 atom_s = x[3:]
-                tor_s[residue_name].append(Torsion(tor_no-1, "CHI", tor_no, -1, tor_no-1, atom_s, periodic))
+                tor_s[residue_name].append(Torsion(tor_no+2, "CHI", tor_no, -1, tor_no-1, atom_s, periodic))
             elif line.startswith("XI"):
                 xi_index += 1
                 x = line.strip().split()
@@ -96,11 +97,10 @@ def read_torsion(fn):
                 tor_no = int(tor_no)
                 sub_index = int(sub_index)
                 atom_s = x[3:]
-                tor_s[residue_name].append(Torsion(xi_index, "XI", tor_no, sub_index, tor_no-1, atom_s, periodic))
+                tor_s[residue_name].append(Torsion(xi_index+6, "XI", tor_no, sub_index, tor_no-1, atom_s, periodic))
             elif line.startswith("#"):
                 continue
     return tor_s
-
 torsion_s = read_torsion(DATA_HOME / "torsion.dat")
 # %%
 class Residue(object):
@@ -170,13 +170,13 @@ class Residue(object):
             if tor is None:
                 continue
             if tor.name == 'CHI':
-                index = tor.i
+                index = tor.index-1
                 periodic = tor.periodic - 1
                 self.torsion_chi_atom.append(tor.atom_s[:4])
                 self.torsion_chi_mask[index] = 1.
                 self.torsion_chi_periodic[index, periodic] = 1.
             elif tor.name == 'XI':
-                index = tor.i
+                index = tor.i - 6
                 periodic = tor.periodic - 1
                 self.torsion_xi_atom.append(tor.atom_s[:4])
                 self.torsion_xi_mask[index] = 1.
@@ -238,7 +238,6 @@ for residue_name, residue in residue_s.items():
     if (residue_name not in rigid_groups) or (residue_name not in rigid_group_transformations):
         continue
     residue.add_rigid_group_info(rigid_groups[residue_name], rigid_group_transformations[residue_name])
-
 # %%
 def get_rigid_group_by_torsion(residue_name, tor_name, index=-1, sub_index=-1):
     rigid_group = [[], []]  # atom_name, coord
@@ -271,3 +270,16 @@ def combine_opr_s(opr_s):
     return R, t
 
 # %%
+rigid_transforms_tensor = np.zeros((MAX_RESIDUE_TYPE, MAX_TORSION, 4, 3), dtype=np.float32)
+rigid_transforms_tensor[:,:,:3,:3] = np.eye(3)
+for i,residue_name in enumerate(AMINO_ACID_s):
+    for tor in torsion_s[residue_name]:
+        if tor is None or tor.name == 'BB':
+            continue
+        if tor.name != 'XI':
+            R,t = get_rigid_transform_by_torsion(residue_name, tor.name, tor.index)[1]
+        else:
+            R,t = get_rigid_transform_by_torsion(residue_name, tor.name, tor.index, tor.sub_index)[1]
+        rigid_transforms_tensor[i,tor.i,:3] = R
+        rigid_transforms_tensor[i,tor.i,3] = t
+
