@@ -26,7 +26,8 @@ MAX_RESIDUE_TYPE = len(AMINO_ACID_s)
 MAX_ATOM = 24
 MAX_TORSION_CHI = 4
 MAX_TORSION_XI = 2
-MAX_TORSION = MAX_TORSION_CHI + MAX_TORSION_XI + 2  # 2 for phi/psi
+MAX_TORSION = MAX_TORSION_CHI + MAX_TORSION_XI + 2  # 2 for bb/phi/psi
+MAX_RIGID = MAX_TORSION + 1
 # %%
 class Torsion(object):
     def __init__(self, i, name, index, sub_index, index_prev, atom_s, periodic=1):
@@ -97,7 +98,7 @@ def read_torsion(fn):
                 tor_no = int(tor_no)
                 sub_index = int(sub_index)
                 atom_s = x[3:]
-                tor_s[residue_name].append(Torsion(xi_index+6, "XI", tor_no, sub_index, tor_no-1, atom_s, periodic))
+                tor_s[residue_name].append(Torsion(xi_index+7, "XI", tor_no, sub_index, tor_no-1, atom_s, periodic))
             elif line.startswith("#"):
                 continue
     return tor_s
@@ -176,7 +177,7 @@ class Residue(object):
                 self.torsion_chi_mask[index] = 1.
                 self.torsion_chi_periodic[index, periodic] = 1.
             elif tor.name == 'XI':
-                index = tor.i - 6
+                index = tor.i - 7
                 periodic = tor.periodic - 1
                 self.torsion_xi_atom.append(tor.atom_s[:4])
                 self.torsion_xi_mask[index] = 1.
@@ -270,16 +271,38 @@ def combine_opr_s(opr_s):
     return R, t
 
 # %%
-rigid_transforms_tensor = np.zeros((MAX_RESIDUE_TYPE, MAX_TORSION, 4, 3), dtype=np.float32)
+rigid_transforms_tensor = np.zeros((MAX_RESIDUE_TYPE, MAX_RIGID, 4, 3), dtype=np.float32)
 rigid_transforms_tensor[:,:,:3,:3] = np.eye(3)
+rigid_transforms_dep = np.full((MAX_RESIDUE_TYPE, MAX_RIGID), -1, dtype=np.int16)
 for i,residue_name in enumerate(AMINO_ACID_s):
     for tor in torsion_s[residue_name]:
         if tor is None or tor.name == 'BB':
             continue
         if tor.name != 'XI':
-            R,t = get_rigid_transform_by_torsion(residue_name, tor.name, tor.index)[1]
+            prev, (R,t) = get_rigid_transform_by_torsion(residue_name, tor.name, tor.index)
         else:
-            R,t = get_rigid_transform_by_torsion(residue_name, tor.name, tor.index, tor.sub_index)[1]
+            prev, (R,t) = get_rigid_transform_by_torsion(residue_name, tor.name, tor.index, tor.sub_index)
         rigid_transforms_tensor[i,tor.i,:3] = R
         rigid_transforms_tensor[i,tor.i,3] = t
+        if prev[0] == 'CHI':
+            dep = prev[1] + 2
+        elif prev[0] == 'BB':
+            dep = 0
+        rigid_transforms_dep[i,tor.i] = dep
 
+# %%
+rigid_groups_tensor = np.zeros((MAX_RESIDUE_TYPE, MAX_ATOM, 3), dtype=np.float32)
+rigid_groups_dep = np.full((MAX_RESIDUE_TYPE, MAX_ATOM), -1, dtype=np.int16)
+for i,residue_name in enumerate(AMINO_ACID_s):
+    residue_atom_s = residue_s[residue_name].atom_s
+    for tor in torsion_s[residue_name]:
+        if tor is None:
+            continue
+        if tor.name != 'XI':
+            _, atom_names, coords = get_rigid_group_by_torsion(residue_name, tor.name, tor.index)
+        else:
+            _, atom_names, coords = get_rigid_group_by_torsion(residue_name, tor.name, tor.index, tor.sub_index)
+        index = tuple([residue_atom_s.index(x) for x in atom_names])
+        rigid_groups_tensor[i,index] = coords
+        rigid_groups_dep[i,index] = tor.i
+# %%

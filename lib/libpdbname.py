@@ -252,7 +252,7 @@ def update_by_special_method(R, atom_mask, i_res, ref_res):
     if np.any(swap):
         R[swap,i_res,(index_amb[1], index_amb[0]),:] = R[swap,i_res,index_amb,:]
 
-def update_by_guanidium_method(R, i_res, ref_res):
+def update_by_guanidium_method(R, atom_mask, i_res, ref_res):
     for i in range(3):
         amb = get_ambiguous_atom_list(ref_res.residue_name, 'special', i)
         #
