@@ -3,10 +3,11 @@
 #%%
 # load modules
 import sys
-#from numpy_basics import *
-#from residue_constants import *
+from numpy_basics import *
+from residue_constants import *
 from libpdb import PDB
 from libpdbname import *
+import argparse
 
 # %%
 class ProcessPDB(PDB):
@@ -63,19 +64,20 @@ class ProcessPDB(PDB):
             elif residue_name == 'ARG':
                 update_by_guanidium_method(self.R, self.atom_mask, i_res, ref_res)
 
-pdb = ProcessPDB('../pdb/1VII.pdb')
-pdb.to_atom()
-pdb.make_atom_names_consistent()
-pdb.write(pdb.R_ideal, "../pdb/1VII_ideal.pdb")
-# %%
 def main():
-    in_pdb = sys.argv[1]
-    out_pdb = sys.argv[2]
+    arg = argparse.ArgumentParser(prog="process_pdb")
+    arg.add_argument('-i', '--input', dest="in_pdb", help="input PDB file/topology file", required=True)
+    arg.add_argument('-o', '--output', dest='output_fn', help="output file", required=True)
+    arg.add_argument('-d', '--dcd', dest='dcd_fn', help="input trajectory file", default=None)
+    if len(sys.argv) == 1:
+        arg.print_help()
+        return
+    arg = arg.parse_args()
     #
-    pdb = ProcessPDB(in_pdb)
+    pdb = ProcessPDB(arg.in_pdb, dcd_fn=arg.dcd_fn)
     pdb.to_atom()
     pdb.make_atom_names_consistent()
-    pdb.write(pdb.R, out_pdb)
+    pdb.write(pdb.R, arg.output_fn)
 
 if __name__ == '__main__':
     main()

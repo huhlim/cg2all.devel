@@ -10,10 +10,8 @@ def inner_product(v1, v2):
     return np.sum(v1 * v2, axis=-1)
 def angle_sign(x):
     s = np.sign(x)
-    if s == 0:
-        return 1.
-    else:
-        return s
+    s[s==0] = 1.
+    return s
 # %%
 # Some geometry functions 
 def bond_length(R) -> float:

@@ -262,13 +262,6 @@ def get_rigid_transform_by_torsion(residue_name, tor_name, index, sub_index=-1):
             break
     return Y, rigid_transform
 
-#%%
-def combine_opr_s(opr_s):
-    R, t = opr_s[0]
-    for opr in opr_s[1:]:
-        R = opr[0].dot(R)
-        t = opr[0].dot(t) + opr[1]
-    return R, t
 
 # %%
 rigid_transforms_tensor = np.zeros((MAX_RESIDUE_TYPE, MAX_RIGID, 4, 3), dtype=np.float32)

@@ -18,7 +18,7 @@ class PDB(object):
             self.traj = pdb.atom_slice(load_index)
         else:
             self.is_dcd = True
-            self.traj = mdtraj.load(dcd_fn, top=pdb.top, atom_indicds=load_index)
+            self.traj = mdtraj.load(dcd_fn, top=pdb.top, atom_indices=load_index)
         self.top = self.traj.top
         #
         self.n_frame = self.traj.n_frames
