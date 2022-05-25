@@ -175,10 +175,11 @@ class PDB(object):
             traj = mdtraj.Trajectory(xyz[:1], top)
             traj.save(dcd_fn)
 
-pdb = PDB("../pdb.processed/1VII.pdb")
-pdb.to_atom()
-pdb.get_structure_information()
-R = pdb.generate_structure_from_bb_and_torsion(pdb.bb, pdb.torsion)
-pdb.write(R, "test.pdb")
+if __name__ == '__main__':
+    pdb = PDB("../pdb.processed/1VII.pdb")
+    pdb.to_atom()
+    pdb.get_structure_information()
+    R = pdb.generate_structure_from_bb_and_torsion(pdb.bb, pdb.torsion)
+    pdb.write(R, "test.pdb")
 
 # %%

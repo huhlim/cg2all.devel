@@ -9,9 +9,14 @@ v_norm = lambda v: v / v_size(v)[...,None]
 def inner_product(v1, v2):
     return np.sum(v1 * v2, axis=-1)
 def angle_sign(x):
-    s = np.sign(x)
-    s[s==0] = 1.
-    return s
+    if isinstance(x, np.ndarray):
+        s = np.sign(x)
+        s[s==0] = 1.
+        return s
+    elif x >= 0:
+        return 1.
+    else:
+        return -1.
 # %%
 # Some geometry functions 
 def bond_length(R) -> float:

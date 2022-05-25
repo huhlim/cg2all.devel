@@ -8,6 +8,8 @@ from residue_constants import *
 from libpdb import PDB
 from libpdbname import *
 import argparse
+import warnings
+warnings.filterwarnings("ignore")
 
 # %%
 class ProcessPDB(PDB):

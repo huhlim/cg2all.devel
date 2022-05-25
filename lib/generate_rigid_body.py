@@ -30,7 +30,7 @@ def build_structure_from_ic(residue):
     # build N, index=0
     atom_name = 'N'
     b0 = residue.get_bond_parameter(("-C", atom_name))
-    R[atom_name] = R['-C'] + b0 * np.array([1, 0, 0], dtype=np.float32)
+    R[atom_name] = R['-C'] + b0 * np.array([1, 0, 0], dtype=float)
     #
     # build CA, index=1
     atom_name = 'CA'
@@ -49,7 +49,7 @@ def build_structure_from_ic(residue):
         r = [R.get(atom_name, None) for atom_name in atom_s[:-1]]
         if True in [np.any(np.isnan(ri)) for ri in r]:
             raise ValueError("Cannot get coordinates for atom", atom_s, r)
-        r = np.array(r, dtype=np.float32)
+        r = np.array(r, dtype=float)
         #
         v21 = v_norm(r[2] - r[1])
         v01 = v_norm(r[0] - r[1])
@@ -84,7 +84,7 @@ def get_rigid_groups(residue_s, tor_s):
             tor_type = tor.name
             atom_s = tor.atom_s
 
-            R = np.array([residue.R.get(atom_name) for atom_name in atom_s], dtype=np.float32)
+            R = np.array([residue.R.get(atom_name) for atom_name in atom_s], dtype=float)
             t_ang = torsion_angle(R[:4])
             
             # move the second atom to the origin

@@ -262,7 +262,6 @@ def get_rigid_transform_by_torsion(residue_name, tor_name, index, sub_index=-1):
             break
     return Y, rigid_transform
 
-
 # %%
 rigid_transforms_tensor = np.zeros((MAX_RESIDUE_TYPE, MAX_RIGID, 4, 3), dtype=np.float32)
 rigid_transforms_tensor[:,:,:3,:3] = np.eye(3)
