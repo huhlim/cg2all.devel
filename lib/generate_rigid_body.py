@@ -1,4 +1,6 @@
-
+'''
+This application defines rigid bodies and transformations between frames
+'''
 #%%
 # load modules
 import sys
