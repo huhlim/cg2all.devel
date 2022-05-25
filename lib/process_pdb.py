@@ -1,4 +1,8 @@
 #!/usr/bin/env python
+'''
+This application renames atom names to make a consistent orientations
+for permutable atoms
+'''
 
 #%%
 # load modules

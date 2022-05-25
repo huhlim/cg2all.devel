@@ -11,6 +11,7 @@ from residue_constants import *
 # %%
 class PDB(object):
     def __init__(self, pdb_fn, dcd_fn=None):
+        # read protein
         pdb = mdtraj.load(pdb_fn, standard_names=False)
         load_index = pdb.top.select("protein")
         if dcd_fn is None:
@@ -27,6 +28,12 @@ class PDB(object):
         self.residue_index = np.zeros(self.n_residue, dtype=np.int16)
 
     def to_atom(self):
+        # set up
+        #   - R
+        #   - atom_mask
+        #   - residue_name
+        #   - residue_index
+
         self.R = np.zeros((self.n_frame, self.n_residue, MAX_ATOM, 3))
         self.atom_mask = np.zeros((self.n_residue, MAX_ATOM), dtype=np.float16)
         #
@@ -108,6 +115,8 @@ class PDB(object):
         return torsion_mask, torsion_angle_s
     
     def get_structure_information(self):
+        # get rigid body operations, backbone_orientations and torsion angles
+
         self.bb_mask = np.zeros(self.n_residue, dtype=np.float16)
         self.bb = np.zeros((self.n_frame, self.n_residue, 4,3), dtype=np.float16)
         self.torsion_mask = np.zeros((self.n_residue, MAX_TORSION), dtype=np.float16)
@@ -123,6 +132,8 @@ class PDB(object):
             self.torsion[:,i_res,:] = tor_s
 
     def generate_structure_from_bb_and_torsion(self, bb, torsion):
+        # convert from rigid body operations to coordinates
+
         n_frame = bb.shape[0]
         R = np.zeros((n_frame, self.n_residue, MAX_ATOM, 3), dtype=np.float16)
         #
