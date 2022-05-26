@@ -10,7 +10,6 @@ import torch_geometric
 
 import libcg
 from libconfig import BASE
-from residue_constants import MAX_RESIDUE_TYPE
 #
 DTYPE = torch.get_default_dtype()
 
@@ -42,8 +41,8 @@ class PDBset(torch_geometric.data.Dataset):
         data.pos = torch.tensor(cg.R_cg[frame_index][cg.atom_mask_cg==1.])
         #
         # one-hot encoding of residue type
-        residue_index_oh = torch.tensor(np.eye(MAX_RESIDUE_TYPE)[cg.residue_index], dtype=DTYPE)
-        data.x = residue_index_oh
+        index = cg.bead_index[cg.atom_mask_cg==1.]
+        data.x = torch.tensor(np.eye(cg.max_bead_type)[index], dtype=DTYPE)
         #
         data.residue_index = torch.tensor(cg.residue_index, dtype=DTYPE)
         data.output_atom_mask = torch.tensor(cg.atom_mask, dtype=DTYPE)
@@ -59,7 +58,7 @@ def test():
     train_set = PDBset(base_dir, pdblist, cg_model)
     train_loader = torch_geometric.loader.DataLoader(train_set, batch_size=2, shuffle=True, num_workers=2)
     for batch in train_loader:
-        print (batch.batch)
+        print (batch)
 
 if __name__ == '__main__':
     test()

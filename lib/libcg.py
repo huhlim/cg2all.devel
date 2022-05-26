@@ -4,16 +4,19 @@
 import mdtraj
 import numpy as np
 from libpdb import PDB
+from residue_constants import MAX_RESIDUE_TYPE
 
 #%%
 class ResidueBasedModel(PDB):
     def __init__(self, pdb_fn, dcd_fn=None, center_of_mass=True):
         super().__init__(pdb_fn, dcd_fn)
+        self.max_bead_type = MAX_RESIDUE_TYPE
         self.center_of_mass = center_of_mass
         self.convert_to_cg()
         #
     def convert_to_cg(self):
         self.top_cg = self.top.subset(self.top.select("name CA"))
+        self.bead_index = self.residue_index[:,None]
         #
         if self.center_of_mass:
             self.R_cg = np.zeros((self.n_frame, self.n_residue, 1, 3))
