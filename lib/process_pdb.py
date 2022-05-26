@@ -81,7 +81,6 @@ def main():
     arg = arg.parse_args()
     #
     pdb = ProcessPDB(arg.in_pdb, dcd_fn=arg.dcd_fn)
-    pdb.to_atom()
     pdb.make_atom_names_consistent()
     pdb.write(pdb.R, arg.output_fn)
 

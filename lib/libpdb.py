@@ -23,9 +23,13 @@ class PDB(object):
         self.top = self.traj.top
         #
         self.n_frame = self.traj.n_frames
+        self.n_chain = self.top.n_chains
         self.n_residue = self.top.n_residues
+        self.chain_index = np.array([r.chain.index for r in self.top.residues], dtype=np.int16)
         self.residue_name = []
         self.residue_index = np.zeros(self.n_residue, dtype=np.int16)
+        #
+        self.to_atom()
 
     def to_atom(self):
         # set up
@@ -179,16 +183,15 @@ class PDB(object):
         mask = np.where(self.atom_mask)
         xyz = R[:,mask[0],mask[1],:]
         #
-        traj = mdtraj.Trajectory(xyz, top)
+        traj = mdtraj.Trajectory(xyz[:1], top)
         traj.save(pdb_fn)
         #
         if dcd_fn is not None:
-            traj = mdtraj.Trajectory(xyz[:1], top)
+            traj = mdtraj.Trajectory(xyz, top)
             traj.save(dcd_fn)
 
 if __name__ == '__main__':
     pdb = PDB("../pdb.processed/1VII.pdb")
-    pdb.to_atom()
     pdb.get_structure_information()
     R = pdb.generate_structure_from_bb_and_torsion(pdb.bb, pdb.torsion)
     pdb.write(R, "test.pdb")
