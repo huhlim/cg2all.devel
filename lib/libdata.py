@@ -9,9 +9,7 @@ import torch
 import torch_geometric
 
 import libcg
-from libconfig import BASE
-#
-DTYPE = torch.get_default_dtype()
+from libconfig import BASE, DTYPE
 
 #%%
 class PDBset(torch_geometric.data.Dataset):
@@ -35,10 +33,7 @@ class PDBset(torch_geometric.data.Dataset):
         cg = self.cg_model(pdb_fn)
         frame_index = np.random.randint(cg.n_frame)
         #
-        data = torch_geometric.data.Data()
-        #
-        pos = cg.R_cg[frame_index][cg.atom_mask_cg==1.]
-        data.pos = torch.tensor(cg.R_cg[frame_index][cg.atom_mask_cg==1.])
+        data = torch_geometric.data.Data(pos=torch.tensor(cg.R_cg[frame_index][cg.atom_mask_cg==1.], dtype=DTYPE))
         #
         # one-hot encoding of residue type
         index = cg.bead_index[cg.atom_mask_cg==1.]
