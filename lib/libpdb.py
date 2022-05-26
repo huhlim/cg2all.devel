@@ -144,49 +144,6 @@ class PDB(object):
             self.torsion_mask[i_res,:] = mask
             self.torsion[:,i_res,:] = tor_s
 
-    def generate_structure_from_bb_and_torsion(self, bb, torsion):
-        # convert from rigid body operations to coordinates
-
-        n_frame = bb.shape[0]
-        R = np.zeros((n_frame, self.n_residue, MAX_ATOM, 3), dtype=np.float16)
-        #
-        def rotate_matrix(R, X):
-            return np.einsum("...ij,...jk->...ik", R, X)
-        def rotate_vector(R, X):
-            return np.einsum("...ij,...j", R, X)
-        def combine_operations(X, Y):
-            Y[...,:3,:] = rotate_matrix(X[...,:3,:], Y[...,:3,:])
-            Y[..., 3,:] = rotate_vector(X[...,:3,:], Y[..., 3,:]) + X[..., 3,:]
-            return Y
-        #
-        transforms = rigid_transforms_tensor[self.residue_index]
-        transforms_dep = rigid_transforms_dep[self.residue_index]
-        #
-        rigids = rigid_groups_tensor[self.residue_index]
-        rigids_dep = rigid_groups_dep[self.residue_index]
-        #
-        for frame in range(n_frame):
-            opr = np.zeros_like(transforms)
-            opr[:,0] = bb
-            opr[:,1:,0,0] = 1.
-            sine = np.sin(torsion[frame])
-            cosine = np.cos(torsion[frame])
-            opr[:,1:,1,1] = cosine
-            opr[:,1:,1,2] = -sine
-            opr[:,1:,2,1] = sine
-            opr[:,1:,2,2] = cosine
-            #
-            opr = combine_operations(transforms, opr)
-            #
-            for i_tor in range(1, MAX_RIGID):
-                prev = np.take_along_axis(opr, transforms_dep[:,i_tor][:,None,None,None], axis=1)
-                opr[:,i_tor] = combine_operations(prev[:,0], opr[:,i_tor])
-
-            # np.take_along_axis -> torch.gather
-            opr = np.take_along_axis(opr, rigids_dep[...,None,None], axis=1)
-            R[frame] = rotate_vector(opr[:,:,:3], rigids) + opr[:,:,3]
-        return R
-
     def write(self, R, pdb_fn, dcd_fn=None):
         top = self.create_new_topology()
         mask = np.where(self.atom_mask)
@@ -199,10 +156,54 @@ class PDB(object):
             traj = mdtraj.Trajectory(xyz, top)
             traj.save(dcd_fn)
 
+def generate_structure_from_bb_and_torsion(residue_index, bb, torsion):
+    # convert from rigid body operations to coordinates
+
+    n_frame = bb.shape[0]
+    n_residue = bb.shape[1]
+    R = np.zeros((n_frame, n_residue, MAX_ATOM, 3), dtype=np.float16)
+    #
+    def rotate_matrix(R, X):
+        return np.einsum("...ij,...jk->...ik", R, X)
+    def rotate_vector(R, X):
+        return np.einsum("...ij,...j", R, X)
+    def combine_operations(X, Y):
+        Y[...,:3,:] = rotate_matrix(X[...,:3,:], Y[...,:3,:])
+        Y[..., 3,:] = rotate_vector(X[...,:3,:], Y[..., 3,:]) + X[..., 3,:]
+        return Y
+    #
+    transforms = rigid_transforms_tensor[residue_index]
+    transforms_dep = rigid_transforms_dep[residue_index]
+    #
+    rigids = rigid_groups_tensor[residue_index]
+    rigids_dep = rigid_groups_dep[residue_index]
+    #
+    for frame in range(n_frame):
+        opr = np.zeros_like(transforms)
+        opr[:,0] = bb
+        opr[:,1:,0,0] = 1.
+        sine = np.sin(torsion[frame])
+        cosine = np.cos(torsion[frame])
+        opr[:,1:,1,1] = cosine
+        opr[:,1:,1,2] = -sine
+        opr[:,1:,2,1] = sine
+        opr[:,1:,2,2] = cosine
+        #
+        opr = combine_operations(transforms, opr)
+        #
+        for i_tor in range(1, MAX_RIGID):
+            prev = np.take_along_axis(opr, transforms_dep[:,i_tor][:,None,None,None], axis=1)
+            opr[:,i_tor] = combine_operations(prev[:,0], opr[:,i_tor])
+
+        # np.take_along_axis -> torch.gather
+        opr = np.take_along_axis(opr, rigids_dep[...,None,None], axis=1)
+        R[frame] = rotate_vector(opr[:,:,:3], rigids) + opr[:,:,3]
+    return R
+
 if __name__ == '__main__':
     pdb = PDB("../pdb.processed/1VII.pdb")
     pdb.get_structure_information()
-    R = pdb.generate_structure_from_bb_and_torsion(pdb.bb, pdb.torsion)
+    R = generate_structure_from_bb_and_torsion(pdb.residue_index, pdb.bb, pdb.torsion)
     pdb.write(R, "test.pdb")
 
 # %%
