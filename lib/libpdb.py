@@ -44,8 +44,13 @@ class PDB(object):
         for residue in self.top.residues:
             i_res = residue.index
             residue_name = AMINO_ACID_ALT_s.get(residue.name, residue.name)
+            if residue_name not in AMINO_ACID_s:
+                residue_name = 'UNK'
+            #
             self.residue_name.append(residue_name)
             self.residue_index[i_res] = AMINO_ACID_s.index(residue_name)
+            if residue_name == 'UNK':
+                continue
             ref_res = residue_s[residue_name]
             #
             for atom in residue.atoms:
@@ -71,9 +76,13 @@ class PDB(object):
             #
             for residue in chain.residues:
                 i_res += 1
-                top_residue = top.add_residue(residue.name, top_chain, residue.resSeq)
+                residue_name = AMINO_ACID_ALT_s.get(residue.name, residue.name)
+                if residue_name not in AMINO_ACID_s:
+                    residue_name = 'UNK'
+                    continue
+                top_residue = top.add_residue(residue_name, top_chain, residue.resSeq)
                 #
-                for i_atm, atom_name in enumerate(residue_s[residue.name].atom_s):
+                for i_atm, atom_name in enumerate(residue_s[residue_name].atom_s):
                     if self.atom_mask[i_res, i_atm] == 0.:
                         continue
                     element = mdtraj.core.element.Element.getBySymbol(atom_name[0])

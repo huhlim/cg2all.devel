@@ -9,7 +9,7 @@ from libconfig import DATA_HOME
 
 # %%
 AMINO_ACID_s = ('ALA', 'CYS', 'ASP', 'GLU', 'PHE', 'GLY', 'HSD', "HSE", 'ILE', 'LYS', 'LEU',\
-                'MET', 'ASN', 'PRO', 'GLN', 'ARG', 'SER', 'THR', 'VAL', 'TRP', 'TYR')
+                'MET', 'ASN', 'PRO', 'GLN', 'ARG', 'SER', 'THR', 'VAL', 'TRP', 'TYR', 'UNK')
 BACKBONE_ATOM_s = ('N', 'CA', 'C', 'O')
 AMINO_ACID_ALT_s = {"HIS": "HSD"}
 ATOM_NAME_ALT_s = {}
@@ -267,6 +267,9 @@ rigid_transforms_tensor = np.zeros((MAX_RESIDUE_TYPE, MAX_RIGID, 4, 3), dtype=np
 rigid_transforms_tensor[:,:,:3,:3] = np.eye(3)
 rigid_transforms_dep = np.full((MAX_RESIDUE_TYPE, MAX_RIGID), -1, dtype=np.int16)
 for i,residue_name in enumerate(AMINO_ACID_s):
+    if residue_name == 'UNK':
+        continue
+    #
     for tor in torsion_s[residue_name]:
         if tor is None or tor.name == 'BB':
             continue
@@ -286,6 +289,9 @@ for i,residue_name in enumerate(AMINO_ACID_s):
 rigid_groups_tensor = np.zeros((MAX_RESIDUE_TYPE, MAX_ATOM, 3), dtype=np.float32)
 rigid_groups_dep = np.full((MAX_RESIDUE_TYPE, MAX_ATOM), -1, dtype=np.int16)
 for i,residue_name in enumerate(AMINO_ACID_s):
+    if residue_name == 'UNK':
+        continue
+    #
     residue_atom_s = residue_s[residue_name].atom_s
     for tor in torsion_s[residue_name]:
         if tor is None:

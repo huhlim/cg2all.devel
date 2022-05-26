@@ -23,6 +23,8 @@ class ProcessPDB(PDB):
         self.R_ideal = self.R.copy()
         for i_res in range(self.n_residue):
             residue_name = self.residue_name[i_res]
+            if residue_name == 'UNK':
+                continue
             ref_res = residue_s[residue_name]
             tor_s = torsion_s[residue_name]
             #
@@ -59,8 +61,10 @@ class ProcessPDB(PDB):
                     opr_sc, atom_s, rigid_s = update_by_periodic_method(self.R, self.atom_mask, i_res, ref_res, tor, amb, opr_s)
                 else:
                     raise ValueError("Unknown ambiguous method: %s" % amb.method)
-                opr_s[(tor.name, tor.index)] = opr_sc
+                if atom_s is None:
+                    continue
                 #
+                opr_s[(tor.name, tor.index)] = opr_sc
                 for atom in atom_s:
                     self.R_ideal[:,i_res,ref_res.atom_s.index(atom),:] = rigid_s[:,atom_s.index(atom),:]
             #

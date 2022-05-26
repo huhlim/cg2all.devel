@@ -47,6 +47,7 @@ def read_ambiguous_atom_list():
                 torsion_name, torsion_index, torsion_definition))
 
     for residue_name in AMINO_ACID_s:
+        if residue_name == 'UNK': continue
         for tor in torsion_s[residue_name]:
             if tor is None: continue
             if tor.name == 'XI' and len(tor.atom_s) > 1:
