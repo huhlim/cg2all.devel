@@ -3,14 +3,19 @@
 #%%
 import numpy as np
 import pathlib
+import functools
 
 import torch
-from torch.utils.data import DataLoader, Dataset
+import torch_geometric
 
 import libcg
+from libconfig import BASE
+from residue_constants import MAX_RESIDUE_TYPE
+#
+DTYPE = torch.get_default_dtype()
 
 #%%
-class PDBset(Dataset):
+class PDBset(torch_geometric.data.Dataset):
     def __init__(self, basedir, pdblist, cg_model):
         super().__init__()
         #
@@ -31,15 +36,32 @@ class PDBset(Dataset):
         cg = self.cg_model(pdb_fn)
         frame_index = np.random.randint(cg.n_frame)
         #
-        sample = {}
-        sample['residue_index'] = cg.residue_index
+        data = torch_geometric.data.Data()
         #
-        sample['input_xyz'] = cg.R_cg[frame_index]
-        sample['input_atom_mask'] = cg.atom_mask_cg
+        pos = cg.R_cg[frame_index][cg.atom_mask_cg==1.]
+        data.pos = torch.tensor(cg.R_cg[frame_index][cg.atom_mask_cg==1.])
         #
-        sample['output_xyz'] = cg.R[frame_index]
-        sample['output_atom_mask'] = cg.atom_mask
+        # one-hot encoding of residue type
+        residue_index_oh = torch.tensor(np.eye(MAX_RESIDUE_TYPE)[cg.residue_index], dtype=DTYPE)
+        data.x = residue_index_oh
+        #
+        data.residue_index = torch.tensor(cg.residue_index, dtype=DTYPE)
+        data.output_atom_mask = torch.tensor(cg.atom_mask, dtype=DTYPE)
+        data.output_xyz = torch.tensor(cg.R[frame_index], dtype=DTYPE)
+        return data
 
+# %%
+def test():
+    base_dir = BASE / 'pdb.processed'
+    pdblist = BASE / 'pdb/pdblist'
+    cg_model = functools.partial(libcg.ResidueBasedModel, center_of_mass=True)
+    #
+    train_set = PDBset(base_dir, pdblist, cg_model)
+    train_loader = torch_geometric.loader.DataLoader(train_set, batch_size=2, shuffle=True, num_workers=2)
+    for batch in train_loader:
+        print (batch.batch)
 
+if __name__ == '__main__':
+    test()
 
 # %%
