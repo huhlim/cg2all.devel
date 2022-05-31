@@ -6,12 +6,13 @@ import time
 import pathlib
 import functools
 
+import torch
 import torch_geometric
 
 from libconfig import BASE
 from libdata import PDBset
 from libcg import ResidueBasedModel
-import liblayer
+from libmodel import CONFIG, Model
 
 
 def main():
@@ -27,14 +28,11 @@ def main():
     # for batch in train_loader:
     #     print (batch)
     #
+    model = Model(CONFIG)
     t0 = time.time()
-    layer = liblayer.ConvLayer("22x0e", "20x0e + 20x1o", radius=1.0, l_max=2)
-    out = layer(batch, batch.x)
+    out = model(batch)
     print(time.time() - t0)
-    t0 = time.time()
-    layer = liblayer.ConvLayer("20x0e + 20x1o", "20x0e + 20x1o", radius=1.0, l_max=2)
-    out = layer(batch, out)
-    print(time.time() - t0)
+    print(out["bb"].size())
 
 
 if __name__ == "__main__":

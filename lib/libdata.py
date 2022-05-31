@@ -36,22 +36,25 @@ class PDBset(torch_geometric.data.Dataset):
         frame_index = np.random.randint(cg.n_frame)
         #
         r = cg.R_cg[frame_index]
-        dr = np.zeros((r.shape[0]+1, 3))  # shape=(Nres, 3)
-        dr[1:-1] = r[:-1,0,:] - r[1:,0,:]
-        dr[1:-1] /= np.linalg.norm(dr[1:-1], axis=1)[:,None]
-        dr[1:][cg.atom_mask_cg[:,0] == 0.0] = 0.0
+        dr = np.zeros((r.shape[0] + 1, 3))  # shape=(Nres+1, 3)
+        dr[1:-1] = r[:-1, 0, :] - r[1:, 0, :]
+        dr[1:-1] /= np.linalg.norm(dr[1:-1], axis=1)[:, None]
+        dr[1:][cg.atom_mask_cg[:, 0] == 0.0] = 0.0
         #
         data = torch_geometric.data.Data(
             pos=torch.tensor(r[cg.atom_mask_cg == 1.0], dtype=DTYPE)
         )
         #
         # one-hot encoding of residue type
-        f_in = []
+        f_in = [[], []]  # 0d, 1d
         index = cg.bead_index[cg.atom_mask_cg == 1.0]
-        f_in.append(np.eye(cg.max_bead_type)[index])
-        f_in.append(dr[:-1])
-        f_in.append(-dr[1:])
-        data.x = torch.tensor(np.concatenate(f_in, axis=1), dtype=DTYPE)
+        f_in[0].append(np.eye(cg.max_bead_type)[index])
+        f_in[0] = torch.tensor(np.concatenate(f_in[0], axis=1), dtype=DTYPE)
+        f_in[1].append(dr[:-1, None])
+        f_in[1].append(-dr[1:, None])
+        f_in[1] = torch.tensor(np.concatenate(f_in[1], axis=1), dtype=DTYPE)
+        data.f_in = f_in
+        print(pdb_id, f_in[0].size(), f_in[1].size())
         #
         data.residue_index = torch.tensor(cg.residue_index, dtype=DTYPE)
         data.output_atom_mask = torch.tensor(cg.atom_mask, dtype=DTYPE)

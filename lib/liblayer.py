@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import sys
+import functools
 from typing import Optional, List
 
 import torch
@@ -15,6 +16,11 @@ import e3nn.nn
 from e3nn import o3
 
 from libconfig import DTYPE
+
+
+class Linear(e3nn.nn.FullyConnectedNet):
+    def __init__(self, in_features, out_features, act=None):
+        super().__init__([in_features, out_features], act=act)
 
 
 class ConvLayer(nn.Module):
