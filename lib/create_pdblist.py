@@ -4,6 +4,7 @@ import os
 import glob
 import mdtraj
 
+
 def main():
     pdb_dir = "pdb"
     pdb_fn_s = glob.glob(f"{pdb_dir}/*.pdb")
@@ -23,5 +24,6 @@ def main():
         for pdb_id, n_residues in pdb_list:
             fp.write(f"{pdb_id} {n_residues:4d}\n")
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()
