@@ -24,9 +24,9 @@ jobs:
     steps:
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@v2
-      - uses: psf/black@stable
+      - uses: psf/black@22.3.0
         with:
           options: "--check --verbose"
           src: "."
-          version: "21.5b1"
+          version: "22.3.0"
 
