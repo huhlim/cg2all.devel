@@ -13,18 +13,22 @@ from libconfig import BASE, DTYPE
 
 # %%
 class PDBset(torch_geometric.data.Dataset):
-    def __init__(self, basedir, pdblist, cg_model, noise_level=0.0):
+    def __init__(self, basedir, pdblist, cg_model, noise_level=0.0, \
+        get_structure_information=False):
         super().__init__()
         #
         self.basedir = pathlib.Path(basedir)
         self.pdb_s = []
         with open(pdblist) as fp:
             for line in fp:
+                if line.startswith("#"):
+                    continue
                 self.pdb_s.append(line.strip())
         #
         self.n_pdb = len(self.pdb_s)
         self.cg_model = cg_model
         self.noise_level = noise_level
+        self.get_structure_information = get_structure_information
 
     def __len__(self):
         return self.n_pdb
@@ -67,6 +71,11 @@ class PDBset(torch_geometric.data.Dataset):
         data.residue_type = torch.tensor(cg.residue_index, dtype=int)
         data.output_atom_mask = torch.tensor(cg.atom_mask, dtype=DTYPE)
         data.output_xyz = torch.tensor(cg.R[frame_index], dtype=DTYPE)
+        #
+        if self.get_structure_information:
+            cg.get_structure_information()
+            data.correct_bb = torch.tensor(cg.bb[frame_index], dtype=DTYPE)
+            data.correct_torsion = torch.tensor(cg.torsion[frame_index], dtype=DTYPE)
         return data
 
 
