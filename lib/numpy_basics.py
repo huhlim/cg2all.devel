@@ -74,10 +74,11 @@ def translate_and_rotate(x, R, t):
 def rotate_x(t_ang):
     R = np.array(
         [
-            [1, 0, 0],
-            [0, np.cos(t_ang), -np.sin(t_ang)],
-            [0, np.sin(t_ang), np.cos(t_ang)],
-        ]
+            [1.0, 0.0, 0.0],
+            [0.0, np.cos(t_ang), -np.sin(t_ang)],
+            [0.0, np.sin(t_ang), np.cos(t_ang)],
+        ],
+        dtype=float,
     )
-    t = np.zeros(3)
+    t = np.zeros(3, dtype=float)
     return (R, t)
