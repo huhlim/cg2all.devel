@@ -13,8 +13,14 @@ from libconfig import BASE, DTYPE
 
 # %%
 class PDBset(torch_geometric.data.Dataset):
-    def __init__(self, basedir, pdblist, cg_model, noise_level=0.0, \
-        get_structure_information=False):
+    def __init__(
+        self,
+        basedir,
+        pdblist,
+        cg_model,
+        noise_level=0.0,
+        get_structure_information=False,
+    ):
         super().__init__()
         #
         self.basedir = pathlib.Path(basedir)

@@ -16,6 +16,7 @@ from libmodel import CONFIG, Model
 
 torch.autograd.set_detect_anomaly(True)
 
+
 def main():
     base_dir = BASE / "pdb.processed"
     pdblist = BASE / "pdb/pdblist"
@@ -35,10 +36,11 @@ def main():
     optimizer.zero_grad()
     #
     out = model(batch)
-    loss = out['R'].sum()
+    loss = out["R"].sum()
     loss.backward()
     #
     optimizer.step()
+
 
 if __name__ == "__main__":
     main()

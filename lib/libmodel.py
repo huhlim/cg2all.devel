@@ -57,7 +57,7 @@ CONFIG["backbone"].update(
     {
         "num_layers": 2,
         "in_Irreps": "20x0e + 10x1o",
-        "out_Irreps": "3x0e + 1x1o",    # scalars for quaternions and a vector for translation
+        "out_Irreps": "3x0e + 1x1o",  # scalars for quaternions and a vector for translation
         "mid_Irreps": "10x0e + 4x1o",
         "attn_Irreps": "10x0e + 4x1o",
     }
@@ -178,29 +178,30 @@ class Model(nn.Module):
         n_residue = batch.residue_type.size(0)
         #
         # backbone operations
-        _q = torch.cat([torch.ones((n_residue, 1), dtype=DTYPE), \
-            ret["bb"][:,:3]], dim=1)
-        q = _q / torch.linalg.norm(_q, dim=1)[:,None]
+        _q = torch.cat(
+            [torch.ones((n_residue, 1), dtype=DTYPE), ret["bb"][:, :3]], dim=1
+        )
+        q = _q / torch.linalg.norm(_q, dim=1)[:, None]
         #
         R = torch.zeros((n_residue, 3, 3), dtype=DTYPE)
-        R[:,0,0] = q[:,0]**2 + q[:,1]**2 - q[:,2]**2 - q[:,3]**2
-        R[:,1,1] = q[:,0]**2 - q[:,1]**2 + q[:,2]**2 - q[:,3]**2
-        R[:,2,2] = q[:,0]**2 - q[:,1]**2 - q[:,2]**2 + q[:,3]**2
-        R[:,0,1] = 2 * (q[:,1] * q[:,2] - q[:,0] * q[:,3])
-        R[:,0,2] = 2 * (q[:,1] * q[:,3] + q[:,0] * q[:,2])
-        R[:,1,0] = 2 * (q[:,1] * q[:,2] + q[:,0] * q[:,3])
-        R[:,1,2] = 2 * (q[:,2] * q[:,3] - q[:,0] * q[:,1])
-        R[:,2,0] = 2 * (q[:,1] * q[:,3] - q[:,0] * q[:,2])
-        R[:,2,1] = 2 * (q[:,2] * q[:,3] + q[:,0] * q[:,1])
+        R[:, 0, 0] = q[:, 0] ** 2 + q[:, 1] ** 2 - q[:, 2] ** 2 - q[:, 3] ** 2
+        R[:, 1, 1] = q[:, 0] ** 2 - q[:, 1] ** 2 + q[:, 2] ** 2 - q[:, 3] ** 2
+        R[:, 2, 2] = q[:, 0] ** 2 - q[:, 1] ** 2 - q[:, 2] ** 2 + q[:, 3] ** 2
+        R[:, 0, 1] = 2 * (q[:, 1] * q[:, 2] - q[:, 0] * q[:, 3])
+        R[:, 0, 2] = 2 * (q[:, 1] * q[:, 3] + q[:, 0] * q[:, 2])
+        R[:, 1, 0] = 2 * (q[:, 1] * q[:, 2] + q[:, 0] * q[:, 3])
+        R[:, 1, 2] = 2 * (q[:, 2] * q[:, 3] - q[:, 0] * q[:, 1])
+        R[:, 2, 0] = 2 * (q[:, 1] * q[:, 3] - q[:, 0] * q[:, 2])
+        R[:, 2, 1] = 2 * (q[:, 2] * q[:, 3] + q[:, 0] * q[:, 1])
         opr[:, 0, :3] = R
-        opr[:, 0, 3, :] = ret["bb"][:,3:] + batch.pos
+        opr[:, 0, 3, :] = ret["bb"][:, 3:] + batch.pos
 
         # sidechain operations
         opr[:, 1:, 0, 0] = 1.0
         torsion = ret["sc"].reshape(n_residue, -1, 2)
         norm = torch.linalg.norm(torsion, dim=2)
-        sine = torsion[:,:,0] / norm
-        cosine = torsion[:,:,1] / norm
+        sine = torsion[:, :, 0] / norm
+        cosine = torsion[:, :, 1] / norm
         opr[:, 1:, 1, 1] = cosine
         opr[:, 1:, 1, 2] = -sine
         opr[:, 1:, 2, 1] = sine
