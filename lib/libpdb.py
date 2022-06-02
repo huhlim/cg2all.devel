@@ -74,13 +74,14 @@ class PDB(object):
                 i_atm = ref_res.atom_s.index(atom_name)
                 self.R[:, i_res, i_atm, :] = self.traj.xyz[:, atom.index, :]
                 self.atom_mask[i_res, i_atm] = 1.0
+
     # get continuity information, whether it has a previous residue
     def get_continuity(self):
         # different chains
-        self.continuous = (self.chain_index[1:] == self.chain_index[:-1])
-        
+        self.continuous = self.chain_index[1:] == self.chain_index[:-1]
+
         # chain breaks
-        dr = self.R[:,1:, ATOM_INDEX_N] - self.R[:,:-1, ATOM_INDEX_C]
+        dr = self.R[:, 1:, ATOM_INDEX_N] - self.R[:, :-1, ATOM_INDEX_C]
         d = v_size(dr).mean(axis=0)
         self.continuous[d > BOND_LENGTH0 * 2.0] = 0.0
         self.continuous = np.concatenate([[0], self.continuous])

@@ -50,7 +50,7 @@ class PDBset(torch_geometric.data.Dataset):
         dr = np.zeros((r.shape[0] + 1, 3))  # shape=(Nres+1, 3)
         dr[1:-1] = r[:-1, 0, :] - r[1:, 0, :]
         dr[1:-1] /= np.linalg.norm(dr[1:-1], axis=1)[:, None]
-        dr[1:][cg.atom_mask_cg[:, 0] == 0.0] = 0.0
+        dr[:-1][cg.continuous == 0.0] = 0.0
         if self.noise_level > 0.0:
             r += np.random.normal(scale=self.noise_level, size=r.shape)
         #

@@ -17,14 +17,14 @@ from libcg import ResidueBasedModel
 from libloss import loss_f_mse_R, loss_f_mse_R_CA, loss_f_bonded_energy
 from libmodel import CONFIG, Model
 
-torch.autograd.set_detect_anomaly(True)
+# torch.autograd.set_detect_anomaly(True)
 
 
 def loss_f(R, batch):
     loss_0 = loss_f_mse_R_CA(R, batch.output_xyz) * 1.0
     loss_1 = loss_f_mse_R(R, batch.output_xyz, batch.output_atom_mask) * 0.05
-    # loss_2 = loss_f_bonded_energy(R, batch.continuous, weight_s=(0.1, 0.01, 0.0)) * 0.1
-    return loss_0 + loss_1 #+ loss_2
+    loss_2 = loss_f_bonded_energy(R, batch.continuous, weight_s=(1.0, 0.0, 0.0)) * 0.1
+    return loss_0 + loss_1 + loss_2
 
 
 def main():
@@ -42,20 +42,20 @@ def main():
     # return
     #
     model = Model(CONFIG)
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
     model.train()
     #
-    for epoch in range(1000):
+    for epoch in range(100):
         t0 = time.time()
-        for i,batch in enumerate(train_loader):
+        for i, batch in enumerate(train_loader):
             optimizer.zero_grad()
             out = model(batch)
             loss = loss_f(out["R"], batch)
             loss.backward()
             optimizer.step()
-            np.save(f"out_{epoch}_{i}.npy", out["R"].detach().numpy())
-            print(f'loss: ({epoch} {i})', loss)
-        print (f"epoch {epoch} time: {time.time() - t0}")
+            np.savez(f"out_{i}.npz", y=out["R"].detach().numpy(), y0=batch.output_xyz.detach().numpy())
+            print(f"loss: ({epoch} {i})", loss)
+        print (f"epoch: {epoch}", time.time() - t0)
 
 
 if __name__ == "__main__":

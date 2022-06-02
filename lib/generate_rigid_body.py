@@ -12,7 +12,7 @@ from numpy_basics import *
 from residue_constants import *
 import json
 
-from libconfig import DATA_HOME, SMALL_NUMBER
+from libconfig import DATA_HOME
 
 # %%
 def build_structure_from_ic(residue):
