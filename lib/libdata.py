@@ -52,7 +52,7 @@ class PDBset(torch_geometric.data.Dataset):
         dr[1:-1] /= np.linalg.norm(dr[1:-1], axis=1)[:, None]
         dr[1:][cg.atom_mask_cg[:, 0] == 0.0] = 0.0
         if self.noise_level > 0.0:
-            dr += np.random.normal(scale=self.noise_level, size=dr.shape)
+            r += np.random.normal(scale=self.noise_level, size=r.shape)
         #
         data = torch_geometric.data.Data(
             pos=torch.tensor(r[cg.atom_mask_cg == 1.0], dtype=DTYPE)
@@ -75,6 +75,7 @@ class PDBset(torch_geometric.data.Dataset):
         data.f_in = f_in
         #
         data.residue_type = torch.tensor(cg.residue_index, dtype=int)
+        data.continuous = torch.tensor(cg.continuous, dtype=DTYPE)
         data.output_atom_mask = torch.tensor(cg.atom_mask, dtype=DTYPE)
         data.output_xyz = torch.tensor(cg.R[frame_index], dtype=DTYPE)
         #

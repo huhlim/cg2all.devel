@@ -32,6 +32,7 @@ class PDB(object):
         self.residue_index = np.zeros(self.n_residue, dtype=np.int16)
         #
         self.to_atom()
+        self.get_continuity()
 
     def to_atom(self):
         # set up
@@ -73,6 +74,16 @@ class PDB(object):
                 i_atm = ref_res.atom_s.index(atom_name)
                 self.R[:, i_res, i_atm, :] = self.traj.xyz[:, atom.index, :]
                 self.atom_mask[i_res, i_atm] = 1.0
+    # get continuity information, whether it has a previous residue
+    def get_continuity(self):
+        # different chains
+        self.continuous = (self.chain_index[1:] == self.chain_index[:-1])
+        
+        # chain breaks
+        dr = self.R[:,1:, ATOM_INDEX_N] - self.R[:,:-1, ATOM_INDEX_C]
+        d = v_size(dr).mean(axis=0)
+        self.continuous[d > BOND_LENGTH0 * 2.0] = 0.0
+        self.continuous = np.concatenate([[0], self.continuous])
 
     # create a new topology based on the standard residue definitions
     def create_new_topology(self):
@@ -222,9 +233,9 @@ def generate_structure_from_bb_and_torsion(residue_index, bb, torsion):
 
 
 if __name__ == "__main__":
-    pdb = PDB("../pdb.processed/1VII.pdb")
-    pdb.get_structure_information()
-    R = generate_structure_from_bb_and_torsion(pdb.residue_index, pdb.bb, pdb.torsion)
-    pdb.write(R, "test.pdb")
+    pdb = PDB("pdb.processed/3PBL.pdb")
+    # pdb.get_structure_information()
+    # R = generate_structure_from_bb_and_torsion(pdb.residue_index, pdb.bb, pdb.torsion)
+    # pdb.write(R, "test.pdb")
 
 # %%

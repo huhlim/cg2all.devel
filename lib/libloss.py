@@ -1,17 +1,11 @@
 #!/usr/bin/env python
 
-from residue_constants import BACKBONE_ATOM_s
-
 import torch
-from numpy import deg2rad
+
+from residue_constants import (ATOM_INDEX_N, ATOM_INDEX_CA, ATOM_INDEX_C, 
+BOND_LENGTH0, BOND_ANGLE0, TORSION_ANGLE0)
 
 from libconfig import DTYPE
-
-
-atom_index_N = BACKBONE_ATOM_s.index("N")
-atom_index_CA = BACKBONE_ATOM_s.index("CA")
-atom_index_C = BACKBONE_ATOM_s.index("C")
-atom_index_O = BACKBONE_ATOM_s.index("O")
 
 
 # some basic functions
@@ -27,31 +21,29 @@ def loss_f_mse_R(R, R_ref, R_mask):
 
 # MSE loss for comparing C-alpha coordinates
 def loss_f_mse_R_CA(R, R_ref):
-    return torch.mean(torch.pow(R[:, atom_index_CA, :] - R_ref[:, atom_index_CA, :], 2))
+    return torch.mean(torch.pow(R[:, ATOM_INDEX_CA, :] - R_ref[:, ATOM_INDEX_CA, :], 2))
 
 
 # Bonded energy penalties
-BOND_LENGTH0 = 0.1345
-BOND_ANGLE0 = (deg2rad(120.0), deg2rad(116.5))
-TORSION_ANGLE0 = (deg2rad(0.0), deg2rad(180.0))
-
-
-def loss_f_bonded_energy(R, weight_s=(1.0, 1.0, 1.0)):
+def loss_f_bonded_energy(R, is_continuous, weight_s=(1.0, 1.0, 1.0)):
     if weight_s[0] == 0.0:
         return 0.0
 
+    bonded = is_continuous[1:]
+    n_bonded = torch.sum(bonded)
+
     # vector: -CA -> -C
-    v0 = R[:-1, atom_index_C, :] - R[:-1, atom_index_CA, :]
+    v0 = R[:-1, ATOM_INDEX_C, :] - R[:-1, ATOM_INDEX_CA, :]
     # vector: -C -> N
-    v1 = R[1:, atom_index_N, :] - R[:-1, atom_index_C, :]
+    v1 = R[1:, ATOM_INDEX_N, :] - R[:-1, ATOM_INDEX_C, :]
     # vector: N -> CA
-    v2 = R[1:, atom_index_CA, :] - R[1:, atom_index_N, :]
+    v2 = R[1:, ATOM_INDEX_CA, :] - R[1:, ATOM_INDEX_N, :]
     #
     # bond lengths
     d0 = v_size(v0)
     d1 = v_size(v1)
     d2 = v_size(v2)
-    bond_energy = torch.mean(torch.pow(d1 - BOND_LENGTH0, 2))
+    bond_energy = torch.sum(torch.pow(d1 - BOND_LENGTH0, 2) * bonded) / n_bonded
     if weight_s[1] == 0.0:
         return bond_energy * weight_s[0]
     #
@@ -64,9 +56,10 @@ def loss_f_bonded_energy(R, weight_s=(1.0, 1.0, 1.0)):
     v2 = v2 / d2[..., None]
     a01 = bond_angle(-v0, v1)
     a12 = bond_angle(-v1, v2)
-    angle_energy = torch.mean(torch.pow(a01 - BOND_ANGLE0[0], 2)) + torch.mean(
-        torch.pow(a12 - BOND_ANGLE0[1], 2)
-    )
+    angle_energy = torch.pow(a01 - BOND_ANGLE0[0], 2) + torch.pow(a12 - BOND_ANGLE0[1], 2)
+    angle_energy = torch.sum(angle_energy * bonded) / n_bonded
+
+    print (bond_energy, angle_energy)
     if weight_s[2] == 0.0:
         return bond_energy * weight_s[0] + angle_energy * weight_s[1]
     #
@@ -79,7 +72,7 @@ def loss_f_bonded_energy(R, weight_s=(1.0, 1.0, 1.0)):
 
     t_ang = torsion_angle_without_sign(v0, v1, v2)
     d_ang = torch.minimum(t_ang - TORSION_ANGLE0[0], TORSION_ANGLE0[1] - t_ang)
-    torsion_energy = torch.mean(torch.pow(d_ang, 2))
+    torsion_energy = torch.sum(torch.pow(d_ang, 2) * bonded) / n_bonded
     return (
         bond_energy * weight_s[0]
         + angle_energy * weight_s[1]

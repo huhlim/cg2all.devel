@@ -33,6 +33,15 @@ AMINO_ACID_s = (
     "UNK",
 )
 BACKBONE_ATOM_s = ("N", "CA", "C", "O")
+ATOM_INDEX_N = BACKBONE_ATOM_s.index("N")
+ATOM_INDEX_CA = BACKBONE_ATOM_s.index("CA")
+ATOM_INDEX_C = BACKBONE_ATOM_s.index("C")
+ATOM_INDEX_O = BACKBONE_ATOM_s.index("O")
+
+BOND_LENGTH0 = 0.1345
+BOND_ANGLE0 = (np.deg2rad(120.0), np.deg2rad(116.5))
+TORSION_ANGLE0 = (np.deg2rad(0.0), np.deg2rad(180.0))
+
 AMINO_ACID_ALT_s = {"HIS": "HSD"}
 ATOM_NAME_ALT_s = {}
 with open(DATA_HOME / "rename_atoms.dat") as fp:
