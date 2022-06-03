@@ -19,8 +19,8 @@ from residue_constants import AMINO_ACID_s, residue_s
 class PDBset(torch_geometric.data.Dataset):
     def __init__(
         self,
-        basedir:str,
-        pdblist:List[str],
+        basedir: str,
+        pdblist: List[str],
         cg_model,
         noise_level=0.0,
         get_structure_information=False,
@@ -134,7 +134,7 @@ def create_trajectory_from_batch(
         mask = data.output_atom_mask.detach().numpy()
         xyz = data.output_xyz.detach().numpy()[mask > 0.0]
         #
-        traj = mdtraj.Trajectory(xyz=xyz[None,:], topology=top)
+        traj = mdtraj.Trajectory(xyz=xyz[None, :], topology=top)
         traj_s.append(traj)
     return traj_s
 
