@@ -44,7 +44,6 @@ def loss_f_bonded_energy(R, is_continuous, weight_s=(1.0, 1.0, 1.0)):
     # bond lengths
     d1 = v_size(v1)
     bond_energy = torch.sum(torch.pow(d1 - BOND_LENGTH0, 2) * bonded) / n_bonded
-    print("bond energy:", bond_energy)
     if weight_s[1] == 0.0:
         return bond_energy * weight_s[0]
     #
@@ -70,7 +69,6 @@ def loss_f_bonded_energy(R, is_continuous, weight_s=(1.0, 1.0, 1.0)):
         a12 - BOND_ANGLE0[1], 2
     )
     angle_energy = torch.sum(angle_energy * bonded) / n_bonded
-    print("angle_energy", angle_energy)
 
     if weight_s[2] == 0.0:
         return bond_energy * weight_s[0] + angle_energy * weight_s[1]

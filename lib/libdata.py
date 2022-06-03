@@ -76,6 +76,13 @@ class PDBset(torch_geometric.data.Dataset):
         f_in[1].append(dr[:-1, None])
         f_in[1].append(-dr[1:, None])
         f_in[1] = torch.tensor(np.concatenate(f_in[1], axis=1), dtype=DTYPE)
+        f_in = torch.cat(
+            [
+                f_in[0],
+                f_in[1].reshape(f_in[1].shape[0], -1),
+            ],
+            dim=1,
+        )
         data.f_in = f_in
         #
         data.chain_index = torch.tensor(cg.chain_index, dtype=int)
@@ -127,14 +134,27 @@ def create_topology_from_batch(
 
 def create_trajectory_from_batch(
     batch: torch_geometric.data.Batch,
+    output: torch.Tensor = None,
+    write_native: bool = False,
 ) -> List[mdtraj.Trajectory]:
+    #
+    if output is not None:
+        R = output.detach().numpy()
+    #
     traj_s = []
-    for data in batch.to_data_list():
+    for idx, data in enumerate(batch.to_data_list()):
         top = create_topology_from_data(data)
         mask = data.output_atom_mask.detach().numpy()
-        xyz = data.output_xyz.detach().numpy()[mask > 0.0]
+        xyz = []
+        if write_native or output is None:
+            xyz.append(data.output_xyz.detach().numpy()[mask > 0.0])
+        if output is not None:
+            start = int(batch._slice_dict["output_atom_mask"][idx])
+            end = int(batch._slice_dict["output_atom_mask"][idx + 1])
+            xyz.append(R[start:end][mask > 0.0])
+        xyz = np.array(xyz)
         #
-        traj = mdtraj.Trajectory(xyz=xyz[None, :], topology=top)
+        traj = mdtraj.Trajectory(xyz=xyz, topology=top)
         traj_s.append(traj)
     return traj_s
 
@@ -147,10 +167,12 @@ def test():
     #
     train_set = PDBset(base_dir, pdblist, cg_model, noise_level=0.5)
     train_loader = torch_geometric.loader.DataLoader(
-        train_set, batch_size=2, shuffle=True, num_workers=1
+        train_set, batch_size=5, shuffle=True, num_workers=1
     )
     for batch in train_loader:
-        traj_s = create_trajectory_from_batch(batch)
+        traj_s = create_trajectory_from_batch(
+            batch, batch.output_xyz, write_native=True
+        )
 
 
 if __name__ == "__main__":
