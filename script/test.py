@@ -11,6 +11,7 @@ import numpy as np
 import torch
 import torch_geometric
 
+sys.path.insert(0, 'lib')
 from libconfig import BASE, DTYPE
 from libdata import PDBset
 from libcg import ResidueBasedModel

@@ -12,6 +12,7 @@ import torch
 import torch_geometric
 import pytorch_lightning as pl
 
+sys.path.insert(0, 'lib')
 from libconfig import BASE, DTYPE
 from libdata import PDBset, create_trajectory_from_batch
 from libcg import ResidueBasedModel
@@ -51,7 +52,7 @@ class Model(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         out = self.forward(batch)
         loss = loss_f(out["R"], batch)
-        if batch_idx == 0:
+        if self.current_epoch%10 == 9 and batch_idx == 0:
             traj_s = create_trajectory_from_batch(batch, out["R"], write_native=True)
             for i, traj in enumerate(traj_s):
                 traj.save(f"validation_step_{self.current_epoch}_{i}.pdb")
@@ -66,22 +67,32 @@ def loss_f(R, batch):
 
 
 def main():
-    base_dir = BASE / "pdb.processed"
-    pdblist = BASE / "pdb/pdblist"
+    base_dir = pathlib.Path("/home/huhlim/work/ml/db/pisces")
+    pdb_dir = base_dir / "pdb"
+    pdblist_train = base_dir / "targets.train"
+    pdblist_test = base_dir / "targets.test"
+    pdblist_val = base_dir / "targets.valid"
+    #
     cg_model = functools.partial(ResidueBasedModel, center_of_mass=True)
     #
-    train_set = PDBset(base_dir, pdblist, cg_model, get_structure_information=False)
+    train_set = PDBset(pdb_dir, pdblist_train, cg_model, get_structure_information=False)
     train_loader = torch_geometric.loader.DataLoader(
-        train_set, batch_size=5, shuffle=True, num_workers=1
+        train_set, batch_size=16, shuffle=True, num_workers=8
     )
+    val_set = PDBset(pdb_dir, pdblist_val, cg_model, get_structure_information=False)
     val_loader = torch_geometric.loader.DataLoader(
-        train_set, batch_size=5, shuffle=False, num_workers=1
+        val_set, batch_size=16, shuffle=False, num_workers=8
+    )
+    test_set = PDBset(pdb_dir, pdblist_test, cg_model, get_structure_information=False)
+    test_loader = torch_geometric.loader.DataLoader(
+        test_set, batch_size=16, shuffle=False, num_workers=8
     )
     model = Model(libmodel.CONFIG)
     #
-    trainer = pl.Trainer(accelerator="cpu", max_epochs=100, check_val_every_n_epoch=10)
-    trainer.test(model, train_loader)
-    trainer.fit(model, train_loader, train_loader)
+    trainer = pl.Trainer(max_epochs=100, check_val_every_n_epoch=1, accelerator="auto", profiler="simple")
+    trainer.test(model, test_loader)
+    trainer.fit(model, train_loader, val_loader)
+    trainer.test(model, test_loader)
 
 
 if __name__ == "__main__":
