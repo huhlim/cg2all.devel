@@ -4,12 +4,16 @@
 import numpy as np
 import pathlib
 import functools
+import itertools
+import mdtraj
+from typing import List
 
 import torch
 import torch_geometric
 
 import libcg
 from libconfig import BASE, DTYPE
+from residue_constants import AMINO_ACID_s, residue_s
 
 # %%
 class PDBset(torch_geometric.data.Dataset):
@@ -74,6 +78,7 @@ class PDBset(torch_geometric.data.Dataset):
         f_in[1] = torch.tensor(np.concatenate(f_in[1], axis=1), dtype=DTYPE)
         data.f_in = f_in
         #
+        data.chain_index = torch.tensor(cg.chain_index, dtype=int)
         data.residue_type = torch.tensor(cg.residue_index, dtype=int)
         data.continuous = torch.tensor(cg.continuous, dtype=DTYPE)
         data.output_atom_mask = torch.tensor(cg.atom_mask, dtype=DTYPE)
@@ -84,6 +89,47 @@ class PDBset(torch_geometric.data.Dataset):
             data.correct_bb = torch.tensor(cg.bb[frame_index], dtype=DTYPE)
             data.correct_torsion = torch.tensor(cg.torsion[frame_index], dtype=DTYPE)
         return data
+
+
+def create_topology_from_data(data: torch_geometric.data.Data) -> mdtraj.Topology:
+    top = mdtraj.Topology()
+    #
+    chain_prev = -1
+    resSeq = 0
+    for i_res in range(data.residue_type.size(0)):
+        chain_index = data.chain_index[i_res]
+        if chain_index != chain_prev:
+            chain_prev = chain_index
+            resSeq = 0
+            top_chain = top.add_chain()
+        #
+        resSeq += 1
+        residue_type_index = int(data.residue_type[i_res])
+        residue_name = AMINO_ACID_s[residue_type_index]
+        if residue_name == 'UNK':
+            continue
+        ref_res = residue_s[residue_name]
+        top_residue = top.add_residue(residue_name, top_chain, resSeq)
+        #
+        for i_atm, atom_name in enumerate(ref_res.atom_s):
+            if data.output_atom_mask[i_res, i_atm] > 0.0:
+                element = mdtraj.core.element.Element.getBySymbol(atom_name[0])
+                top.add_atom(atom_name, element, top_residue)
+    return top
+
+
+def create_topology_from_batch(batch: torch_geometric.data.Batch) -> List[mdtraj.Topology]:
+    top_s = list(map(create_topology_from_data, batch.to_data_list()))
+    return top_s
+
+
+def create_trajectory_from_batch(batch: torch_geometric.data.Batch) -> List[mdtraj.Trajectory]:
+    traj_s = []
+    for data in batch.to_data_list():
+        top = create_topology_from_data(data)
+        traj = mdtraj.Trajectory(xyz=data.output_xyz.numpy()[None,:], topology=top)
+        traj_s.append(traj)
+    return traj_s
 
 
 # %%
@@ -97,7 +143,7 @@ def test():
         train_set, batch_size=2, shuffle=True, num_workers=1
     )
     for batch in train_loader:
-        print(batch)
+        create_trajectory_from_batch(batch)
         return
 
 
