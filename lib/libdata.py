@@ -19,8 +19,8 @@ from residue_constants import AMINO_ACID_s, residue_s
 class PDBset(torch_geometric.data.Dataset):
     def __init__(
         self,
-        basedir,
-        pdblist,
+        basedir:str,
+        pdblist:List[str],
         cg_model,
         noise_level=0.0,
         get_structure_information=False,
@@ -43,7 +43,7 @@ class PDBset(torch_geometric.data.Dataset):
     def __len__(self):
         return self.n_pdb
 
-    def __getitem__(self, index):
+    def __getitem__(self, index) -> torch_geometric.data.Data:
         pdb_id = self.pdb_s[index]
         pdb_fn = self.basedir / f"{pdb_id}.pdb"
         #
@@ -106,7 +106,7 @@ def create_topology_from_data(data: torch_geometric.data.Data) -> mdtraj.Topolog
         resSeq += 1
         residue_type_index = int(data.residue_type[i_res])
         residue_name = AMINO_ACID_s[residue_type_index]
-        if residue_name == 'UNK':
+        if residue_name == "UNK":
             continue
         ref_res = residue_s[residue_name]
         top_residue = top.add_residue(residue_name, top_chain, resSeq)
@@ -118,16 +118,23 @@ def create_topology_from_data(data: torch_geometric.data.Data) -> mdtraj.Topolog
     return top
 
 
-def create_topology_from_batch(batch: torch_geometric.data.Batch) -> List[mdtraj.Topology]:
+def create_topology_from_batch(
+    batch: torch_geometric.data.Batch,
+) -> List[mdtraj.Topology]:
     top_s = list(map(create_topology_from_data, batch.to_data_list()))
     return top_s
 
 
-def create_trajectory_from_batch(batch: torch_geometric.data.Batch) -> List[mdtraj.Trajectory]:
+def create_trajectory_from_batch(
+    batch: torch_geometric.data.Batch,
+) -> List[mdtraj.Trajectory]:
     traj_s = []
     for data in batch.to_data_list():
         top = create_topology_from_data(data)
-        traj = mdtraj.Trajectory(xyz=data.output_xyz.numpy()[None,:], topology=top)
+        mask = data.output_atom_mask.detach().numpy()
+        xyz = data.output_xyz.detach().numpy()[mask > 0.0]
+        #
+        traj = mdtraj.Trajectory(xyz=xyz[None,:], topology=top)
         traj_s.append(traj)
     return traj_s
 
@@ -143,8 +150,7 @@ def test():
         train_set, batch_size=2, shuffle=True, num_workers=1
     )
     for batch in train_loader:
-        create_trajectory_from_batch(batch)
-        return
+        traj_s = create_trajectory_from_batch(batch)
 
 
 if __name__ == "__main__":

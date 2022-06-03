@@ -53,9 +53,13 @@ def main():
             loss = loss_f(out["R"], batch)
             loss.backward()
             optimizer.step()
-            np.savez(f"out_{i}.npz", y=out["R"].detach().numpy(), y0=batch.output_xyz.detach().numpy())
+            np.savez(
+                f"out_{i}.npz",
+                y=out["R"].detach().numpy(),
+                y0=batch.output_xyz.detach().numpy(),
+            )
             print(f"loss: ({epoch} {i})", loss)
-        print (f"epoch: {epoch}", time.time() - t0)
+        print(f"epoch: {epoch}", time.time() - t0)
 
 
 if __name__ == "__main__":
