@@ -133,15 +133,15 @@ def create_trajectory_from_batch(
 ) -> List[mdtraj.Trajectory]:
     #
     if output is not None:
-        R = output.detach().numpy()
+        R = output.cpu().detach().numpy()
     #
     traj_s = []
     for idx, data in enumerate(batch.to_data_list()):
         top = create_topology_from_data(data)
-        mask = data.output_atom_mask.detach().numpy()
+        mask = data.output_atom_mask.cpu().detach().numpy()
         xyz = []
         if write_native or output is None:
-            xyz.append(data.output_xyz.detach().numpy()[mask > 0.0])
+            xyz.append(data.output_xyz.cpu().detach().numpy()[mask > 0.0])
         if output is not None:
             start = int(batch._slice_dict["output_atom_mask"][idx])
             end = int(batch._slice_dict["output_atom_mask"][idx + 1])

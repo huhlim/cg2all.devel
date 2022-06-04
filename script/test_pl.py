@@ -38,7 +38,7 @@ class Model(pl.LightningModule):
         return ret
 
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), lr=0.01)
+        optimizer = torch.optim.Adam(self.parameters(), lr=0.001)
         return optimizer
 
     def training_step(self, batch, batch_idx):
@@ -52,7 +52,7 @@ class Model(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         out = self.forward(batch)
         loss = loss_f(out["R"], batch)
-        if self.current_epoch % 10 == 9 and batch_idx == 0:
+        if batch_idx == 0:
             traj_s = create_trajectory_from_batch(batch, out["R"], write_native=True)
             for i, traj in enumerate(traj_s):
                 traj.save(f"validation_step_{self.current_epoch}_{i}.pdb")
@@ -92,7 +92,7 @@ def main():
     model = Model(libmodel.CONFIG)
     #
     trainer = pl.Trainer(
-        max_epochs=100, check_val_every_n_epoch=1, accelerator="auto", profiler="simple"
+        max_epochs=100, check_val_every_n_epoch=1, accelerator="auto", 
     )
     trainer.test(model, test_loader)
     trainer.fit(model, train_loader, val_loader)
