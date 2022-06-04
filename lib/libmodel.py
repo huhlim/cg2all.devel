@@ -158,23 +158,26 @@ def build_structure(batch, bb, sc):
         return Y
 
     #
+    device = bb.device
     residue_type = batch.residue_type
     #
-    transforms = RIGID_TRANSFORMS_TENSOR[residue_type]
-    transforms_dep = RIGID_TRANSFORMS_DEP[residue_type]
+    transforms = RIGID_TRANSFORMS_TENSOR[residue_type].to(device)
+    transforms_dep = RIGID_TRANSFORMS_DEP[residue_type].to(device)
     #
-    rigids = RIGID_GROUPS_TENSOR[residue_type]
-    rigids_dep = RIGID_GROUPS_DEP[residue_type]
+    rigids = RIGID_GROUPS_TENSOR[residue_type].to(device)
+    rigids_dep = RIGID_GROUPS_DEP[residue_type].to(device)
     #
-    opr = torch.zeros_like(transforms)
+    opr = torch.zeros_like(transforms, device=device)
     #
     n_residue = batch.residue_type.size(0)
     #
     # backbone operations
-    _q = torch.cat([torch.ones((n_residue, 1), dtype=DTYPE), bb[:, :3]], dim=1)
+    _q = torch.cat(
+        [torch.ones((n_residue, 1), dtype=DTYPE, device=device), bb[:, :3]], dim=1
+    )
     q = _q / torch.linalg.norm(_q, dim=1)[:, None]
     #
-    R = torch.zeros((n_residue, 3, 3), dtype=DTYPE)
+    R = torch.zeros((n_residue, 3, 3), dtype=DTYPE, device=device)
     R[:, 0, 0] = q[:, 0] ** 2 + q[:, 1] ** 2 - q[:, 2] ** 2 - q[:, 3] ** 2
     R[:, 1, 1] = q[:, 0] ** 2 - q[:, 1] ** 2 + q[:, 2] ** 2 - q[:, 3] ** 2
     R[:, 2, 2] = q[:, 0] ** 2 - q[:, 1] ** 2 - q[:, 2] ** 2 + q[:, 3] ** 2

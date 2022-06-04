@@ -4,6 +4,7 @@ channels:
   - defaults
   - pytorch
 dependencies:
+  - cudatoolkit=11.3
   - python
   - biopython 
   - matplotlib
@@ -18,6 +19,7 @@ dependencies:
   - pip
   - pip:
     - e3nn
+    - ml_collections
     - torch-cluster==1.6.0
     - torch-geometric==2.0.4
     - torch-scatter==2.0.9

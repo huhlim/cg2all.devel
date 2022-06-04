@@ -34,7 +34,7 @@ class PDB(object):
         self.to_atom()
         self.get_continuity()
 
-    def to_atom(self):
+    def to_atom(self, verbose=False):
         # set up
         #   - R
         #   - atom_mask
@@ -67,9 +67,10 @@ class PDB(object):
                 if atom_name.startswith("D"):
                     continue
                 if atom_name not in ref_res.atom_s:
-                    sys.stderr.write(
-                        f"Unrecognized atom_name: {residue_name} {atom_name}\n"
-                    )
+                    if verbose:
+                        sys.stderr.write(
+                            f"Unrecognized atom_name: {residue_name} {atom_name}\n"
+                        )
                     continue
                 i_atm = ref_res.atom_s.index(atom_name)
                 self.R[:, i_res, i_atm, :] = self.traj.xyz[:, atom.index, :]

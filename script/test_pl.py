@@ -12,7 +12,7 @@ import torch
 import torch_geometric
 import pytorch_lightning as pl
 
-sys.path.insert(0, 'lib')
+sys.path.insert(0, "lib")
 from libconfig import BASE, DTYPE
 from libdata import PDBset, create_trajectory_from_batch
 from libcg import ResidueBasedModel
@@ -52,7 +52,7 @@ class Model(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         out = self.forward(batch)
         loss = loss_f(out["R"], batch)
-        if self.current_epoch%10 == 9 and batch_idx == 0:
+        if self.current_epoch % 10 == 9 and batch_idx == 0:
             traj_s = create_trajectory_from_batch(batch, out["R"], write_native=True)
             for i, traj in enumerate(traj_s):
                 traj.save(f"validation_step_{self.current_epoch}_{i}.pdb")
@@ -75,7 +75,9 @@ def main():
     #
     cg_model = functools.partial(ResidueBasedModel, center_of_mass=True)
     #
-    train_set = PDBset(pdb_dir, pdblist_train, cg_model, get_structure_information=False)
+    train_set = PDBset(
+        pdb_dir, pdblist_train, cg_model, get_structure_information=False
+    )
     train_loader = torch_geometric.loader.DataLoader(
         train_set, batch_size=16, shuffle=True, num_workers=8
     )
@@ -89,7 +91,9 @@ def main():
     )
     model = Model(libmodel.CONFIG)
     #
-    trainer = pl.Trainer(max_epochs=100, check_val_every_n_epoch=1, accelerator="auto", profiler="simple")
+    trainer = pl.Trainer(
+        max_epochs=100, check_val_every_n_epoch=1, accelerator="auto", profiler="simple"
+    )
     trainer.test(model, test_loader)
     trainer.fit(model, train_loader, val_loader)
     trainer.test(model, test_loader)
