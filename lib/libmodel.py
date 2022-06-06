@@ -23,6 +23,13 @@ from residue_constants import (
     rigid_groups_tensor,
     rigid_groups_dep,
 )
+from libloss import (
+    loss_f_rigid_body,
+    loss_f_mse_R,
+    loss_f_distogram,
+    loss_f_torsion_angle,
+    loss_f_bonded_energy,
+)
 
 RIGID_TRANSFORMS_TENSOR = torch.tensor(rigid_transforms_tensor)
 RIGID_TRANSFORMS_DEP = torch.tensor(rigid_transforms_dep, dtype=torch.long)
@@ -36,6 +43,7 @@ CONFIG = ConfigDict()
 
 CONFIG_BASE = ConfigDict()
 CONFIG_BASE = {}
+CONFIG_BASE["num_recycle"] = 2
 CONFIG_BASE["num_layers"] = 3
 CONFIG_BASE["layer_type"] = "ConvLayer"
 CONFIG_BASE["in_Irreps"] = "23x0e + 2x1o"
@@ -48,6 +56,7 @@ CONFIG_BASE["activation"] = "relu"
 CONFIG_BASE["norm"] = True
 CONFIG_BASE["radius"] = 1.0
 CONFIG_BASE["skip_connection"] = True
+CONFIG_BASE["loss_weight"] = ConfigDict()
 
 CONFIG["feature_extraction"] = copy.deepcopy(CONFIG_BASE)
 CONFIG["backbone"] = copy.deepcopy(CONFIG_BASE)
@@ -60,6 +69,7 @@ CONFIG["backbone"].update(
         "out_Irreps": "3x0e + 1x1o",  # scalars for quaternions and a vector for translation
         "mid_Irreps": "10x0e + 4x1o",
         "attn_Irreps": "10x0e + 4x1o",
+        "loss_weight": {"rigid_body": 0.0, "bonded_energy": 0.0, "distogram": 0.0},
     }
 )
 
@@ -70,13 +80,28 @@ CONFIG["sidechain"].update(
         "out_Irreps": f"{MAX_TORSION*2:d}x0e",
         "mid_Irreps": "10x0e + 4x1o",
         "attn_Irreps": "10x0e + 4x1o",
+        "loss_weight": {"torsion_angle": 0.0},
+    }
+)
+
+CONFIG["loss_weight"] = ConfigDict()
+CONFIG["loss_weight"].update(
+    {
+        "rigid_body": 0.0,
+        "mse_R": 0.0,
+        "bonded_energy": 0.0,
+        "distogram": 0.0,
+        "torsion_angle": 0.0,
     }
 )
 
 
 class BaseModule(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config, compute_loss=False):
         super().__init__()
+        #
+        self.compute_loss = compute_loss
+        self.loss_weight = config.loss_weight
         #
         self.in_Irreps = o3.Irreps(config.in_Irreps)
         self.mid_Irreps = o3.Irreps(config.mid_Irreps)
@@ -88,6 +113,7 @@ class BaseModule(nn.Module):
         else:
             raise NotImplementedError
         self.skip_connection = config.skip_connection
+        self.num_recycle = max(1, config.num_recycle)
         #
         if config.layer_type == "ConvLayer":
             layer_partial = functools.partial(
@@ -109,42 +135,149 @@ class BaseModule(nn.Module):
                 activation=activation,
                 norm=config.norm,
             )
+        #
         self.layer_0 = layer_partial(self.in_Irreps, self.mid_Irreps)
         self.layer_1 = layer_partial(self.mid_Irreps, self.out_Irreps)
 
         layer = layer_partial(self.mid_Irreps, self.mid_Irreps)
-        self.layer_s = nn.ModuleList([layer for _ in range(config.num_layers - 2)])
+        self.layer_s = nn.ModuleList([layer for _ in range(config.num_layers)])
 
     def forward(self, batch, feat):
-        feat = self.layer_0(batch, feat)
-        for i, layer in enumerate(self.layer_s):
-            if self.skip_connection:
-                feat = layer(batch, feat) + feat
+        loss_out = {}
+        #
+        feat, graph = self.layer_0(batch, feat)
+        radius_prev = self.layer_0.radius
+        #
+        for k in range(self.num_recycle):
+            for i, layer in enumerate(self.layer_s):
+                feat0 = feat
+                if layer.radius == radius_prev:
+                    feat, graph = layer(batch, feat, graph)
+                else:
+                    feat, graph = layer(batch, feat)
+                if self.skip_connection:
+                    feat = feat + feat0
+                radius_prev = layer.radius
+
+            if self.layer_1.radius == radius_prev:
+                feat_out, graph = self.layer_1(batch, feat, graph)
             else:
-                feat = layer(batch, feat)
-        feat = self.layer_1(batch, feat)
-        return feat
+                feat_out, graph = self.layer_1(batch, feat)
+            #
+            if (self.compute_loss or self.training) and (k + 1 != self.num_recycle):
+                for loss_name, loss_value in self.loss_f(feat_out, batch).items():
+                    if loss_name in loss_out:
+                        loss_out[loss_name] += loss_value
+                    else:
+                        loss_out[loss_name] = loss_value
+
+        return feat_out, loss_out
+
+    def loss_f(self, f_out, batch):
+        return {}
+
+
+class FeatureExtractionModule(BaseModule):
+    def __init__(self, config, compute_loss=False):
+        super().__init__(config, compute_loss=compute_loss)
+
+
+class BackboneModule(BaseModule):
+    def __init__(self, config, compute_loss=False):
+        super().__init__(config, compute_loss=compute_loss)
+
+    def loss_f(self, f_out, batch):
+        R = build_structure(batch, f_out, sc=None)
+        #
+        loss = {}
+        if self.loss_weight.get("rigid_body", 0.0) > 0.0:
+            loss["rigid_body"] = (
+                loss_f_rigid_body(R, batch.output_xyz) * self.loss_weight.rigid_body
+            )
+        if self.loss_weight.get("bonded_energy", 0.0) > 0.0:
+            loss["bonded_energy"] = (
+                loss_f_bonded_energy(R, batch.continuous)
+                * self.loss_weight.bonded_energy
+            )
+        if self.loss_weight.get("distogram", 0.0) > 0.0:
+            loss["distogram"] = loss_f_distogram(R, batch) * self.loss_weight.distogram
+        return loss
+
+
+class SidechainModule(BaseModule):
+    def __init__(self, config, compute_loss=False):
+        super().__init__(config, compute_loss=compute_loss)
+
+    def loss_f(self, f_out, batch):
+        loss = {}
+        if self.loss_weight.get("torsion_angle", 0.0) > 0.0:
+            loss["torsion_angle"] = (
+                loss_f_torsion_angle(f_out, batch.correct_torsion, batch.torsion_mask)
+                * self.loss_weight.torsion_angle
+            )
+        return loss
 
 
 class Model(nn.Module):
-    def __init__(self, _config):
+    def __init__(self, _config, compute_loss=False):
         super().__init__()
         #
-        self.feature_extraction_module = BaseModule(_config.feature_extraction)
-        self.backbone_module = BaseModule(_config.backbone)
-        self.sidechain_module = BaseModule(_config.sidechain)
+        self.compute_loss = compute_loss
+        self.loss_weight = _config.loss_weight
+        #
+        self.feature_extraction_module = FeatureExtractionModule(
+            _config.feature_extraction, compute_loss=False
+        )
+        self.backbone_module = BackboneModule(
+            _config.backbone, compute_loss=compute_loss
+        )
+        self.sidechain_module = SidechainModule(
+            _config.sidechain, compute_loss=compute_loss
+        )
 
     def forward(self, batch):
-        f_out = self.feature_extraction_module(batch, batch.f_in)
+        f_out, _ = self.feature_extraction_module(batch, batch.f_in)
         #
         ret = {}
-        ret["bb"] = self.backbone_module(batch, f_out)
-        ret["sc"] = self.sidechain_module(batch, f_out)
+        loss = {}
+        ret["bb"], loss["bb"] = self.backbone_module(batch, f_out)
+        ret["sc"], loss["sc"] = self.sidechain_module(batch, f_out)
         ret["R"] = build_structure(batch, ret["bb"], ret["sc"])
-        return ret
+        if self.compute_loss or self.training:
+            loss["R"] = self.loss_f(ret, batch)
+        return ret, loss
+
+    def loss_f(self, ret, batch):
+        R = ret["R"]
+        #
+        loss = {}
+        if self.loss_weight.get("rigid_body", 0.0) > 0.0:
+            loss["rigid_body"] = (
+                loss_f_rigid_body(R, batch.output_xyz) * self.loss_weight.rigid_body
+            )
+        if self.loss_weight.get("mse_R", 0.0) > 0.0:
+            loss["mse_R"] = (
+                loss_f_mse_R(R, batch.output_xyz, batch.output_atom_mask)
+                * self.loss_weight.mse_R
+            )
+        if self.loss_weight.get("bonded_energy", 0.0) > 0.0:
+            loss["bonded_energy"] = (
+                loss_f_bonded_energy(R, batch.continuous)
+                * self.loss_weight.bonded_energy
+            )
+        if self.loss_weight.get("distogram", 0.0) > 0.0:
+            loss["distogram"] = loss_f_distogram(R, batch) * self.loss_weight.distogram
+        if self.loss_weight.get("torsion_angle", 0.0) > 0.0:
+            loss["torsion_angle"] = (
+                loss_f_torsion_angle(
+                    ret["sc"], batch.correct_torsion, batch.torsion_mask
+                )
+                * self.loss_weight.torsion_angle
+            )
+        return loss
 
 
-def build_structure(batch, bb, sc):
+def build_structure(batch, bb, sc=None):
     def rotate_matrix(R, X):
         return torch.einsum("...ij,...jk->...ik", R, X)
 
@@ -157,7 +290,6 @@ def build_structure(batch, bb, sc):
         Y[..., 3, :] = rotate_vector(X[..., :3, :], y[..., 3, :]) + X[..., 3, :]
         return Y
 
-    #
     device = bb.device
     residue_type = batch.residue_type
     #
@@ -191,23 +323,25 @@ def build_structure(batch, bb, sc):
     opr[:, 0, 3, :] = bb[:, 3:] + batch.pos
 
     # sidechain operations
-    opr[:, 1:, 0, 0] = 1.0
-    torsion = sc.reshape(n_residue, -1, 2)
-    norm = torch.linalg.norm(torsion, dim=2)
-    sine = torsion[:, :, 0] / norm
-    cosine = torsion[:, :, 1] / norm
-    opr[:, 1:, 1, 1] = cosine
-    opr[:, 1:, 1, 2] = -sine
-    opr[:, 1:, 2, 1] = sine
-    opr[:, 1:, 2, 2] = cosine
+    if sc is not None:
+        opr[:, 1:, 0, 0] = 1.0
+        torsion = sc.reshape(n_residue, -1, 2)
+        norm = torch.linalg.norm(torsion, dim=2)
+        sine = torsion[:, :, 0] / norm
+        cosine = torsion[:, :, 1] / norm
+        opr[:, 1:, 1, 1] = cosine
+        opr[:, 1:, 1, 2] = -sine
+        opr[:, 1:, 2, 1] = sine
+        opr[:, 1:, 2, 2] = cosine
     #
     opr = combine_operations(transforms, opr)
     #
-    for i_tor in range(1, MAX_RIGID):
-        prev = torch.take_along_dim(
-            opr.clone(), transforms_dep[:, i_tor][:, None, None, None], 1
-        )
-        opr[:, i_tor] = combine_operations(prev[:, 0], opr[:, i_tor])
+    if sc is not None:
+        for i_tor in range(1, MAX_RIGID):
+            prev = torch.take_along_dim(
+                opr.clone(), transforms_dep[:, i_tor][:, None, None, None], 1
+            )
+            opr[:, i_tor] = combine_operations(prev[:, 0], opr[:, i_tor])
 
     opr = torch.take_along_dim(opr, rigids_dep[..., None, None], axis=1)
     R = rotate_vector(opr[:, :, :3], rigids) + opr[:, :, 3]
