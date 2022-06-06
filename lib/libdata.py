@@ -56,7 +56,10 @@ class PDBset(torch_geometric.data.Dataset):
         dr[1:-1] /= np.linalg.norm(dr[1:-1], axis=1)[:, None]
         dr[:-1][cg.continuous == 0.0] = 0.0
         if self.noise_level > 0.0:
-            r += np.random.normal(scale=self.noise_level, size=r.shape)
+            noise_size = np.random.normal(scale=self.noise_level)
+            r += np.random.normal(scale=noise_size, size=r.shape)
+        else:
+            noise_size = 0.0
         #
         data = torch_geometric.data.Data(
             pos=torch.tensor(r[cg.atom_mask_cg == 1.0], dtype=DTYPE)
@@ -69,14 +72,20 @@ class PDBset(torch_geometric.data.Dataset):
         index = cg.bead_index[cg.atom_mask_cg == 1.0]
         f_in[0].append(np.eye(cg.max_bead_type)[index])
         # noise-level
-        f_in[0].append(np.full((r.shape[0], 1), self.noise_level))
+        f_in[0].append(np.full((r.shape[0], 1), noise_size))
         f_in[0] = torch.tensor(np.concatenate(f_in[0], axis=1), dtype=DTYPE)
         #
         # 1d: unit vectors from adjacent residues to the current residue
         f_in[1].append(dr[:-1, None])
         f_in[1].append(-dr[1:, None])
         f_in[1] = torch.tensor(np.concatenate(f_in[1], axis=1), dtype=DTYPE)
-        f_in = torch.cat([f_in[0], f_in[1].reshape(f_in[1].shape[0], -1),], dim=1,)
+        f_in = torch.cat(
+            [
+                f_in[0],
+                f_in[1].reshape(f_in[1].shape[0], -1),
+            ],
+            dim=1,
+        )
         data.f_in = f_in
         #
         data.chain_index = torch.tensor(cg.chain_index, dtype=int)
@@ -89,6 +98,7 @@ class PDBset(torch_geometric.data.Dataset):
             cg.get_structure_information()
             data.correct_bb = torch.tensor(cg.bb[frame_index], dtype=DTYPE)
             data.correct_torsion = torch.tensor(cg.torsion[frame_index], dtype=DTYPE)
+            data.torsion_mask = torch.tensor(cg.torsion_mask, dtype=DTYPE)
         return data
 
 
@@ -135,7 +145,7 @@ def create_trajectory_from_batch(
     if output is not None:
         R = output.cpu().detach().numpy()
     #
-    write_native = (write_native or output is None)
+    write_native = write_native or output is None
     #
     traj_s = []
     for idx, data in enumerate(batch.to_data_list()):

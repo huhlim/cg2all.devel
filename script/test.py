@@ -2,7 +2,7 @@
 
 import os
 import sys
-import time
+import copy
 import pathlib
 import functools
 
@@ -15,17 +15,9 @@ sys.path.insert(0, "lib")
 from libconfig import BASE, DTYPE
 from libdata import PDBset
 from libcg import ResidueBasedModel
-from libloss import loss_f_mse_R, loss_f_mse_R_CA, loss_f_bonded_energy
 from libmodel import CONFIG, Model
 
-# torch.autograd.set_detect_anomaly(True)
-
-
-def loss_f(R, batch):
-    loss_0 = loss_f_mse_R_CA(R, batch.output_xyz) * 1.0
-    loss_1 = loss_f_mse_R(R, batch.output_xyz, batch.output_atom_mask) * 0.05
-    loss_2 = loss_f_bonded_energy(R, batch.continuous, weight_s=(1.0, 0.0, 0.0)) * 0.1
-    return loss_0 + loss_1 + loss_2
+torch.autograd.set_detect_anomaly(True)
 
 
 def main():
@@ -35,32 +27,36 @@ def main():
     #
     train_set = PDBset(base_dir, pdblist, cg_model, get_structure_information=True)
     train_loader = torch_geometric.loader.DataLoader(
-        train_set, batch_size=5, shuffle=True, num_workers=1
+        train_set, batch_size=1, shuffle=True, num_workers=1
     )
-    # batch = next(iter(train_loader))
-    # for x,y in zip(batch.continuous, batch.batch):
-    #     print (x,y)
-    # return
+    batch = next(iter(train_loader))
     #
-    model = Model(CONFIG)
+    config = copy.deepcopy(CONFIG)
+    config.update_from_flattened_dict(
+        {
+            "backbone.loss_weight.rigid_body": 1.0,
+            "backbone.loss_weight.distogram": 1.0,
+            "sidechain.loss_weight.torsion_angle": 0.1,
+            "loss_weight.mse_R": 0.1,
+            "loss_weight.rigid_body": 1.0,
+            "loss_weight.distogram": 1.0,
+        }
+    )
+    #
+    model = Model(config, compute_loss=True)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
     model.train()
     #
-    for epoch in range(100):
-        t0 = time.time()
-        for i, batch in enumerate(train_loader):
-            optimizer.zero_grad()
-            out = model(batch)
-            loss = loss_f(out["R"], batch)
-            loss.backward()
-            optimizer.step()
-            np.savez(
-                f"out_{i}.npz",
-                y=out["R"].detach().numpy(),
-                y0=batch.output_xyz.detach().numpy(),
-            )
-            print(f"loss: ({epoch} {i})", loss)
-        print(f"epoch: {epoch}", time.time() - t0)
+    optimizer.zero_grad()
+    out, loss = model(batch)
+    loss_sum = torch.tensor(0.0)
+    for module_name, loss_per_module in loss.items():
+        for loss_name, loss_value in loss_per_module.items():
+            loss_sum += loss_value
+            print(module_name, loss_name, loss_value)
+    print(loss_sum)
+    loss_sum.backward()
+    optimizer.step()
 
 
 if __name__ == "__main__":
