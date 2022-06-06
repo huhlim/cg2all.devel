@@ -25,13 +25,25 @@ def loss_f_mse_R(R, R_ref, R_mask):
     return dr_sq / R.size(0)
 
 
-# MSE loss for comparing C-alpha coordinates
-def loss_f_mse_R_CA(R, R_ref):
-    return torch.mean(torch.pow(R[:, ATOM_INDEX_CA, :] - R_ref[:, ATOM_INDEX_CA, :], 2))
+def loss_f_rigid_body(R: torch.Tensor, R_ref: torch.Tensor) -> torch.Tensor:
+    loss_translation = torch.mean(
+        torch.pow(R[:, ATOM_INDEX_CA, :] - R_ref[:, ATOM_INDEX_CA, :], 2)
+    )
+    #
+    v0 = v_norm(R[:, ATOM_INDEX_C, :] - R[:, ATOM_INDEX_CA, :])
+    v0_ref = v_norm(R_ref[:, ATOM_INDEX_C, :] - R_ref[:, ATOM_INDEX_CA, :])
+    v1 = v_norm(R[:, ATOM_INDEX_N, :] - R[:, ATOM_INDEX_CA, :])
+    v1_ref = v_norm(R_ref[:, ATOM_INDEX_N, :] - R_ref[:, ATOM_INDEX_CA, :])
+    loss_rotation = torch.mean(
+        torch.pow(1.0 - torch.inner(v0, v0_ref), 2)
+        + torch.mean(torch.pow(1.0 - torch.inner(v1, v1_ref), 2))
+    )
+    #
+    return loss_translation + loss_rotation
 
 
 # Bonded energy penalties
-def loss_f_bonded_energy(R, is_continuous, weight_s=(1.0, 1.0, 1.0)):
+def loss_f_bonded_energy(R, is_continuous, weight_s=(1.0, 0.0, 0.0)):
     if weight_s[0] == 0.0:
         return 0.0
 
@@ -88,3 +100,53 @@ def loss_f_bonded_energy(R, is_continuous, weight_s=(1.0, 1.0, 1.0)):
         + angle_energy * weight_s[1]
         + torsion_energy * weight_s[2]
     )
+
+
+def loss_f_torsion_angle(sc, sc0, mask, norm_weight=0.01):
+    torsion = sc.reshape(sc.size(0), -1, 2)
+    norm = torch.linalg.norm(torsion, dim=2)
+    #
+    sc_cos = torch.cos(sc0)
+    sc_sin = torch.sin(sc0)
+    #
+    # loss norm is to make torsion angle prediction stable
+    loss_norm = torch.sum(torch.pow(norm - 1.0, 2) * mask)
+    loss_cos = torch.sum(torch.pow(torsion[:, :, 0] / norm - sc_cos, 2) * mask)
+    loss_sin = torch.sum(torch.pow(torsion[:, :, 1] / norm - sc_sin, 2) * mask)
+    loss = (loss_cos + loss_sin + loss_norm * norm_weight) / sc.size(0)
+    return loss
+
+
+def loss_f_distogram(_R, batch):
+    loss = 0.0
+    for idx, data in enumerate(batch.to_data_list()):
+        R_ref = data.output_xyz[:, ATOM_INDEX_CA, :]
+        start = int(batch._slice_dict["output_atom_mask"][idx])
+        end = int(batch._slice_dict["output_atom_mask"][idx + 1])
+        d_ref = R_to_dist(R_ref)
+        h_ref = dist_to_distogram(d_ref, return_index=True)[None, :]
+        #
+        R = _R[start:end, ATOM_INDEX_CA, :]
+        d = R_to_dist(R)
+        h = torch.moveaxis(dist_to_distogram(d, return_index=False), -1, 0)[None, :]
+        #
+        loss += torch.nn.functional.cross_entropy(h, h_ref)
+    return loss
+
+
+def R_to_dist(R: torch.Tensor) -> torch.Tensor:
+    dr = R[:, None] - R[None, :]
+    return torch.sqrt(torch.sum(torch.pow(dr, 2), dim=-1))
+
+
+def dist_to_distogram(
+    d: torch.Tensor, d_min=0.2, d_max=1.0, d_bin=0.05, return_index=False
+) -> torch.Tensor:
+    idx = torch.floor((torch.clip(d, min=d_min, max=d_max - EPS) - d_min) / d_bin).type(
+        torch.long
+    )
+    if return_index:
+        return idx
+    else:
+        n_bin = int((d_max - d_min) / d_bin)
+        return torch.eye(n_bin, dtype=DTYPE, device=d.device)[idx]
