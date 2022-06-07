@@ -133,16 +133,14 @@ def main():
             "feature_extraction.layer_type": "SE3Transformer",
             "backbone.layer_type": "SE3Transformer",
             "sidechain.layer_type": "SE3Transformer",
-            "feature_extraction.num_recycle": 1,
-            "backbone.num_recycle": 1,
-            "sidechain.num_recycle": 1,
+            "feature_extraction.num_recycle": 2,
+            "backbone.num_recycle": 2,
+            "sidechain.num_recycle": 2,
             "feature_extraction.num_layers": 3,
             "backbone.num_layers": 3,
             "sidechain.num_layers": 3,
             "backbone.loss_weight.rigid_body": 0.5,
             "backbone.loss_weight.distogram": 0.05,
-            "backbone.activation": ["relu", "relu"],
-            "sidechain.activation": ["relu", "relu"],
             "sidechain.loss_weight.torsion_angle": 0.05,
             "loss_weight.mse_R": 0.1,
             "loss_weight.rigid_body": 1.0,
@@ -152,20 +150,21 @@ def main():
         }
     )
     model = Model(config, compute_loss=True)
+    trainer = pl.Trainer(
+        max_epochs=100,
+        check_val_every_n_epoch=1,
+        log_every_n_steps=1,
+        accelerator="auto",
+        profiler="simple",
+    )
     # trainer = pl.Trainer(
-    #     max_epochs=100,
     #     check_val_every_n_epoch=1,
     #     accelerator="auto",
-    #     profiler="simple",
+    #     log_every_n_steps=1,
+    #     max_epochs=1,
     # )
-    trainer = pl.Trainer(
-        check_val_every_n_epoch=1,
-        accelerator="auto",
-        log_every_n_steps=1,
-        max_epochs=1,
-    )
     trainer.fit(model, train_loader, val_loader)
-    # trainer.test(model, test_loader)
+    trainer.test(model, test_loader)
 
 
 if __name__ == "__main__":
