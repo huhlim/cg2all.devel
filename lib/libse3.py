@@ -74,7 +74,7 @@ class Convolution(nn.Module):
             basis="smooth_finite",
             cutoff=True,
         )
-        radial_embedding = radial_embedding.mul(self.num_radial_basis ** 0.5)
+        radial_embedding = radial_embedding.mul(self.num_radial_basis**0.5)
         weight = self.fc(radial_embedding)
         #
         # evaluate tensor product, f_j (x) hY()
@@ -82,7 +82,7 @@ class Convolution(nn.Module):
 
         # sum over neighboring points
         f_out = scatter(summand, edge_dst, dim=0, dim_size=num_nodes)
-        f_out = f_out.div(num_neighbors ** 0.5)
+        f_out = f_out.div(num_neighbors**0.5)
 
         return f_out
 
@@ -166,7 +166,7 @@ class SE3_Transformer(nn.Module):
             basis="smooth_finite",
             cutoff=True,
         )
-        radial_embedding = radial_embedding.mul(self.num_radial_basis ** 0.5)
+        radial_embedding = radial_embedding.mul(self.num_radial_basis**0.5)
         edge_weight_cutoff = e3nn.math.soft_unit_step(
             10 * (1 - edge_len / self.max_radius)
         )

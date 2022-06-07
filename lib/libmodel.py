@@ -13,7 +13,7 @@ import e3nn.nn
 from e3nn import o3
 
 import liblayer
-from libconfig import DTYPE
+from libconfig import DTYPE, EPS
 from residue_constants import (
     MAX_ATOM,
     MAX_TORSION,
@@ -53,10 +53,10 @@ CONFIG_BASE["mid_Irreps"] = "40x0e + 20x1o"
 CONFIG_BASE["attn_Irreps"] = "40x0e + 20x1o"
 CONFIG_BASE["l_max"] = 2
 CONFIG_BASE["mlp_num_neurons"] = [20, 20]
-CONFIG_BASE["activation"] = "relu"
+CONFIG_BASE["activation"] = ["relu", None]
 CONFIG_BASE["norm"] = True
 CONFIG_BASE["radius"] = 1.0
-CONFIG_BASE["skip_connection"] = True
+CONFIG_BASE["skip_connection"] = False
 CONFIG_BASE["loss_weight"] = ConfigDict()
 
 CONFIG["feature_extraction"] = copy.deepcopy(CONFIG_BASE)
@@ -68,8 +68,8 @@ CONFIG["backbone"].update(
         "num_layers": 2,
         "in_Irreps": "20x0e + 10x1o",
         "out_Irreps": "3x0e + 1x1o",  # scalars for quaternions and a vector for translation
-        "mid_Irreps": "10x0e + 4x1o",
-        "attn_Irreps": "10x0e + 4x1o",
+        "mid_Irreps": "20x0e + 10x1o",
+        "attn_Irreps": "20x0e + 10x1o",
         "loss_weight": {"rigid_body": 0.0, "bonded_energy": 0.0, "distogram": 0.0},
     }
 )
@@ -79,8 +79,8 @@ CONFIG["sidechain"].update(
         "num_layers": 2,
         "in_Irreps": "20x0e + 10x1o",
         "out_Irreps": f"{MAX_TORSION*2:d}x0e",
-        "mid_Irreps": "10x0e + 4x1o",
-        "attn_Irreps": "10x0e + 4x1o",
+        "mid_Irreps": "20x0e + 10x1o",
+        "attn_Irreps": "20x0e + 10x1o",
         "loss_weight": {"torsion_angle": 0.0},
     }
 )
@@ -107,10 +107,20 @@ class BaseModule(nn.Module):
         self.in_Irreps = o3.Irreps(config.in_Irreps)
         self.mid_Irreps = o3.Irreps(config.mid_Irreps)
         self.out_Irreps = o3.Irreps(config.out_Irreps)
-        if config.activation == "relu":
+        if config.activation[0] is None:
+            activation = None
+        elif config.activation[0] == "relu":
             activation = torch.relu
-        elif config.activation == "elu":
+        elif config.activation[0] == "elu":
             activation = torch.elu
+        else:
+            raise NotImplementedError
+        if config.activation[1] is None:
+            activation_final = None
+        elif config.activation[1] == "relu":
+            activation_final = torch.relu
+        elif config.activation[1] == "elu":
+            activation_final = torch.elu
         else:
             raise NotImplementedError
         self.skip_connection = config.skip_connection
@@ -139,6 +149,12 @@ class BaseModule(nn.Module):
         #
         self.layer_0 = layer_partial(self.in_Irreps, self.mid_Irreps)
         self.layer_1 = layer_partial(self.mid_Irreps, self.out_Irreps)
+        if activation_final is None:
+            self.activation_final = None
+        else:
+            self.activation_final = e3nn.nn.NormActivation(
+                self.out_Irreps, activation_final
+            )
 
         layer = layer_partial(self.mid_Irreps, self.mid_Irreps)
         self.layer_s = nn.ModuleList([layer for _ in range(config.num_layers)])
@@ -151,7 +167,8 @@ class BaseModule(nn.Module):
         #
         for k in range(self.num_recycle):
             for i, layer in enumerate(self.layer_s):
-                feat0 = feat
+                if self.skip_connection:
+                    feat0 = feat.clone()
                 if layer.radius == radius_prev:
                     feat, graph = layer(batch, feat, graph)
                 else:
@@ -164,6 +181,8 @@ class BaseModule(nn.Module):
                 feat_out, graph = self.layer_1(batch, feat, graph)
             else:
                 feat_out, graph = self.layer_1(batch, feat)
+            if self.activation_final is not None:
+                feat_out = self.activation_final(feat_out)
             radius_prev = self.layer_1.radius
             #
             if (self.compute_loss or self.training) and (k + 1 != self.num_recycle):
@@ -339,7 +358,8 @@ def build_structure(batch, bb, sc=None):
     # sidechain operations
     if sc is not None:
         opr[:, 1:, 0, 0] = 1.0
-        torsion = sc.reshape(n_residue, -1, 2)
+        torsion = sc.reshape(n_residue, -1, 2).clone()
+        torsion[:, :, 1] = torsion[:, :, 1] + EPS
         norm = torch.linalg.norm(torsion, dim=2)
         sine = torsion[:, :, 0] / norm
         cosine = torsion[:, :, 1] / norm

@@ -56,7 +56,10 @@ class ConvLayer(nn.Module):
         #
 
     def forward(
-        self, data: torch_geometric.data.Batch, f_in: torch.Tensor, graph=None,
+        self,
+        data: torch_geometric.data.Batch,
+        f_in: torch.Tensor,
+        graph=None,
     ) -> torch.Tensor:
         n_node = data.pos.size(0)
         if graph is None:
@@ -79,7 +82,7 @@ class ConvLayer(nn.Module):
             basis="smooth_finite",
             cutoff=True,
         )
-        edge_length_embedding = edge_length_embedding.mul(self.mlp_num_basis ** 0.5)
+        edge_length_embedding = edge_length_embedding.mul(self.mlp_num_basis**0.5)
         weight = self.mlp(edge_length_embedding)
         #
         f_out = self.tensor_product(f_in[edge_src], sh, weight)
@@ -142,12 +145,18 @@ class SE3Transformer(nn.Module):
         self.return_attn = return_attn
 
     def forward(
-        self, data: torch_geometric.data.Data, f_in: torch.Tensor,
+        self,
+        data: torch_geometric.data.Data,
+        f_in: torch.Tensor,
+        graph=None,
     ) -> torch.Tensor:
         n_node = data.pos.size(0)
-        edge_src, edge_dst = torch_cluster.radius_graph(
-            data.pos, self.radius, batch=data.batch
-        )
+        if graph is None:
+            edge_src, edge_dst = torch_cluster.radius_graph(
+                data.pos, self.radius, batch=data.batch
+            )
+        else:
+            edge_src, edge_dst = graph
         edge_vec = data.pos[edge_dst] - data.pos[edge_src]
         #
         sh = o3.spherical_harmonics(
@@ -163,7 +172,7 @@ class SE3Transformer(nn.Module):
             basis="smooth_finite",
             cutoff=True,
         )
-        edge_length_embedding = edge_length_embedding.mul(self.mlp_num_basis ** 0.5)
+        edge_length_embedding = edge_length_embedding.mul(self.mlp_num_basis**0.5)
         edge_weight_cutoff = e3nn.math.soft_unit_step(
             10.0 * (1.0 - edge_length / self.radius)
         )
@@ -174,19 +183,21 @@ class SE3Transformer(nn.Module):
         v = self.tensor_product_v(f_in[edge_src], sh, self.mlp_v(edge_length_embedding))
         #
         # compute the softmax (per edge)
-        exp = edge_weight_cutoff[:, None] * self.dot_product(q[edge_dst], k).exp()
+        _dot = self.dot_product(q[edge_dst], k)
+        dot = _dot - _dot.max()  # to avoid numerical issues
+        exp = edge_weight_cutoff[:, None] * dot.exp()
         z = torch_scatter.scatter(exp, edge_dst, dim=0, dim_size=len(f_in))
         z[z == 0] = 1.0
         alpha = exp / z[edge_dst]
         #
         f_out = torch_scatter.scatter(
-            alpha.sqrt() * v, edge_dst, dim=0, dim_size=len(f_in)
+            alpha.relu().sqrt() * v, edge_dst, dim=0, dim_size=len(f_in)
         )
         if self.norm is not None:
             f_out = self.norm(f_out)
         if self.return_attn:
             attn = torch.zeros((n_node, n_node), dtype=torch.float)
             attn[edge_src, edge_dst] = alpha[:, 0]
-            return f_out, attn
+            return f_out, (edge_src, edge_dst), attn
         else:
-            return f_out
+            return f_out, (edge_src, edge_dst)
