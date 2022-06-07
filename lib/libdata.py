@@ -79,13 +79,7 @@ class PDBset(torch_geometric.data.Dataset):
         f_in[1].append(dr[:-1, None])
         f_in[1].append(-dr[1:, None])
         f_in[1] = torch.tensor(np.concatenate(f_in[1], axis=1), dtype=DTYPE)
-        f_in = torch.cat(
-            [
-                f_in[0],
-                f_in[1].reshape(f_in[1].shape[0], -1),
-            ],
-            dim=1,
-        )
+        f_in = torch.cat([f_in[0], f_in[1].reshape(f_in[1].shape[0], -1),], dim=1,)
         data.f_in = f_in
         #
         data.chain_index = torch.tensor(cg.chain_index, dtype=int)

@@ -163,6 +163,7 @@ class BaseModule(nn.Module):
                 feat_out, graph = self.layer_1(batch, feat, graph)
             else:
                 feat_out, graph = self.layer_1(batch, feat)
+            radius_prev = self.layer_1.radius
             #
             if (self.compute_loss or self.training) and (k + 1 != self.num_recycle):
                 for loss_name, loss_value in self.loss_f(feat_out, batch).items():

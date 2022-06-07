@@ -56,10 +56,7 @@ class ConvLayer(nn.Module):
         #
 
     def forward(
-        self,
-        data: torch_geometric.data.Batch,
-        f_in: torch.Tensor,
-        graph = None,
+        self, data: torch_geometric.data.Batch, f_in: torch.Tensor, graph=None,
     ) -> torch.Tensor:
         n_node = data.pos.size(0)
         if graph is None:
@@ -82,7 +79,7 @@ class ConvLayer(nn.Module):
             basis="smooth_finite",
             cutoff=True,
         )
-        edge_length_embedding = edge_length_embedding.mul(self.mlp_num_basis**0.5)
+        edge_length_embedding = edge_length_embedding.mul(self.mlp_num_basis ** 0.5)
         weight = self.mlp(edge_length_embedding)
         #
         f_out = self.tensor_product(f_in[edge_src], sh, weight)
@@ -145,9 +142,7 @@ class SE3Transformer(nn.Module):
         self.return_attn = return_attn
 
     def forward(
-        self,
-        data: torch_geometric.data.Data,
-        f_in: torch.Tensor,
+        self, data: torch_geometric.data.Data, f_in: torch.Tensor,
     ) -> torch.Tensor:
         n_node = data.pos.size(0)
         edge_src, edge_dst = torch_cluster.radius_graph(
@@ -168,7 +163,7 @@ class SE3Transformer(nn.Module):
             basis="smooth_finite",
             cutoff=True,
         )
-        edge_length_embedding = edge_length_embedding.mul(self.mlp_num_basis**0.5)
+        edge_length_embedding = edge_length_embedding.mul(self.mlp_num_basis ** 0.5)
         edge_weight_cutoff = e3nn.math.soft_unit_step(
             10.0 * (1.0 - edge_length / self.radius)
         )

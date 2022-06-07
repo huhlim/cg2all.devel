@@ -136,17 +136,27 @@ def loss_f_distogram(_R, batch):
 
 def R_to_dist(R: torch.Tensor) -> torch.Tensor:
     dr = R[:, None] - R[None, :]
-    return torch.sqrt(torch.sum(torch.pow(dr, 2), dim=-1))
+    return v_size(dr)
 
 
 def dist_to_distogram(
     d: torch.Tensor, d_min=0.2, d_max=1.0, d_bin=0.05, return_index=False
 ) -> torch.Tensor:
-    idx = torch.floor((torch.clip(d, min=d_min, max=d_max - EPS) - d_min) / d_bin).type(
-        torch.long
-    )
     if return_index:
+        idx = torch.floor(
+            (torch.clip(d, min=d_min, max=d_max - EPS) - d_min) / d_bin
+        ).type(torch.long)
         return idx
     else:
         n_bin = int((d_max - d_min) / d_bin)
-        return torch.eye(n_bin, dtype=DTYPE, device=d.device)[idx]
+        d0 = (
+            torch.arange(d_min, d_max + EPS, d_bin, device=d.device, dtype=DTYPE)
+            + d_bin * 0.5
+        )
+        delta_d = torch.clip(d[:, :, None], min=d_min) - d0[None, None, :]
+        h = torch.exp(-0.5 * torch.pow(delta_d / (2.0 * d_bin), 2))
+        h_sum = torch.sum(h[:,:,:-1], dim=-1)
+        h = h / torch.clip(h_sum[:, :, None], min=1.0)
+        h_last = 1.0 - torch.clip(h_sum, min=0.0, max=1.0)
+        h[:, :, -1] += (h_last - h[:,:,-1])
+        return h

@@ -44,12 +44,13 @@ def main():
     )
     #
     model = Model(config, compute_loss=True)
+    model = model.to("cuda")
     optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
     model.train()
     #
     optimizer.zero_grad()
-    out, loss = model(batch)
-    loss_sum = torch.tensor(0.0)
+    out, loss = model(batch.to("cuda"))
+    loss_sum = torch.tensor(0.0, device="cuda")
     for module_name, loss_per_module in loss.items():
         for loss_name, loss_value in loss_per_module.items():
             loss_sum += loss_value
