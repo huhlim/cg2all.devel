@@ -168,7 +168,7 @@ def update_by_closest_method(R, atom_mask, i_res, ref_res, tor, amb, opr_dict):
     #
     opr_s = [[], []]
     rigid_s = []
-    opr_prev = opr_dict[tuple(prev)]
+    opr_prev = opr_dict.get(tuple(prev), None)
     if opr_prev is None:
         return None, None, None
     #
@@ -220,7 +220,7 @@ def update_by_permute_method(R, atom_mask, i_res, ref_res, tor, amb, opr_dict):
             t_delta = t_ang - t_ang0
             #
             opr = rotate_x(t_delta)
-            opr_prev = opr_dict[tuple(prev)]
+            opr_prev = opr_dict.get(tuple(prev), None)
             if opr_prev is None:
                 return None, None, None
             opr = combine_opr_s([opr, rigid_tR, (opr_prev[0][k], opr_prev[1][k])])
@@ -281,7 +281,7 @@ def update_by_periodic_method(R, atom_mask, i_res, ref_res, tor, amb, opr_dict):
     periodic_s = [alt[3:] for alt in tor.atom_alt_s]
     for k in range(R.shape[0]):
         opr = rotate_x(t_delta[k])
-        opr_prev = opr_dict[tuple(prev)]
+        opr_prev = opr_dict.get(tuple(prev), None)
         if opr_prev is None:
             return None, None, None
         opr = combine_opr_s([opr, rigid_tR, (opr_prev[0][k], opr_prev[1][k])])
