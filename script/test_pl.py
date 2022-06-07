@@ -29,29 +29,47 @@ class Model(pl.LightningModule):
         return self.model.forward(batch)
 
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), lr=0.001)
-        return optimizer
+        optimizer = torch.optim.Adam(self.parameters(), lr=0.01)
+        lr_scheduler = torch.optim.lr_scheduler.SequentialLR(
+            optimizer,
+            [
+                torch.optim.lr_scheduler.LinearLR(optimizer, 0.1, 1.0, 10),
+                torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.98),
+            ],
+            [10],  # milestone
+        )
+        return {"optimizer": optimizer, "lr_scheduler": lr_scheduler}
+
+    def get_loss_sum(self, loss):
+        loss_sum = 0.0
+        loss_s = {}
+        for module_name, loss_per_module in loss.items():
+            for loss_name, loss_value in loss_per_module.items():
+                loss_sum += loss_value
+                loss_s[f"{module_name}:{loss_name}"] = loss_value.item()
+        loss_s["sum"] = loss_sum.item()
+        return loss_s
 
     def training_step(self, batch, batch_idx):
-        out, loss = self.forward(batch)
+        out, loss, metric = self.forward(batch)
+        loss_s = self.get_loss_sum(loss)
         #
-        loss_sum = 0.0
-        for module_name, loss_per_module in loss.items():
-            for loss_name, loss_value in loss_per_module.items():
-                loss_sum += loss_value
-        return loss_sum
+        self.log("train_loss", loss_s)
+        self.log("train_metric", metric)
+        return {"train_loss": loss_s["sum"], "train_metric": metric, "out": out}
 
     def test_step(self, batch, batch_idx):
-        out, loss = self.forward(batch)
+        out, loss, metric = self.forward(batch)
+        loss_s = self.get_loss_sum(loss)
         #
-        loss_sum = 0.0
-        for module_name, loss_per_module in loss.items():
-            for loss_name, loss_value in loss_per_module.items():
-                loss_sum += loss_value
-        return {"test_loss": loss_sum, "out": out}
+        self.log("test_loss", loss_s)
+        self.log("test_metric", metric)
+        return {"test_loss": loss_s["sum"], "test_metric": metric, "out": out}
 
     def validation_step(self, batch, batch_idx):
-        out, loss = self.forward(batch)
+        out, loss, metric = self.forward(batch)
+        loss_s = self.get_loss_sum(loss)
+        #
         if batch_idx == 0 and (1 + self.current_epoch) % 5 == 0:
             traj_s = create_trajectory_from_batch(batch, out["R"], write_native=True)
             for i, traj in enumerate(traj_s):
@@ -61,7 +79,9 @@ class Model(pl.LightningModule):
                     sys.stderr.write(
                         f"Failed to write validation_step_{self.current_epoch//5}_{i}.pdb\n"
                     )
-        return {"val_loss": loss}
+        self.log("val_loss", loss_s)
+        self.log("val_metric", metric)
+        return {"val_loss": loss_s["sum"], "val_metric": metric, "out": out}
 
 
 def main():
@@ -109,16 +129,17 @@ def main():
     )
     model = Model(config)
     #
-    #trainer = pl.Trainer(
+    # trainer = pl.Trainer(
     #    max_epochs=100,
     #    check_val_every_n_epoch=1,
     #    accelerator="auto",
     #    profiler="simple",
-    #)
+    # )
     trainer = pl.Trainer(
-            overfit_batches=2,
+        overfit_batches=2,
         check_val_every_n_epoch=1,
         accelerator="auto",
+        log_every_n_steps=1,
     )
     trainer.fit(model, train_loader, val_loader)
     trainer.test(model, test_loader)

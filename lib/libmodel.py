@@ -30,6 +30,7 @@ from libloss import (
     loss_f_torsion_angle,
     loss_f_bonded_energy,
 )
+from libmetric import rmsd_CA, rmsd_rigid, rmsd_all, bonded_energy
 
 RIGID_TRANSFORMS_TENSOR = torch.tensor(rigid_transforms_tensor)
 RIGID_TRANSFORMS_DEP = torch.tensor(rigid_transforms_dep, dtype=torch.long)
@@ -246,7 +247,8 @@ class Model(nn.Module):
         ret["R"] = build_structure(batch, ret["bb"], ret["sc"])
         if self.compute_loss or self.training:
             loss["R"] = self.loss_f(ret, batch)
-        return ret, loss
+        metrics = self.calc_metrics(ret, batch)
+        return ret, loss, metrics
 
     def loss_f(self, ret, batch):
         R = ret["R"]
@@ -276,6 +278,17 @@ class Model(nn.Module):
                 * self.loss_weight.torsion_angle
             )
         return loss
+
+    def calc_metrics(self, ret, batch):
+        R = ret["R"]
+        R_ref = batch.output_xyz
+        #
+        metric_s = {}
+        metric_s["rmsd_CA"] = rmsd_CA(R, R_ref)
+        metric_s["rmsd_rigid"] = rmsd_rigid(R, R_ref)
+        metric_s["rmsd_all"] = rmsd_all(R, R_ref, batch.output_atom_mask)
+        metric_s["bond_energy"] = bonded_energy(R, batch.continuous)
+        return metric_s
 
 
 def build_structure(batch, bb, sc=None):

@@ -20,9 +20,10 @@ v_norm = lambda v: v / v_size(v)[..., None]
 
 
 # MSE loss for comparing coordinates
-def loss_f_mse_R(R, R_ref, R_mask):
-    dr_sq = torch.sum(torch.pow(R - R_ref, 2) * R_mask[..., None])
-    return dr_sq / R.size(0)
+def loss_f_mse_R(R, R_ref, mask):
+    dr_sq = torch.sum(torch.pow(R - R_ref, 2) * mask[..., None])
+    # return dr_sq / R.size(0)
+    return dr_sq / mask.sum()
 
 
 def loss_f_rigid_body(R: torch.Tensor, R_ref: torch.Tensor) -> torch.Tensor:
@@ -155,8 +156,8 @@ def dist_to_distogram(
         )
         delta_d = torch.clip(d[:, :, None], min=d_min) - d0[None, None, :]
         h = torch.exp(-0.5 * torch.pow(delta_d / (2.0 * d_bin), 2))
-        h_sum = torch.sum(h[:,:,:-1], dim=-1)
+        h_sum = torch.sum(h[:, :, :-1], dim=-1)
         h = h / torch.clip(h_sum[:, :, None], min=1.0)
         h_last = 1.0 - torch.clip(h_sum, min=0.0, max=1.0)
-        h[:, :, -1] += (h_last - h[:,:,-1])
+        h[:, :, -1] += h_last - h[:, :, -1]
         return h
