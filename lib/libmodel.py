@@ -276,9 +276,7 @@ class Model(nn.Module):
         return ret, loss, metrics
 
     def loss_f(self, ret, batch):
-        # R = ret["R"]
-        # to test loss function
-        R = batch.output_xyz.clone()
+        R = ret["R"]
         #
         loss = {}
         if self.loss_weight.get("rigid_body", 0.0) > 0.0:
