@@ -20,28 +20,28 @@ v_size = lambda v: torch.linalg.norm(v, dim=-1)
 v_norm = lambda v: v / v_size(v)[..., None]
 
 
+def inner_product(v1, v2):
+    return torch.sum(v1 * v2, dim=-1)
+
+
 # MSE loss for comparing coordinates
 def loss_f_mse_R(R, R_ref, mask):
     dr_sq = torch.sum(torch.pow(R - R_ref, 2) * mask[..., None])
-    # return dr_sq / R.size(0)
     return dr_sq / mask.sum()
 
 
 def loss_f_rigid_body(R: torch.Tensor, R_ref: torch.Tensor) -> torch.Tensor:
-    loss_translation = torch.mean(
-        torch.pow(R[:, ATOM_INDEX_CA, :] - R_ref[:, ATOM_INDEX_CA, :], 2)
-    )
+    # deviation of the backbone rigids, N, CA, C
+    loss_translation = torch.mean(torch.pow(R[:, :3, :] - R_ref[:, :3, :], 2))
     #
     v0 = v_norm(R[:, ATOM_INDEX_C, :] - R[:, ATOM_INDEX_CA, :])
     v0_ref = v_norm(R_ref[:, ATOM_INDEX_C, :] - R_ref[:, ATOM_INDEX_CA, :])
     v1 = v_norm(R[:, ATOM_INDEX_N, :] - R[:, ATOM_INDEX_CA, :])
     v1_ref = v_norm(R_ref[:, ATOM_INDEX_N, :] - R_ref[:, ATOM_INDEX_CA, :])
-    loss_rotation = torch.mean(
-        torch.pow(1.0 - torch.inner(v0, v0_ref), 2)
-        + torch.mean(torch.pow(1.0 - torch.inner(v1, v1_ref), 2))
-    )
+    loss_rotation_0 = torch.mean(torch.pow(1.0 - inner_product(v0, v0_ref), 2))
+    loss_rotation_1 = torch.mean(torch.pow(1.0 - inner_product(v1, v1_ref), 2))
     #
-    return loss_translation + loss_rotation
+    return loss_translation + loss_rotation_0 + loss_rotation_1
 
 
 # Bonded energy penalties
@@ -72,7 +72,7 @@ def loss_f_bonded_energy(R, is_continuous, weight_s=(1.0, 0.0, 0.0)):
     # bond angles
     def bond_angle(v1, v2):
         # torch.acos is unstable around -1 and 1 -> added EPS
-        return torch.acos(torch.clamp(torch.inner(v1, v2), -1.0 + EPS, 1.0 - EPS))
+        return torch.acos(torch.clamp(inner_product(v1, v2), -1.0 + EPS, 1.0 - EPS))
 
     v0 = v0 / d0[..., None]
     v1 = v1 / d1[..., None]
@@ -121,8 +121,7 @@ def loss_f_torsion_angle(sc, sc0, mask, norm_weight=0.01):
 
 def loss_f_distance_matrix(R, batch, radius=1.0):
     R_ref = batch.output_xyz[:, ATOM_INDEX_CA]
-    edge_src, edge_dst = torch_cluster.radius_graph(
-            R_ref, radius, batch=batch.batch)
+    edge_src, edge_dst = torch_cluster.radius_graph(R_ref, radius, batch=batch.batch)
     d_ref = v_size(R_ref[edge_dst] - R_ref[edge_src])
     d = v_size(R[edge_dst, ATOM_INDEX_CA] - R[edge_src, ATOM_INDEX_CA])
     #
@@ -130,7 +129,7 @@ def loss_f_distance_matrix(R, batch, radius=1.0):
     return loss
 
 
-#def loss_f_distogram(_R, batch):
+# def loss_f_distogram(_R, batch):
 #    loss = 0.0
 #    for idx, data in enumerate(batch.to_data_list()):
 #        R_ref = data.output_xyz[:, ATOM_INDEX_CA, :]
@@ -147,14 +146,14 @@ def loss_f_distance_matrix(R, batch, radius=1.0):
 #    return loss
 #
 #
-#def R_to_dist(R: torch.Tensor) -> torch.Tensor:
+# def R_to_dist(R: torch.Tensor) -> torch.Tensor:
 #    dr = R[:, None] - R[None, :]
 #    return v_size(dr)
 #
 #
-#def dist_to_distogram(
+# def dist_to_distogram(
 #    d: torch.Tensor, d_min=0.2, d_max=1.0, d_bin=0.05, return_index=False
-#) -> torch.Tensor:
+# ) -> torch.Tensor:
 #    if return_index:
 #        idx = torch.floor(
 #            (torch.clip(d, min=d_min, max=d_max - EPS) - d_min) / d_bin

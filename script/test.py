@@ -34,23 +34,23 @@ def main():
     config = copy.deepcopy(CONFIG)
     config.update_from_flattened_dict(
         {
-            "backbone.loss_weight.rigid_body": 1.0,
-            "backbone.loss_weight.distance_matrix": 1.0,
-            "sidechain.loss_weight.torsion_angle": 0.1,
-            "loss_weight.mse_R": 0.1,
+            "loss_weight.mse_R": 0.2,
             "loss_weight.rigid_body": 1.0,
-            "loss_weight.distance_matrix": 1.0,
+            "loss_weight.distance_matrix": 0.1,
+            "loss_weight.torsion_angle": 0.1,
+            "loss_weight.bonded_energy": 0.1,
         }
     )
     #
     model = Model(config, compute_loss=True)
-    model = model.to("cuda")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
     model.train()
     #
     optimizer.zero_grad()
-    out, loss = model(batch.to("cuda"))
-    loss_sum = torch.tensor(0.0, device="cuda")
+    out, loss, metrics = model(batch.to(device))
+    loss_sum = torch.tensor(0.0, device=device)
     for module_name, loss_per_module in loss.items():
         for loss_name, loss_value in loss_per_module.items():
             loss_sum += loss_value

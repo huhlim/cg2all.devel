@@ -70,7 +70,11 @@ CONFIG["backbone"].update(
         "out_Irreps": "3x0e + 1x1o",  # scalars for quaternions and a vector for translation
         "mid_Irreps": "20x0e + 10x1o",
         "attn_Irreps": "20x0e + 10x1o",
-        "loss_weight": {"rigid_body": 0.0, "bonded_energy": 0.0, "distance_matrix": 0.0},
+        "loss_weight": {
+            "rigid_body": 0.0,
+            "bonded_energy": 0.0,
+            "distance_matrix": 0.0,
+        },
     }
 )
 
@@ -221,7 +225,9 @@ class BackboneModule(BaseModule):
                 * self.loss_weight.bonded_energy
             )
         if self.loss_weight.get("distance_matrix", 0.0) > 0.0:
-            loss["distance_matrix"] = loss_f_distance_matrix(R, batch) * self.loss_weight.distance_matrix
+            loss["distance_matrix"] = (
+                loss_f_distance_matrix(R, batch) * self.loss_weight.distance_matrix
+            )
         return loss
 
 
@@ -270,7 +276,9 @@ class Model(nn.Module):
         return ret, loss, metrics
 
     def loss_f(self, ret, batch):
-        R = ret["R"]
+        # R = ret["R"]
+        # to test loss function
+        R = batch.output_xyz.clone()
         #
         loss = {}
         if self.loss_weight.get("rigid_body", 0.0) > 0.0:
@@ -288,7 +296,9 @@ class Model(nn.Module):
                 * self.loss_weight.bonded_energy
             )
         if self.loss_weight.get("distance_matrix", 0.0) > 0.0:
-            loss["distance_matrix"] = loss_f_distance_matrix(R, batch) * self.loss_weight.distance_matrix
+            loss["distance_matrix"] = (
+                loss_f_distance_matrix(R, batch) * self.loss_weight.distance_matrix
+            )
         if self.loss_weight.get("torsion_angle", 0.0) > 0.0:
             loss["torsion_angle"] = (
                 loss_f_torsion_angle(
