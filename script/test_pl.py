@@ -113,7 +113,7 @@ def main():
     #
     cg_model = functools.partial(ResidueBasedModel, center_of_mass=True)
     #
-    batch_size = 1
+    batch_size = 8
     train_set = PDBset(pdb_dir, pdblist_train, cg_model, get_structure_information=True)
     train_loader = torch_geometric.loader.DataLoader(
         train_set, batch_size=batch_size, shuffle=True, num_workers=8
@@ -136,24 +136,23 @@ def main():
             "feature_extraction.num_recycle": 2,
             "backbone.num_recycle": 2,
             "sidechain.num_recycle": 2,
-            "feature_extraction.num_layers": 3,
-            "backbone.num_layers": 3,
-            "sidechain.num_layers": 3,
-            "backbone.loss_weight.rigid_body": 0.5,
-            "backbone.loss_weight.distogram": 0.05,
+            "feature_extraction.num_layers": 2,
+            "backbone.num_layers": 2,
+            "sidechain.num_layers": 2,
+            "backbone.loss_weight.rigid_body": 1.0,
+            "backbone.loss_weight.distance_matrix": 0.05,
             "sidechain.loss_weight.torsion_angle": 0.05,
-            "loss_weight.mse_R": 0.1,
+            "loss_weight.mse_R": 0.2,
             "loss_weight.rigid_body": 1.0,
-            "loss_weight.distogram": 0.1,
+            "loss_weight.distance_matrix": 0.1,
             "loss_weight.torsion_angle": 0.1,
-            "loss_weight.bonded_energy": 0.05,
+            "loss_weight.bonded_energy": 0.1,
         }
     )
     model = Model(config, compute_loss=True)
     trainer = pl.Trainer(
         max_epochs=100,
         check_val_every_n_epoch=1,
-        log_every_n_steps=1,
         accelerator="auto",
         profiler="simple",
     )

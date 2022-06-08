@@ -26,7 +26,7 @@ from residue_constants import (
 from libloss import (
     loss_f_rigid_body,
     loss_f_mse_R,
-    loss_f_distogram,
+    loss_f_distance_matrix,
     loss_f_torsion_angle,
     loss_f_bonded_energy,
 )
@@ -70,7 +70,7 @@ CONFIG["backbone"].update(
         "out_Irreps": "3x0e + 1x1o",  # scalars for quaternions and a vector for translation
         "mid_Irreps": "20x0e + 10x1o",
         "attn_Irreps": "20x0e + 10x1o",
-        "loss_weight": {"rigid_body": 0.0, "bonded_energy": 0.0, "distogram": 0.0},
+        "loss_weight": {"rigid_body": 0.0, "bonded_energy": 0.0, "distance_matrix": 0.0},
     }
 )
 
@@ -91,7 +91,7 @@ CONFIG["loss_weight"].update(
         "rigid_body": 0.0,
         "mse_R": 0.0,
         "bonded_energy": 0.0,
-        "distogram": 0.0,
+        "distance_matrix": 0.0,
         "torsion_angle": 0.0,
     }
 )
@@ -220,8 +220,8 @@ class BackboneModule(BaseModule):
                 loss_f_bonded_energy(R, batch.continuous)
                 * self.loss_weight.bonded_energy
             )
-        if self.loss_weight.get("distogram", 0.0) > 0.0:
-            loss["distogram"] = loss_f_distogram(R, batch) * self.loss_weight.distogram
+        if self.loss_weight.get("distance_matrix", 0.0) > 0.0:
+            loss["distance_matrix"] = loss_f_distance_matrix(R, batch) * self.loss_weight.distance_matrix
         return loss
 
 
@@ -287,8 +287,8 @@ class Model(nn.Module):
                 loss_f_bonded_energy(R, batch.continuous)
                 * self.loss_weight.bonded_energy
             )
-        if self.loss_weight.get("distogram", 0.0) > 0.0:
-            loss["distogram"] = loss_f_distogram(R, batch) * self.loss_weight.distogram
+        if self.loss_weight.get("distance_matrix", 0.0) > 0.0:
+            loss["distance_matrix"] = loss_f_distance_matrix(R, batch) * self.loss_weight.distance_matrix
         if self.loss_weight.get("torsion_angle", 0.0) > 0.0:
             loss["torsion_angle"] = (
                 loss_f_torsion_angle(

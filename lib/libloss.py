@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import torch
+import torch_cluster
 
 from residue_constants import (
     ATOM_INDEX_N,
@@ -118,46 +119,57 @@ def loss_f_torsion_angle(sc, sc0, mask, norm_weight=0.01):
     return loss
 
 
-def loss_f_distogram(_R, batch):
-    loss = 0.0
-    for idx, data in enumerate(batch.to_data_list()):
-        R_ref = data.output_xyz[:, ATOM_INDEX_CA, :]
-        start = int(batch._slice_dict["output_atom_mask"][idx])
-        end = int(batch._slice_dict["output_atom_mask"][idx + 1])
-        d_ref = R_to_dist(R_ref)
-        h_ref = dist_to_distogram(d_ref, return_index=True)[None, :]
-        #
-        R = _R[start:end, ATOM_INDEX_CA, :]
-        d = R_to_dist(R)
-        h = torch.moveaxis(dist_to_distogram(d, return_index=False), -1, 0)[None, :]
-        #
-        loss += torch.nn.functional.cross_entropy(h, h_ref)
+def loss_f_distance_matrix(R, batch, radius=1.0):
+    R_ref = batch.output_xyz[:, ATOM_INDEX_CA]
+    edge_src, edge_dst = torch_cluster.radius_graph(
+            R_ref, radius, batch=batch.batch)
+    d_ref = v_size(R_ref[edge_dst] - R_ref[edge_src])
+    d = v_size(R[edge_dst, ATOM_INDEX_CA] - R[edge_src, ATOM_INDEX_CA])
+    #
+    loss = torch.nn.functional.mse_loss(d, d_ref)
     return loss
 
 
-def R_to_dist(R: torch.Tensor) -> torch.Tensor:
-    dr = R[:, None] - R[None, :]
-    return v_size(dr)
-
-
-def dist_to_distogram(
-    d: torch.Tensor, d_min=0.2, d_max=1.0, d_bin=0.05, return_index=False
-) -> torch.Tensor:
-    if return_index:
-        idx = torch.floor(
-            (torch.clip(d, min=d_min, max=d_max - EPS) - d_min) / d_bin
-        ).type(torch.long)
-        return idx
-    else:
-        n_bin = int((d_max - d_min) / d_bin)
-        d0 = (
-            torch.arange(d_min, d_max + EPS, d_bin, device=d.device, dtype=DTYPE)
-            + d_bin * 0.5
-        )
-        delta_d = torch.clip(d[:, :, None], min=d_min) - d0[None, None, :]
-        h = torch.exp(-0.5 * torch.pow(delta_d / (2.0 * d_bin), 2))
-        h_sum = torch.sum(h[:, :, :-1], dim=-1)
-        h = h / torch.clip(h_sum[:, :, None], min=1.0)
-        h_last = 1.0 - torch.clip(h_sum, min=0.0, max=1.0)
-        h[:, :, -1] += h_last - h[:, :, -1]
-        return h
+#def loss_f_distogram(_R, batch):
+#    loss = 0.0
+#    for idx, data in enumerate(batch.to_data_list()):
+#        R_ref = data.output_xyz[:, ATOM_INDEX_CA, :]
+#        start = int(batch._slice_dict["output_atom_mask"][idx])
+#        end = int(batch._slice_dict["output_atom_mask"][idx + 1])
+#        d_ref = R_to_dist(R_ref)
+#        h_ref = dist_to_distogram(d_ref, return_index=True)[None, :]
+#        #
+#        R = _R[start:end, ATOM_INDEX_CA, :]
+#        d = R_to_dist(R)
+#        h = torch.moveaxis(dist_to_distogram(d, return_index=False), -1, 0)[None, :]
+#        #
+#        loss += torch.nn.functional.cross_entropy(h, h_ref)
+#    return loss
+#
+#
+#def R_to_dist(R: torch.Tensor) -> torch.Tensor:
+#    dr = R[:, None] - R[None, :]
+#    return v_size(dr)
+#
+#
+#def dist_to_distogram(
+#    d: torch.Tensor, d_min=0.2, d_max=1.0, d_bin=0.05, return_index=False
+#) -> torch.Tensor:
+#    if return_index:
+#        idx = torch.floor(
+#            (torch.clip(d, min=d_min, max=d_max - EPS) - d_min) / d_bin
+#        ).type(torch.long)
+#        return idx
+#    else:
+#        n_bin = int((d_max - d_min) / d_bin)
+#        d0 = (
+#            torch.arange(d_min, d_max + EPS, d_bin, device=d.device, dtype=DTYPE)
+#            + d_bin * 0.5
+#        )
+#        delta_d = torch.clip(d[:, :, None], min=d_min) - d0[None, None, :]
+#        h = torch.exp(-0.5 * torch.pow(delta_d / (2.0 * d_bin), 2))
+#        h_sum = torch.sum(h[:, :, :-1], dim=-1)
+#        h = h / torch.clip(h_sum[:, :, None], min=1.0)
+#        h_last = 1.0 - torch.clip(h_sum, min=0.0, max=1.0)
+#        h[:, :, -1] += h_last - h[:, :, -1]
+#        return h

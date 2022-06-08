@@ -35,11 +35,11 @@ def main():
     config.update_from_flattened_dict(
         {
             "backbone.loss_weight.rigid_body": 1.0,
-            "backbone.loss_weight.distogram": 1.0,
+            "backbone.loss_weight.distance_matrix": 1.0,
             "sidechain.loss_weight.torsion_angle": 0.1,
             "loss_weight.mse_R": 0.1,
             "loss_weight.rigid_body": 1.0,
-            "loss_weight.distogram": 1.0,
+            "loss_weight.distance_matrix": 1.0,
         }
     )
     #
