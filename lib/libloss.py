@@ -106,6 +106,7 @@ def loss_f_bonded_energy(R, is_continuous, weight_s=(1.0, 0.0, 0.0)):
 
 def loss_f_torsion_angle(sc, sc0, mask, norm_weight=0.01):
     torsion = sc.reshape(sc.size(0), -1, 2)
+    torsion[:, :, 1] = torsion[:, :, 1] + EPS
     norm = torch.linalg.norm(torsion, dim=2)
     #
     sc_cos = torch.cos(sc0)
