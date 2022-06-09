@@ -56,6 +56,8 @@ class Model(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         out, loss, metric = self.forward(batch)
         loss_sum, loss_s = self.get_loss_sum(loss)
+        if torch.isnan(loss_sum):
+            raise ValueError(out, loss_s, metric)
         #
         self.log("train_loss", loss_s, batch_size=batch.num_graphs, on_epoch=True)
         self.log("train_metric", metric, batch_size=batch.num_graphs, on_epoch=True)
@@ -166,6 +168,7 @@ def main():
     trainer = pl.Trainer(
         max_epochs=100,
         accelerator="auto",
+        gradient_clip_val=1.0,
         check_val_every_n_epoch=5,
     )
     trainer.fit(model, train_loader, val_loader)
