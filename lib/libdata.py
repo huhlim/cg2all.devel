@@ -56,8 +56,11 @@ class PDBset(torch_geometric.data.Dataset):
         dr[1:-1] /= np.linalg.norm(dr[1:-1], axis=1)[:, None]
         dr[:-1][cg.continuous == 0.0] = 0.0
         if self.noise_level > 0.0:
-            noise_size = np.random.normal(scale=self.noise_level)
-            r += np.random.normal(scale=noise_size, size=r.shape)
+            noise_size = np.random.normal(loc=self.noise_level, scale=self.noise_level / 2.0)
+            if noise_size >= 0.0:
+                r += np.random.normal(scale=noise_size, size=r.shape)
+            else:
+                noise_size = 0.0
         else:
             noise_size = 0.0
         #

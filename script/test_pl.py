@@ -98,7 +98,7 @@ class Model(pl.LightningModule):
 
 def main():
     hostname = os.getenv("HOSTNAME", "local")
-    if hostname == "markov.bch.msu.edu" or hostname.startswith("gpu"):
+    if (hostname == "markov.bch.msu.edu" or hostname.startswith("gpu")) and True:
         base_dir = pathlib.Path("./")
         pdb_dir = base_dir / "pdb.pisces"
         pdblist_train = pdb_dir / "targets.train"
@@ -114,15 +114,15 @@ def main():
     cg_model = functools.partial(ResidueBasedModel, center_of_mass=True)
     #
     batch_size = 16
-    train_set = PDBset(pdb_dir, pdblist_train, cg_model, get_structure_information=True)
+    train_set = PDBset(pdb_dir, pdblist_train, cg_model, noise_level=0.1, get_structure_information=True)
     train_loader = torch_geometric.loader.DataLoader(
         train_set, batch_size=batch_size, shuffle=True, num_workers=8
     )
-    val_set = PDBset(pdb_dir, pdblist_val, cg_model, get_structure_information=True)
+    val_set = PDBset(pdb_dir, pdblist_val, cg_model, noise_level=0.1, get_structure_information=True)
     val_loader = torch_geometric.loader.DataLoader(
         val_set, batch_size=batch_size, shuffle=False, num_workers=8
     )
-    test_set = PDBset(pdb_dir, pdblist_test, cg_model, get_structure_information=True)
+    test_set = PDBset(pdb_dir, pdblist_test, cg_model, noise_level=0.1, get_structure_information=True)
     test_loader = torch_geometric.loader.DataLoader(
         test_set, batch_size=batch_size, shuffle=False, num_workers=8
     )
@@ -137,26 +137,28 @@ def main():
             "backbone.num_layers": 2,
             "sidechain.num_layers": 2,
             "backbone.loss_weight.rigid_body": 1.0,
-            "backbone.loss_weight.distance_matrix": 0.05,
-            "sidechain.loss_weight.torsion_angle": 0.05,
-            "loss_weight.mse_R": 0.2,
+            "backbone.loss_weight.distance_matrix": 0.2,
+            "backbone.loss_weight.bonded_energy": 0.2,
+            "sidechain.loss_weight.torsion_angle": 0.2,
+            "loss_weight.mse_R": 1.0,
             "loss_weight.rigid_body": 1.0,
-            "loss_weight.distance_matrix": 0.1,
-            "loss_weight.torsion_angle": 0.1,
-            "loss_weight.bonded_energy": 0.1,
+            "loss_weight.distance_matrix": 0.2,
+            "loss_weight.torsion_angle": 0.2,
+            "loss_weight.bonded_energy": 0.2,
         }
     )
     model = Model(config, compute_loss=True)
     trainer = pl.Trainer(
         max_epochs=100,
         accelerator="auto",
+        check_val_every_n_epoch=5,
     )
-    # trainer = pl.Trainer(
-    #     check_val_every_n_epoch=1,
-    #     accelerator="auto",
-    #     log_every_n_steps=1,
-    #     max_epochs=1,
-    # )
+    #trainer = pl.Trainer(
+    #    check_val_every_n_epoch=5,
+    #    accelerator="auto",
+    #    log_every_n_steps=1,
+    #    max_epochs=100,
+    #)
     trainer.fit(model, train_loader, val_loader)
     trainer.test(model, test_loader)
 
