@@ -24,6 +24,8 @@ from residue_constants import (
     rigid_groups_dep,
 )
 from libloss import (
+    v_norm,
+    v_size,
     loss_f_rigid_body,
     loss_f_mse_R,
     loss_f_distance_matrix,
@@ -67,7 +69,8 @@ CONFIG["backbone"].update(
     {
         "num_layers": 2,
         "in_Irreps": "20x0e + 10x1o",
-        "out_Irreps": "3x0e + 1x1o",  # scalars for quaternions and a vector for translation
+        # "out_Irreps": "3x0e + 1x1o",  # scalars for quaternions and a vector for translation
+        "out_Irreps": "1x0e + 2x1o",  # scalars for quaternions and a vector for translation
         "mid_Irreps": "20x0e + 10x1o",
         "attn_Irreps": "20x0e + 10x1o",
         "loss_weight": {
@@ -152,7 +155,7 @@ class BaseModule(nn.Module):
             )
         #
         self.layer_0 = layer_partial(self.in_Irreps, self.mid_Irreps)
-        self.layer_1 = layer_partial(self.mid_Irreps, self.out_Irreps)
+        self.layer_1 = layer_partial(self.mid_Irreps, self.out_Irreps, norm=False)
         if activation_final is None:
             self.activation_final = None
         else:
@@ -345,10 +348,12 @@ def build_structure(batch, bb, sc=None):
     n_residue = batch.residue_type.size(0)
     #
     # backbone operations
-    _q = torch.cat(
-        [torch.ones((n_residue, 1), dtype=DTYPE, device=device), bb[:, :3]], dim=1
-    )
-    q = _q / torch.linalg.norm(_q, dim=1)[:, None]
+    angle = bb[:, :1] / 2.0
+    v = v_norm(bb[:, 1:4])
+    q = torch.cat([torch.cos(angle), v * torch.sin(angle)], dim=1)
+    # v = 2.0 * (torch.sigmoid(bb[:, :3].clone()) - 0.5)
+    # _q = torch.cat([torch.ones((n_residue, 1), dtype=DTYPE, device=device), v], dim=1)
+    # q = _q / torch.linalg.norm(_q, dim=1)[:, None]
     #
     R = torch.zeros((n_residue, 3, 3), dtype=DTYPE, device=device)
     R[:, 0, 0] = q[:, 0] ** 2 + q[:, 1] ** 2 - q[:, 2] ** 2 - q[:, 3] ** 2
@@ -361,7 +366,7 @@ def build_structure(batch, bb, sc=None):
     R[:, 2, 0] = 2 * (q[:, 1] * q[:, 3] - q[:, 0] * q[:, 2])
     R[:, 2, 1] = 2 * (q[:, 2] * q[:, 3] + q[:, 0] * q[:, 1])
     opr[:, 0, :3] = R
-    opr[:, 0, 3, :] = bb[:, 3:] + batch.pos
+    opr[:, 0, 3, :] = 0.1 * bb[:, 4:] + batch.pos
 
     # sidechain operations
     if sc is not None:

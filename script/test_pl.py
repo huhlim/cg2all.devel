@@ -75,7 +75,13 @@ class Model(pl.LightningModule):
                 sys.stderr.write(f"Failed to write {out_f}\n")
         #
         self.log("test_loss", loss_s, batch_size=batch.num_graphs, on_epoch=True)
-        self.log("test_metric", metric, prog_bar=True, batch_size=batch.num_graphs, on_epoch=True)
+        self.log(
+            "test_metric",
+            metric,
+            prog_bar=True,
+            batch_size=batch.num_graphs,
+            on_epoch=True,
+        )
         return {"loss": loss_sum, "metric": metric, "out": out}
 
     def validation_step(self, batch, batch_idx):
@@ -92,7 +98,13 @@ class Model(pl.LightningModule):
                 except:
                     sys.stderr.write(f"Failed to write {out_f}\n")
         self.log("val_loss", loss_s, batch_size=batch.num_graphs, on_epoch=True)
-        self.log("val_metric", metric, prog_bar=True, batch_size=batch.num_graphs, on_epoch=True)
+        self.log(
+            "val_metric",
+            metric,
+            prog_bar=True,
+            batch_size=batch.num_graphs,
+            on_epoch=True,
+        )
         return {"loss": loss_sum, "metric": metric, "out": out}
 
 
@@ -112,17 +124,20 @@ def main():
         pdblist_val = pdb_dir / "pdblist"
     #
     cg_model = functools.partial(ResidueBasedModel, center_of_mass=True)
+    _PDBset = functools.partial(
+        PDBset, cg_model=cg_model, noise_level=0.1, get_structure_information=True
+    )
     #
     batch_size = 16
-    train_set = PDBset(pdb_dir, pdblist_train, cg_model, noise_level=0.1, get_structure_information=True)
+    train_set = _PDBset(pdb_dir, pdblist_train)
     train_loader = torch_geometric.loader.DataLoader(
         train_set, batch_size=batch_size, shuffle=True, num_workers=8
     )
-    val_set = PDBset(pdb_dir, pdblist_val, cg_model, noise_level=0.1, get_structure_information=True)
+    val_set = _PDBset(pdb_dir, pdblist_val)
     val_loader = torch_geometric.loader.DataLoader(
         val_set, batch_size=batch_size, shuffle=False, num_workers=8
     )
-    test_set = PDBset(pdb_dir, pdblist_test, cg_model, noise_level=0.1, get_structure_information=True)
+    test_set = _PDBset(pdb_dir, pdblist_test)
     test_loader = torch_geometric.loader.DataLoader(
         test_set, batch_size=batch_size, shuffle=False, num_workers=8
     )
@@ -137,14 +152,14 @@ def main():
             "backbone.num_layers": 2,
             "sidechain.num_layers": 2,
             "backbone.loss_weight.rigid_body": 1.0,
-            "backbone.loss_weight.distance_matrix": 0.2,
-            "backbone.loss_weight.bonded_energy": 0.2,
+            "backbone.loss_weight.distance_matrix": 1.0,
+            "backbone.loss_weight.bonded_energy": 1.0,
             "sidechain.loss_weight.torsion_angle": 0.2,
             "loss_weight.mse_R": 1.0,
             "loss_weight.rigid_body": 1.0,
-            "loss_weight.distance_matrix": 0.2,
+            "loss_weight.distance_matrix": 1.0,
+            "loss_weight.bonded_energy": 1.0,
             "loss_weight.torsion_angle": 0.2,
-            "loss_weight.bonded_energy": 0.2,
         }
     )
     model = Model(config, compute_loss=True)
@@ -153,12 +168,6 @@ def main():
         accelerator="auto",
         check_val_every_n_epoch=5,
     )
-    #trainer = pl.Trainer(
-    #    check_val_every_n_epoch=5,
-    #    accelerator="auto",
-    #    log_every_n_steps=1,
-    #    max_epochs=100,
-    #)
     trainer.fit(model, train_loader, val_loader)
     trainer.test(model, test_loader)
 
