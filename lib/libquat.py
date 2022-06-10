@@ -56,3 +56,17 @@ class Quaternion:
             2.0 * (q[0] * q[3] + q[1] + q[2]), 1.0 - 2.0 * (q[2] ** 2 + q[3] ** 2)
         )
         return np.array([phi, theta, psi], dtype=float)
+
+    @classmethod
+    def R_to_quat(cls, R):
+        [[xx, xy, xz], [yx, yy, yz], [zx, zy, zz]] = R
+        #
+        # fmt: off
+        k = [[ xx + yy + zz,      zy - yz,      xz - zx,      yx - xy,],
+             [      zy - yz, xx - yy - zz,      xy + yx,      xz + zx,],
+             [      xz - zx,      xy + yx, yy - xx - zz,      yz + zy,],
+             [      yx - xy,      xz + zx,      yz + zy, zz - xx - yy,]]
+        # fmt: on
+        k = (1.0 / 3.0) * np.stack([np.stack(x, axis=-1) for x in k], axis=-2)
+        out = cls(np.linalg.eigh(k)[1][..., -1])
+        return out

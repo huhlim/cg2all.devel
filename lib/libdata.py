@@ -10,6 +10,7 @@ from typing import List
 
 import torch
 import torch_geometric
+import e3nn
 
 import libcg
 from libconfig import BASE, DTYPE
@@ -102,6 +103,7 @@ class PDBset(torch_geometric.data.Dataset):
         if self.get_structure_information:
             cg.get_structure_information()
             data.correct_bb = torch.tensor(cg.bb[frame_index], dtype=DTYPE)
+            data.correct_quat = e3nn.o3.matrix_to_quaternion(data.correct_bb[:,:3], dtype=DTYPE)
             data.correct_torsion = torch.tensor(cg.torsion[frame_index], dtype=DTYPE)
             data.torsion_mask = torch.tensor(cg.torsion_mask, dtype=DTYPE)
         return data
