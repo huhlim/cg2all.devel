@@ -103,7 +103,7 @@ class PDBset(torch_geometric.data.Dataset):
         if self.get_structure_information:
             cg.get_structure_information()
             data.correct_bb = torch.tensor(cg.bb[frame_index], dtype=DTYPE)
-            data.correct_quat = e3nn.o3.matrix_to_quaternion(data.correct_bb[:,:3], dtype=DTYPE)
+            data.correct_quat = e3nn.o3.matrix_to_quaternion(data.correct_bb[:, :3])
             data.correct_torsion = torch.tensor(cg.torsion[frame_index], dtype=DTYPE)
             data.torsion_mask = torch.tensor(cg.torsion_mask, dtype=DTYPE)
         return data
@@ -182,10 +182,14 @@ def test():
     pdblist = BASE / "pdb/pdblist"
     cg_model = functools.partial(libcg.ResidueBasedModel, center_of_mass=True)
     #
-    train_set = PDBset(base_dir, pdblist, cg_model, noise_level=0.5)
+    train_set = PDBset(
+        base_dir, pdblist, cg_model, noise_level=0.5, get_structure_information=True
+    )
     train_loader = torch_geometric.loader.DataLoader(
         train_set, batch_size=5, shuffle=True, num_workers=1
     )
+    batch = next(iter(train_loader))
+    print(batch.correct_quat)
     for batch in train_loader:
         traj_s = create_trajectory_from_batch(
             batch, batch.output_xyz, write_native=True

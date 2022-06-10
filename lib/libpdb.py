@@ -155,11 +155,11 @@ class PDB(object):
     def get_structure_information(self):
         # get rigid body operations, backbone_orientations and torsion angles
 
-        self.bb_mask = np.zeros(self.n_residue, dtype=np.float16)
-        self.bb = np.zeros((self.n_frame, self.n_residue, 4, 3), dtype=np.float16)
-        self.torsion_mask = np.zeros((self.n_residue, MAX_TORSION), dtype=np.float16)
+        self.bb_mask = np.zeros(self.n_residue, dtype=float)
+        self.bb = np.zeros((self.n_frame, self.n_residue, 4, 3), dtype=float)
+        self.torsion_mask = np.zeros((self.n_residue, MAX_TORSION), dtype=float)
         self.torsion = np.zeros(
-            (self.n_frame, self.n_residue, MAX_TORSION), dtype=np.float16
+            (self.n_frame, self.n_residue, MAX_TORSION), dtype=float
         )
         for i_res in range(self.n_residue):
             mask, opr_s = self.get_backbone_orientation(i_res)

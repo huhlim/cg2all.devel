@@ -44,6 +44,12 @@ def loss_f_rigid_body(R: torch.Tensor, R_ref: torch.Tensor) -> torch.Tensor:
     return loss_translation + loss_rotation_0 + loss_rotation_1
 
 
+# distance between two quaternions
+def loss_f_quaternion(q: torch.Tensor, q_ref: torch.Tensor) -> torch.Tensor:
+    # d(q1, q2) = 1.0 - <q1, q2>^2
+    return torch.mean(1.0 - torch.sum(q * q_ref, dim=-1))
+
+
 # Bonded energy penalties
 def loss_f_bonded_energy(R, is_continuous, weight_s=(1.0, 0.0, 0.0)):
     if weight_s[0] == 0.0:

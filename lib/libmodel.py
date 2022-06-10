@@ -27,6 +27,7 @@ from libloss import (
     v_norm,
     v_size,
     loss_f_rigid_body,
+    loss_f_quaternion,
     loss_f_mse_R,
     loss_f_distance_matrix,
     loss_f_torsion_angle,
@@ -208,12 +209,16 @@ class BackboneModule(BaseModule):
         return torch.sigmoid(feat) * 2.0 - 1.0
 
     def loss_f(self, f_out, batch):
-        R = build_structure(batch, f_out, sc=None)
+        R, q = build_structure(batch, f_out, sc=None)
         #
         loss = {}
         if self.loss_weight.get("rigid_body", 0.0) > 0.0:
             loss["rigid_body"] = (
                 loss_f_rigid_body(R, batch.output_xyz) * self.loss_weight.rigid_body
+            )
+        if self.loss_weight.get("quaternion", 0.0) > 0.0:
+            loss["quaternion"] = (
+                loss_f_quaternion(q, batch.correct_quat) * self.loss_weight.quaternion
             )
         if self.loss_weight.get("bonded_energy", 0.0) > 0.0:
             loss["bonded_energy"] = (
@@ -268,7 +273,7 @@ class Model(nn.Module):
         loss = {}
         ret["bb"], loss["bb"] = self.backbone_module(batch, f_out)
         ret["sc"], loss["sc"] = self.sidechain_module(batch, f_out)
-        ret["R"] = build_structure(batch, ret["bb"], ret["sc"])
+        ret["R"], ret["q"] = build_structure(batch, ret["bb"], ret["sc"])
         if self.compute_loss or self.training:
             loss["R"] = self.loss_f(ret, batch)
         metrics = self.calc_metrics(ret, batch)
@@ -344,8 +349,6 @@ def build_structure(batch, bb, sc=None):
     n_residue = batch.residue_type.size(0)
     #
     # backbone operations
-    print(f"bb.mean: {bb.mean(dim=0)}")
-    print(f"bb.std: {bb.std(dim=0)}")
     # angle = bb[:, :1] / 2.0
     # v = v_norm(bb[:, 1:4])
     # q = torch.cat([torch.cos(angle), v * torch.sin(angle)], dim=1)
@@ -392,4 +395,4 @@ def build_structure(batch, bb, sc=None):
 
     opr = torch.take_along_dim(opr, rigids_dep[..., None, None], axis=1)
     R = rotate_vector(opr[:, :, :3], rigids) + opr[:, :, 3]
-    return R
+    return R, q
