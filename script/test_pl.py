@@ -59,8 +59,8 @@ class Model(pl.LightningModule):
         if torch.isnan(loss_sum):
             raise ValueError(out, loss_s, metric)
         #
-        self.log("train_loss", loss_s, batch_size=batch.num_graphs, on_epoch=True)
-        self.log("train_metric", metric, batch_size=batch.num_graphs, on_epoch=True)
+        self.log("train_loss", loss_s, batch_size=batch.num_graphs, on_epoch=True, on_step=False)
+        self.log("train_metric", metric, batch_size=batch.num_graphs, on_epoch=True, on_step=False)
         return {"loss": loss_sum, "metric": metric, "out": out}
 
     def test_step(self, batch, batch_idx):
@@ -76,13 +76,13 @@ class Model(pl.LightningModule):
             except:
                 sys.stderr.write(f"Failed to write {out_f}\n")
         #
-        self.log("test_loss", loss_s, batch_size=batch.num_graphs, on_epoch=True)
+        self.log("test_loss", loss_s, batch_size=batch.num_graphs, on_epoch=True, on_step=False)
         self.log(
             "test_metric",
             metric,
             prog_bar=True,
             batch_size=batch.num_graphs,
-            on_epoch=True,
+            on_epoch=True, on_step=False,
         )
         return {"loss": loss_sum, "metric": metric, "out": out}
 
@@ -99,13 +99,13 @@ class Model(pl.LightningModule):
                     traj.save(out_f)
                 except:
                     sys.stderr.write(f"Failed to write {out_f}\n")
-        self.log("val_loss", loss_s, batch_size=batch.num_graphs, on_epoch=True)
+        self.log("val_loss", loss_s, batch_size=batch.num_graphs, on_epoch=True, on_step=False)
         self.log(
             "val_metric",
             metric,
             prog_bar=True,
             batch_size=batch.num_graphs,
-            on_epoch=True,
+            on_epoch=True, on_step=False,
         )
         return {"loss": loss_sum, "metric": metric, "out": out}
 
