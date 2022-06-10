@@ -55,7 +55,7 @@ CONFIG_BASE["mid_Irreps"] = "40x0e + 20x1o"
 CONFIG_BASE["attn_Irreps"] = "40x0e + 20x1o"
 CONFIG_BASE["l_max"] = 2
 CONFIG_BASE["mlp_num_neurons"] = [20, 20]
-CONFIG_BASE["activation"] = ["relu", None]
+CONFIG_BASE["activation"] = "relu"
 CONFIG_BASE["norm"] = True
 CONFIG_BASE["radius"] = 1.0
 CONFIG_BASE["skip_connection"] = False
@@ -73,7 +73,6 @@ CONFIG["backbone"].update(
         # "out_Irreps": "1x0e + 2x1o",  # scalars for quaternions and a vector for translation
         "mid_Irreps": "20x0e + 10x1o",
         "attn_Irreps": "20x0e + 10x1o",
-        "activation": ["relu", "sigmoid"],
         "loss_weight": {
             "rigid_body": 0.0,
             "bonded_energy": 0.0,
@@ -89,7 +88,6 @@ CONFIG["sidechain"].update(
         "out_Irreps": f"{MAX_TORSION*2:d}x0e",
         "mid_Irreps": "20x0e + 10x1o",
         "attn_Irreps": "20x0e + 10x1o",
-        "activation": ["relu", "sigmoid"],
         "loss_weight": {"torsion_angle": 0.0},
     }
 )
@@ -116,24 +114,14 @@ class BaseModule(nn.Module):
         self.in_Irreps = o3.Irreps(config.in_Irreps)
         self.mid_Irreps = o3.Irreps(config.mid_Irreps)
         self.out_Irreps = o3.Irreps(config.out_Irreps)
-        if config.activation[0] is None:
+        if config.activation is None:
             activation = None
-        elif config.activation[0] == "relu":
+        elif config.activation == "relu":
             activation = torch.relu
-        elif config.activation[0] == "elu":
+        elif config.activation == "elu":
             activation = torch.elu
-        elif config.activation[0] == "sigmoid":
+        elif config.activation == "sigmoid":
             activation = torch.sigmoid
-        else:
-            raise NotImplementedError
-        if config.activation[1] is None:
-            activation_final = None
-        elif config.activation[1] == "relu":
-            activation_final = torch.relu
-        elif config.activation[1] == "elu":
-            activation_final = torch.elu
-        elif config.activation[1] == 'sigmoid':
-            activation_final = torch.sigmoid
         else:
             raise NotImplementedError
         self.skip_connection = config.skip_connection
@@ -162,12 +150,6 @@ class BaseModule(nn.Module):
         #
         self.layer_0 = layer_partial(self.in_Irreps, self.mid_Irreps)
         self.layer_1 = layer_partial(self.mid_Irreps, self.out_Irreps, norm=False)
-        if activation_final is None:
-            self.activation_final = None
-        else:
-            self.activation_final = e3nn.nn.NormActivation(
-                self.out_Irreps, activation_final
-            )
 
         layer = layer_partial(self.mid_Irreps, self.mid_Irreps)
         self.layer_s = nn.ModuleList([layer for _ in range(config.num_layers)])
@@ -194,8 +176,7 @@ class BaseModule(nn.Module):
                 feat_out, graph = self.layer_1(batch, feat, graph)
             else:
                 feat_out, graph = self.layer_1(batch, feat)
-            if self.activation_final is not None:
-                feat_out = self.activation_final(feat_out)
+            feat_out = self.activation_final(feat_out)
             radius_prev = self.layer_1.radius
             #
             if (self.compute_loss or self.training) and (k + 1 != self.num_recycle):
@@ -206,6 +187,9 @@ class BaseModule(nn.Module):
                         loss_out[loss_name] = loss_value
 
         return feat_out, loss_out
+
+    def activation_final(self, feat):
+        return feat
 
     def loss_f(self, f_out, batch):
         return {}
@@ -219,6 +203,9 @@ class FeatureExtractionModule(BaseModule):
 class BackboneModule(BaseModule):
     def __init__(self, config, compute_loss=False):
         super().__init__(config, compute_loss=compute_loss)
+
+    def activation_final(self, feat):
+        return torch.sigmoid(feat) * 2.0 - 1.0
 
     def loss_f(self, f_out, batch):
         R = build_structure(batch, f_out, sc=None)
@@ -243,6 +230,9 @@ class BackboneModule(BaseModule):
 class SidechainModule(BaseModule):
     def __init__(self, config, compute_loss=False):
         super().__init__(config, compute_loss=compute_loss)
+
+    def activation_final(self, feat):
+        return torch.sigmoid(feat) * 2.0 - 1.0
 
     def loss_f(self, f_out, batch):
         loss = {}
@@ -354,11 +344,14 @@ def build_structure(batch, bb, sc=None):
     n_residue = batch.residue_type.size(0)
     #
     # backbone operations
-    bb = bb * 2.0 - 1.0
+    print(f"bb.mean: {bb.mean(dim=0)}")
+    print(f"bb.std: {bb.std(dim=0)}")
     # angle = bb[:, :1] / 2.0
     # v = v_norm(bb[:, 1:4])
     # q = torch.cat([torch.cos(angle), v * torch.sin(angle)], dim=1)
-    _q = torch.cat([torch.ones((n_residue, 1), dtype=DTYPE, device=device), bb[:, :3]], dim=1)
+    _q = torch.cat(
+        [torch.ones((n_residue, 1), dtype=DTYPE, device=device), bb[:, :3]], dim=1
+    )
     q = _q / torch.linalg.norm(_q, dim=1)[:, None]
     #
     R = torch.zeros((n_residue, 3, 3), dtype=DTYPE, device=device)
@@ -372,7 +365,7 @@ def build_structure(batch, bb, sc=None):
     R[:, 2, 0] = 2 * (q[:, 1] * q[:, 3] - q[:, 0] * q[:, 2])
     R[:, 2, 1] = 2 * (q[:, 2] * q[:, 3] + q[:, 0] * q[:, 1])
     opr[:, 0, :3] = R
-    #opr[:, 0, 3, :] = 0.1 * bb[:, 4:] + batch.pos
+    # opr[:, 0, 3, :] = 0.1 * bb[:, 4:] + batch.pos
     opr[:, 0, 3, :] = bb[:, 3:] + batch.pos
 
     # sidechain operations

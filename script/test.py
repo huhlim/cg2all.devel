@@ -34,11 +34,15 @@ def main():
     config = copy.deepcopy(CONFIG)
     config.update_from_flattened_dict(
         {
-            "loss_weight.mse_R": 0.2,
+            "backbone.loss_weight.rigid_body": 1.0,
+            "backbone.loss_weight.distance_matrix": 1.0,
+            "backbone.loss_weight.bonded_energy": 1.0,
+            "sidechain.loss_weight.torsion_angle": 0.2,
+            "loss_weight.mse_R": 1.0,
             "loss_weight.rigid_body": 1.0,
-            "loss_weight.distance_matrix": 0.1,
-            "loss_weight.torsion_angle": 0.1,
-            "loss_weight.bonded_energy": 0.1,
+            "loss_weight.distance_matrix": 1.0,
+            "loss_weight.bonded_energy": 1.0,
+            "loss_weight.torsion_angle": 0.2,
         }
     )
     #
