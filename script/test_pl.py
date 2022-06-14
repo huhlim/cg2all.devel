@@ -13,7 +13,6 @@ import torch_geometric
 import pytorch_lightning as pl
 
 sys.path.insert(0, "lib")
-from libconfig import BASE, DTYPE
 from libdata import PDBset, create_trajectory_from_batch
 from libcg import ResidueBasedModel
 import libmodel
@@ -153,7 +152,7 @@ def main():
     #
     cg_model = functools.partial(ResidueBasedModel, center_of_mass=True)
     _PDBset = functools.partial(
-        PDBset, cg_model=cg_model, noise_level=0.1, get_structure_information=True
+        PDBset, cg_model=cg_model, noise_level=0.0, get_structure_information=True
     )
     #
     batch_size = 16
@@ -173,23 +172,17 @@ def main():
     config = copy.deepcopy(libmodel.CONFIG)
     config.update_from_flattened_dict(
         {
-            "feature_extraction.num_recycle": 2,
-            "backbone.num_recycle": 2,
-            "sidechain.num_recycle": 2,
-            "feature_extraction.num_layers": 2,
-            "backbone.num_layers": 2,
-            "sidechain.num_layers": 2,
             "backbone.loss_weight.rigid_body": 1.0,
             "backbone.loss_weight.quaternion": 1.0,
             "backbone.loss_weight.distance_matrix": 1.0,
             "backbone.loss_weight.bonded_energy": 1.0,
-            "sidechain.loss_weight.torsion_angle": 0.2,
-            "loss_weight.mse_R": 1.0,
-            "loss_weight.rigid_body": 1.0,
-            "loss_weight.quaternion": 1.0,
-            "loss_weight.distance_matrix": 1.0,
-            "loss_weight.bonded_energy": 1.0,
-            "loss_weight.torsion_angle": 0.2,
+            "sidechain.loss_weight.torsion_angle": 1.0,
+            "globals.loss_weight.mse_R": 1.0,
+            "globals.loss_weight.rigid_body": 1.0,
+            "globals.loss_weight.quaternion": 1.0,
+            "globals.loss_weight.distance_matrix": 1.0,
+            "globals.loss_weight.bonded_energy": 1.0,
+            "globals.loss_weight.torsion_angle": 1.0,
         }
     )
     model = Model(config, compute_loss=True)

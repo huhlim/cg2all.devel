@@ -25,7 +25,7 @@ from residue_constants import (
 )
 from libloss import (
     v_norm,
-    v_size,
+    v_norm_safe,
     loss_f_rigid_body,
     loss_f_quaternion,
     loss_f_mse_R,
@@ -45,13 +45,27 @@ RIGID_GROUPS_DEP[RIGID_GROUPS_DEP == -1] = MAX_RIGID - 1
 
 CONFIG = ConfigDict()
 
+CONFIG["globals"] = ConfigDict()
+CONFIG["globals"]["num_recycle"] = 2
+CONFIG["globals"]["loss_weight"] = ConfigDict()
+CONFIG["globals"]["loss_weight"].update(
+    {
+        "rigid_body": 0.0,
+        "mse_R": 0.0,
+        "bonded_energy": 0.0,
+        "distance_matrix": 0.0,
+        "torsion_angle": 0.0,
+        "quaternion": 0.0,
+    }
+)
+
+# the base config for using ConvLayer or SE3Transformer
 CONFIG_BASE = ConfigDict()
 CONFIG_BASE = {}
-CONFIG_BASE["num_recycle"] = 2
-CONFIG_BASE["num_layers"] = 3
 CONFIG_BASE["layer_type"] = "ConvLayer"
+CONFIG_BASE["num_layers"] = 3
 CONFIG_BASE["in_Irreps"] = "23x0e + 2x1o"
-CONFIG_BASE["out_Irreps"] = "20x0e + 10x1o"
+CONFIG_BASE["out_Irreps"] = "40x0e + 20x1o"
 CONFIG_BASE["mid_Irreps"] = "40x0e + 20x1o"
 CONFIG_BASE["attn_Irreps"] = "40x0e + 20x1o"
 CONFIG_BASE["l_max"] = 2
@@ -59,7 +73,7 @@ CONFIG_BASE["mlp_num_neurons"] = [20, 20]
 CONFIG_BASE["activation"] = "relu"
 CONFIG_BASE["norm"] = True
 CONFIG_BASE["radius"] = 1.0
-CONFIG_BASE["skip_connection"] = False
+CONFIG_BASE["skip_connection"] = True
 CONFIG_BASE["loss_weight"] = ConfigDict()
 
 CONFIG["feature_extraction"] = copy.deepcopy(CONFIG_BASE)
@@ -68,14 +82,16 @@ CONFIG["sidechain"] = copy.deepcopy(CONFIG_BASE)
 
 CONFIG["backbone"].update(
     {
+        "layer_type": "Linear",
         "num_layers": 2,
-        "in_Irreps": "20x0e + 10x1o",
-        "out_Irreps": "3x0e + 1x1o",  # scalars for quaternions and a vector for translation
-        # "out_Irreps": "1x0e + 2x1o",  # scalars for quaternions and a vector for translation
+        "in_Irreps": "40x0e + 20x1o",
+        "out_Irreps": "4x0e + 1x1o",  # quaternion + translation
         "mid_Irreps": "20x0e + 10x1o",
-        "attn_Irreps": "20x0e + 10x1o",
+        "norm": False,
+        "skip_connection": True,
         "loss_weight": {
             "rigid_body": 0.0,
+            "quaternion": 0.0,
             "bonded_energy": 0.0,
             "distance_matrix": 0.0,
         },
@@ -84,23 +100,14 @@ CONFIG["backbone"].update(
 
 CONFIG["sidechain"].update(
     {
+        "layer_type": "Linear",
         "num_layers": 2,
-        "in_Irreps": "20x0e + 10x1o",
+        "in_Irreps": "40x0e + 20x1o",
         "out_Irreps": f"{MAX_TORSION*2:d}x0e",
         "mid_Irreps": "20x0e + 10x1o",
-        "attn_Irreps": "20x0e + 10x1o",
+        "norm": False,
+        "skip_connection": True,
         "loss_weight": {"torsion_angle": 0.0},
-    }
-)
-
-CONFIG["loss_weight"] = ConfigDict()
-CONFIG["loss_weight"].update(
-    {
-        "rigid_body": 0.0,
-        "mse_R": 0.0,
-        "bonded_energy": 0.0,
-        "distance_matrix": 0.0,
-        "torsion_angle": 0.0,
     }
 )
 
@@ -116,84 +123,92 @@ class BaseModule(nn.Module):
         self.mid_Irreps = o3.Irreps(config.mid_Irreps)
         self.out_Irreps = o3.Irreps(config.out_Irreps)
         if config.activation is None:
-            activation = None
+            self.activation = None
         elif config.activation == "relu":
-            activation = torch.relu
+            self.activation = torch.relu
         elif config.activation == "elu":
-            activation = torch.elu
+            self.activation = torch.elu
         elif config.activation == "sigmoid":
-            activation = torch.sigmoid
+            self.activation = torch.sigmoid
         else:
             raise NotImplementedError
         self.skip_connection = config.skip_connection
-        self.num_recycle = max(1, config.num_recycle)
         #
         if config.layer_type == "ConvLayer":
+            self.use_graph = True
             layer_partial = functools.partial(
                 liblayer.ConvLayer,
                 radius=config.radius,
                 l_max=config.l_max,
                 mlp_num_neurons=config.mlp_num_neurons,
-                activation=activation,
+                activation=self.activation,
                 norm=config.norm,
             )
 
         elif config.layer_type == "SE3Transformer":
+            self.use_graph = True
             layer_partial = functools.partial(
                 liblayer.SE3Transformer,
                 attn_Irreps=config.attn_Irreps,
                 radius=config.radius,
                 l_max=config.l_max,
                 mlp_num_neurons=config.mlp_num_neurons,
-                activation=activation,
+                activation=self.activation,
                 norm=config.norm,
             )
+
+        elif config.layer_type == "Linear":
+            self.use_graph = False
+            layer_partial = functools.partial(o3.Linear, biases=True)
         #
         self.layer_0 = layer_partial(self.in_Irreps, self.mid_Irreps)
-        self.layer_1 = layer_partial(self.mid_Irreps, self.out_Irreps, norm=False)
-
         layer = layer_partial(self.mid_Irreps, self.mid_Irreps)
         self.layer_s = nn.ModuleList([layer for _ in range(config.num_layers)])
+        self.layer_1 = layer_partial(self.mid_Irreps, self.out_Irreps)
 
     def forward(self, batch, feat):
-        loss_out = {}
-        #
+        if self.use_graph:
+            return self.forward_graph(batch, feat)
+        else:
+            return self.forward_linear(feat)
+
+    def forward_graph(self, batch, feat):
         feat, graph = self.layer_0(batch, feat)
         radius_prev = self.layer_0.radius
         #
-        for k in range(self.num_recycle):
-            for i, layer in enumerate(self.layer_s):
-                if self.skip_connection:
-                    feat0 = feat.clone()
-                if layer.radius == radius_prev:
-                    feat, graph = layer(batch, feat, graph)
-                else:
-                    feat, graph = layer(batch, feat)
-                if self.skip_connection:
-                    feat = feat + feat0
-                radius_prev = layer.radius
-
-            if self.layer_1.radius == radius_prev:
-                feat_out, graph = self.layer_1(batch, feat, graph)
+        for i, layer in enumerate(self.layer_s):
+            if self.skip_connection:
+                feat0 = feat.clone()
+            if layer.radius == radius_prev:
+                feat, graph = layer(batch, feat, graph)
             else:
-                feat_out, graph = self.layer_1(batch, feat)
-            feat_out = self.activation_final(feat_out)
-            radius_prev = self.layer_1.radius
+                feat, graph = layer(batch, feat)
+            if self.skip_connection:
+                feat = feat + feat0
+            radius_prev = layer.radius
+        #
+        feat_out = self.layer_1(batch, feat)
+        return feat_out
+
+    def forward_linear(self, feat):
+        feat = self.layer_0(feat)
+
+        for i, layer in enumerate(self.layer_s):
+            if self.skip_connection:
+                feat0 = feat.clone()
+                #
+            feat = layer(feat)
             #
-            if (self.compute_loss or self.training) and (k + 1 != self.num_recycle):
-                for loss_name, loss_value in self.loss_f(feat_out, batch).items():
-                    if loss_name in loss_out:
-                        loss_out[loss_name] += loss_value
-                    else:
-                        loss_out[loss_name] = loss_value
+            if self.activation is not None:
+                feat = self.activation(feat)
+            if self.skip_connection:
+                feat = feat + feat0
+        #
+        feat_out = self.layer_1(feat)
+        return feat_out
 
-        return feat_out, loss_out
-
-    def activation_final(self, feat):
-        return feat
-
-    def loss_f(self, f_out, batch):
-        return {}
+    def loss_f(self, batch, f_out):
+        raise NotImplementedError
 
 
 class FeatureExtractionModule(BaseModule):
@@ -205,11 +220,8 @@ class BackboneModule(BaseModule):
     def __init__(self, config, compute_loss=False):
         super().__init__(config, compute_loss=compute_loss)
 
-    def activation_final(self, feat):
-        return torch.sigmoid(feat) * 2.0 - 1.0
-
-    def loss_f(self, f_out, batch):
-        R, q = build_structure(batch, f_out, sc=None)
+    def loss_f(self, batch, bb, bb1, loss_prev):
+        R = build_structure(batch, bb, sc=None)
         #
         loss = {}
         if self.loss_weight.get("rigid_body", 0.0) > 0.0:
@@ -218,7 +230,8 @@ class BackboneModule(BaseModule):
             )
         if self.loss_weight.get("quaternion", 0.0) > 0.0:
             loss["quaternion"] = (
-                loss_f_quaternion(q, batch.correct_quat) * self.loss_weight.quaternion
+                loss_f_quaternion(bb, bb1, batch.correct_quat)
+                * self.loss_weight.quaternion
             )
         if self.loss_weight.get("bonded_energy", 0.0) > 0.0:
             loss["bonded_energy"] = (
@@ -229,24 +242,71 @@ class BackboneModule(BaseModule):
             loss["distance_matrix"] = (
                 loss_f_distance_matrix(R, batch) * self.loss_weight.distance_matrix
             )
+        #
+        for k, v in loss_prev.items():
+            if k in loss:
+                loss[k] += v
+            else:
+                loss[k] = v
         return loss
+
+    @staticmethod
+    def compose(bb0, bb1):
+        # translation
+        bb1[:, 4:] = bb1[:, 4:] + bb0[:, 4:]
+        #
+        # quaternion
+        # q = q1 * q0
+        q0 = bb0[:, :4]  # assume q0 is normalized
+        q1 = v_norm(bb1[:, :4].clone())
+        q = q1.clone()
+        q[:, 0] = q0[:, 0] * q1[:, 0] - torch.sum(q0[:, 1:] * q1[:, 1:], dim=-1)
+        q[:, 1:] = (
+            q0[:, :1] * q1[:, 1:]
+            + q1[:, :1] * q0[:, 1:]
+            + torch.cross(q1[:, 1:], q0[:, 1:])
+        )
+        bb1[:, :4] = q
+        return bb1
+
+    def init_value(self, batch):
+        out = torch.zeros((batch.pos.size(0), self.out_Irreps.dim), dtype=DTYPE)
+        out[:, 0] = 1.0
+        return out
 
 
 class SidechainModule(BaseModule):
     def __init__(self, config, compute_loss=False):
         super().__init__(config, compute_loss=compute_loss)
 
-    def activation_final(self, feat):
-        return torch.sigmoid(feat) * 2.0 - 1.0
+    def forward(self, batch, feat):
+        out = super().forward(batch, feat)
+        out = out.reshape(-1, MAX_TORSION, 2)
+        return out
 
-    def loss_f(self, f_out, batch):
+    def loss_f(self, batch, sc, sc1, loss_prev):
         loss = {}
         if self.loss_weight.get("torsion_angle", 0.0) > 0.0:
             loss["torsion_angle"] = (
-                loss_f_torsion_angle(f_out, batch.correct_torsion, batch.torsion_mask)
+                loss_f_torsion_angle(sc, sc1, batch.correct_torsion, batch.torsion_mask)
                 * self.loss_weight.torsion_angle
             )
+        for k, v in loss_prev.items():
+            if k in loss:
+                loss[k] += v
+            else:
+                loss[k] = v
         return loss
+
+    @staticmethod
+    def compose(sc0, sc):
+        sc = v_norm_safe(sc + sc0)
+        return sc
+
+    def init_value(self, batch):
+        out = torch.zeros((batch.pos.size(0), MAX_TORSION, 2), dtype=DTYPE)
+        out[:, :, 0] = 1.0
+        return out
 
 
 class Model(nn.Module):
@@ -254,7 +314,8 @@ class Model(nn.Module):
         super().__init__()
         #
         self.compute_loss = compute_loss
-        self.loss_weight = _config.loss_weight
+        self.num_recycle = _config.globals.num_recycle
+        self.loss_weight = _config.globals.loss_weight
         #
         self.feature_extraction_module = FeatureExtractionModule(
             _config.feature_extraction, compute_loss=False
@@ -267,25 +328,61 @@ class Model(nn.Module):
         )
 
     def forward(self, batch):
-        f_out, _ = self.feature_extraction_module(batch, batch.f_in)
+        n_residue = batch.pos.size(0)
+        device = batch.pos.device
+        #
+        loss = {}
         #
         ret = {}
-        loss = {}
-        ret["bb"], loss["bb"] = self.backbone_module(batch, f_out)
-        ret["sc"], loss["sc"] = self.sidechain_module(batch, f_out)
-        ret["R"], ret["q"] = build_structure(batch, ret["bb"], ret["sc"])
+        ret["bb"] = self.backbone_module.init_value(batch).to(device)
+        ret["sc"] = self.sidechain_module.init_value(batch).to(device)
+        #
+        for _ in range(self.num_recycle):
+            f_out, _ = self.feature_extraction_module(batch, batch.f_in)
+            #
+            bb = self.backbone_module(batch, f_out)
+            ret["bb"] = self.backbone_module.compose(ret["bb"], bb)
+            #
+            sc = self.sidechain_module(batch, f_out)
+            ret["sc"] = self.sidechain_module.compose(ret["sc"], sc)
+            #
+            self.update_graph(batch, ret["bb"])
+            #
+            if self.compute_loss or self.training:
+                loss["bb"] = self.backbone_module.loss_f(
+                    batch, ret["bb"], bb, loss.get("bb", {})
+                )
+                loss["sc"] = self.sidechain_module.loss_f(
+                    batch, ret["sc"], sc, loss.get("sc", {})
+                )
+
         if self.compute_loss or self.training:
-            loss["R"] = self.loss_f(ret, batch)
-        metrics = self.calc_metrics(ret, batch)
+            ret["R"] = build_structure(batch, ret["bb"], sc=ret["sc"])
+            loss["R"] = self.loss_f(batch, ret)
+            for k, v in loss["bb"].items():
+                loss["bb"][k] = v / self.num_recycle
+            for k, v in loss["sc"].items():
+                loss["sc"][k] = v / self.num_recycle
+
+        metrics = self.calc_metrics(batch, ret)
+
         return ret, loss, metrics
 
-    def loss_f(self, ret, batch):
+    def update_graph(self, batch, bb):
+        batch.pos = batch.pos + 0.1 * bb[:, 4:]
+
+    def loss_f(self, batch, ret):
         R = ret["R"]
         #
         loss = {}
         if self.loss_weight.get("rigid_body", 0.0) > 0.0:
             loss["rigid_body"] = (
                 loss_f_rigid_body(R, batch.output_xyz) * self.loss_weight.rigid_body
+            )
+        if self.loss_weight.get("quaternion", 0.0) > 0.0:
+            loss["quaternion"] = (
+                loss_f_quaternion(ret["bb"], None, batch.correct_quat)
+                * self.loss_weight.quaternion
             )
         if self.loss_weight.get("mse_R", 0.0) > 0.0:
             loss["mse_R"] = (
@@ -304,13 +401,13 @@ class Model(nn.Module):
         if self.loss_weight.get("torsion_angle", 0.0) > 0.0:
             loss["torsion_angle"] = (
                 loss_f_torsion_angle(
-                    ret["sc"], batch.correct_torsion, batch.torsion_mask
+                    ret["sc"], None, batch.correct_torsion, batch.torsion_mask
                 )
                 * self.loss_weight.torsion_angle
             )
         return loss
 
-    def calc_metrics(self, ret, batch):
+    def calc_metrics(self, batch, ret):
         R = ret["R"]
         R_ref = batch.output_xyz
         #
@@ -337,6 +434,7 @@ def build_structure(batch, bb, sc=None):
 
     device = bb.device
     residue_type = batch.residue_type
+    n_residue = batch.residue_type.size(0)
     #
     transforms = RIGID_TRANSFORMS_TENSOR[residue_type].to(device)
     transforms_dep = RIGID_TRANSFORMS_DEP[residue_type].to(device)
@@ -346,16 +444,15 @@ def build_structure(batch, bb, sc=None):
     #
     opr = torch.zeros_like(transforms, device=device)
     #
-    n_residue = batch.residue_type.size(0)
-    #
     # backbone operations
-    # angle = bb[:, :1] / 2.0
-    # v = v_norm(bb[:, 1:4])
-    # q = torch.cat([torch.cos(angle), v * torch.sin(angle)], dim=1)
-    _q = torch.cat(
-        [torch.ones((n_residue, 1), dtype=DTYPE, device=device), bb[:, :3]], dim=1
-    )
-    q = _q / torch.linalg.norm(_q, dim=1)[:, None]
+    # angle = bb[:, :2]
+    # angle[:, 0] = angle[:, 0] + EPS
+    # norm = torch.linalg.norm(angle, dim=-1)
+    # cosine = angle[:, 0] / norm
+    # sine = angle[:, 1] / norm
+    # v = v_norm(bb[:, 2:5])
+    # q = torch.cat([cosine[:, None], v * sine[:, None]], dim=1)
+    q = bb[:, :4]
     #
     R = torch.zeros((n_residue, 3, 3), dtype=DTYPE, device=device)
     R[:, 0, 0] = q[:, 0] ** 2 + q[:, 1] ** 2 - q[:, 2] ** 2 - q[:, 3] ** 2
@@ -368,21 +465,16 @@ def build_structure(batch, bb, sc=None):
     R[:, 2, 0] = 2 * (q[:, 1] * q[:, 3] - q[:, 0] * q[:, 2])
     R[:, 2, 1] = 2 * (q[:, 2] * q[:, 3] + q[:, 0] * q[:, 1])
     opr[:, 0, :3] = R
-    # opr[:, 0, 3, :] = 0.1 * bb[:, 4:] + batch.pos
-    opr[:, 0, 3, :] = bb[:, 3:] + batch.pos
+    opr[:, 0, 3, :] = 0.1 * bb[:, 4:] + batch.pos
 
     # sidechain operations
     if sc is not None:
+        # assume that sc is v_norm_safed
         opr[:, 1:, 0, 0] = 1.0
-        torsion = sc.reshape(n_residue, -1, 2).clone()
-        torsion[:, :, 1] = torsion[:, :, 1] + EPS
-        norm = torch.linalg.norm(torsion, dim=2)
-        sine = torsion[:, :, 0] / norm
-        cosine = torsion[:, :, 1] / norm
-        opr[:, 1:, 1, 1] = cosine
-        opr[:, 1:, 1, 2] = -sine
-        opr[:, 1:, 2, 1] = sine
-        opr[:, 1:, 2, 2] = cosine
+        opr[:, 1:, 1, 1] = sc[:, :, 0]
+        opr[:, 1:, 1, 2] = -sc[:, :, 1]
+        opr[:, 1:, 2, 1] = sc[:, :, 1]
+        opr[:, 1:, 2, 2] = sc[:, :, 0]
     #
     opr = combine_operations(transforms, opr)
     #
@@ -395,4 +487,4 @@ def build_structure(batch, bb, sc=None):
 
     opr = torch.take_along_dim(opr, rigids_dep[..., None, None], axis=1)
     R = rotate_vector(opr[:, :, :3], rigids) + opr[:, :, 3]
-    return R, q
+    return R

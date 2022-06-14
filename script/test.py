@@ -35,18 +35,21 @@ def main():
     config.update_from_flattened_dict(
         {
             "backbone.loss_weight.rigid_body": 1.0,
+            "backbone.loss_weight.quaternion": 1.0,
             "backbone.loss_weight.distance_matrix": 1.0,
             "backbone.loss_weight.bonded_energy": 1.0,
-            "sidechain.loss_weight.torsion_angle": 0.2,
-            "loss_weight.mse_R": 1.0,
-            "loss_weight.rigid_body": 1.0,
-            "loss_weight.distance_matrix": 1.0,
-            "loss_weight.bonded_energy": 1.0,
-            "loss_weight.torsion_angle": 0.2,
+            "sidechain.loss_weight.torsion_angle": 1.0,
+            "globals.loss_weight.mse_R": 1.0,
+            "globals.loss_weight.rigid_body": 1.0,
+            "globals.loss_weight.quaternion": 1.0,
+            "globals.loss_weight.distance_matrix": 1.0,
+            "globals.loss_weight.bonded_energy": 1.0,
+            "globals.loss_weight.torsion_angle": 1.0,
         }
     )
     #
     model = Model(config, compute_loss=True)
+    print(model)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.01)

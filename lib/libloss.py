@@ -20,6 +20,12 @@ v_size = lambda v: torch.linalg.norm(v, dim=-1)
 v_norm = lambda v: v / v_size(v)[..., None]
 
 
+def v_norm_safe(v):
+    u = v.clone()
+    u[..., 0] = u[..., 0] + EPS
+    return v_norm(u)
+
+
 def inner_product(v1, v2):
     return torch.sum(v1 * v2, dim=-1)
 
@@ -45,9 +51,18 @@ def loss_f_rigid_body(R: torch.Tensor, R_ref: torch.Tensor) -> torch.Tensor:
 
 
 # distance between two quaternions
-def loss_f_quaternion(q: torch.Tensor, q_ref: torch.Tensor) -> torch.Tensor:
+def loss_f_quaternion(
+    bb: torch.Tensor, bb1: torch.Tensor, q_ref: torch.Tensor, norm_weight=0.01
+) -> torch.Tensor:
     # d(q1, q2) = 1.0 - <q1, q2>^2
-    return torch.mean(1.0 - torch.sum(q * q_ref, dim=-1))
+    loss_quat_dist = torch.mean(1.0 - torch.sum(bb[:, :4] * q_ref, dim=-1))
+    #
+    if bb1 is not None:
+        quat_norm = torch.linalg.norm(bb1[:, :4], dim=-1)
+        loss_quat_norm = torch.mean(torch.pow(quat_norm - 1.0, 2))
+    else:
+        loss_quat_norm = 0.0
+    return loss_quat_dist + loss_quat_norm * norm_weight
 
 
 # Bonded energy penalties
@@ -110,18 +125,19 @@ def loss_f_bonded_energy(R, is_continuous, weight_s=(1.0, 0.0, 0.0)):
     )
 
 
-def loss_f_torsion_angle(sc, sc0, mask, norm_weight=0.01):
-    torsion = sc.reshape(sc.size(0), -1, 2)
-    torsion[:, :, 1] = torsion[:, :, 1] + EPS
-    norm = torch.linalg.norm(torsion, dim=2)
-    #
-    sc_cos = torch.cos(sc0)
-    sc_sin = torch.sin(sc0)
-    #
+def loss_f_torsion_angle(sc, sc1, sc_ref, mask, norm_weight=0.01):
     # loss norm is to make torsion angle prediction stable
-    loss_norm = torch.sum(torch.pow(norm - 1.0, 2) * mask)
-    loss_cos = torch.sum(torch.pow(torsion[:, :, 0] / norm - sc_cos, 2) * mask)
-    loss_sin = torch.sum(torch.pow(torsion[:, :, 1] / norm - sc_sin, 2) * mask)
+    if sc1 is not None:
+        norm = v_size(sc1)
+        loss_norm = torch.sum(torch.pow(norm - 1.0, 2) * mask)
+    else:
+        loss_norm = 0.0
+    #
+    sc_cos = torch.cos(sc_ref)
+    sc_sin = torch.sin(sc_ref)
+    #
+    loss_cos = torch.sum(torch.pow(sc[:, :, 0] - sc_cos, 2) * mask)
+    loss_sin = torch.sum(torch.pow(sc[:, :, 1] - sc_sin, 2) * mask)
     loss = (loss_cos + loss_sin + loss_norm * norm_weight) / sc.size(0)
     return loss
 
