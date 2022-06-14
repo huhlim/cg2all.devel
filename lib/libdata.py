@@ -10,6 +10,7 @@ from typing import List
 
 import torch
 import torch_geometric
+import torch_cluster
 import e3nn
 
 import libcg
@@ -52,10 +53,7 @@ class PDBset(torch_geometric.data.Dataset):
         frame_index = np.random.randint(cg.n_frame)
         #
         r = cg.R_cg[frame_index]
-        dr = np.zeros((r.shape[0] + 1, 3))  # shape=(Nres+1, 3)
-        dr[1:-1] = r[:-1, 0, :] - r[1:, 0, :]
-        dr[1:-1] /= np.linalg.norm(dr[1:-1], axis=1)[:, None]
-        dr[:-1][cg.continuous == 0.0] = 0.0
+        #
         if self.noise_level > 0.0:
             noise_size = np.random.normal(
                 loc=self.noise_level, scale=self.noise_level / 2.0
@@ -70,6 +68,12 @@ class PDBset(torch_geometric.data.Dataset):
         data = torch_geometric.data.Data(
             pos=torch.tensor(r[cg.atom_mask_cg == 1.0], dtype=DTYPE)
         )
+        n_neigh = np.zeros((r.shape[0], 1), dtype=float)
+        edge_src, edge_dst = torch_cluster.radius_graph(
+            data.pos, 1.0, 
+        )
+        n_neigh[edge_src] += 1.0
+        n_neigh[edge_dst] += 1.0
         #
         # features for each residue
         f_in = [[], []]  # 0d, 1d
@@ -77,13 +81,19 @@ class PDBset(torch_geometric.data.Dataset):
         # one-hot encoding of residue type
         index = cg.bead_index[cg.atom_mask_cg == 1.0]
         f_in[0].append(np.eye(cg.max_bead_type)[index])
+        f_in[0].append(n_neigh)
         # noise-level
         f_in[0].append(np.full((r.shape[0], 1), noise_size))
         f_in[0] = torch.tensor(np.concatenate(f_in[0], axis=1), dtype=DTYPE)
         #
         # 1d: unit vectors from adjacent residues to the current residue
-        f_in[1].append(dr[:-1, None])
-        f_in[1].append(-dr[1:, None])
+        for shift in [1, 2]:
+            dr = np.zeros((r.shape[0] + shift, 3))  # shape=(Nres+1, 3)
+            dr[shift:-shift] = r[:-shift, 0, :] - r[shift:, 0, :]
+            dr[shift:-shift] /= np.linalg.norm(dr[shift:-shift], axis=1)[:, None]
+            dr[:-shift][cg.continuous == 0.0] = 0.0
+            f_in[1].append(dr[:-shift, None])
+            f_in[1].append(-dr[shift:, None])
         f_in[1] = torch.tensor(np.concatenate(f_in[1], axis=1), dtype=DTYPE)
         f_in = torch.cat(
             [
