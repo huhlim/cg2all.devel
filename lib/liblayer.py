@@ -146,7 +146,7 @@ class SE3Transformer(nn.Module):
 
     def forward(
         self,
-        data: torch_geometric.data.Data,
+        data: torch_geometric.data.Batch,
         f_in: torch.Tensor,
         graph=None,
     ) -> torch.Tensor:
