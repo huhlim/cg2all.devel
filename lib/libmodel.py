@@ -27,6 +27,7 @@ from libloss import (
     v_norm,
     v_norm_safe,
     loss_f_rigid_body,
+    loss_f_FAPE_CA,
     loss_f_quaternion,
     loss_f_mse_R,
     loss_f_distance_matrix,
@@ -64,7 +65,7 @@ CONFIG_BASE = ConfigDict()
 CONFIG_BASE = {}
 CONFIG_BASE["layer_type"] = "ConvLayer"
 CONFIG_BASE["num_layers"] = 3
-CONFIG_BASE["in_Irreps"] = "24x0e + 4x1o"
+CONFIG_BASE["in_Irreps"] = "38x0e + 4x1o"
 CONFIG_BASE["out_Irreps"] = "40x0e + 20x1o"
 CONFIG_BASE["mid_Irreps"] = "40x0e + 20x1o"
 CONFIG_BASE["attn_Irreps"] = "40x0e + 20x1o"
@@ -221,13 +222,18 @@ class BackboneModule(BaseModule):
         super().__init__(config, compute_loss=compute_loss)
 
     def loss_f(self, batch, bb, bb1, loss_prev):
-        R = build_structure(batch, bb, sc=None)
+        R, opr_bb = build_structure(batch, bb, sc=None)
         #
         loss = {}
         if self.loss_weight.get("rigid_body", 0.0) > 0.0:
             loss["rigid_body"] = (
                 loss_f_rigid_body(R, batch.output_xyz) * self.loss_weight.rigid_body
             )
+        if self.loss_weight.get("FAPE_CA", 0.0) > 0.0:
+            loss["FAPE_CA"] = (
+                loss_f_FAPE_CA(batch, R, opr_bb) * self.loss_weight.FAPE_CA
+            )
+
         if self.loss_weight.get("quaternion", 0.0) > 0.0:
             loss["quaternion"] = (
                 loss_f_quaternion(bb, bb1, batch.correct_quat)
@@ -342,6 +348,7 @@ class Model(nn.Module):
             #
             bb = self.backbone_module(batch, f_out)
             ret["bb"] = self.backbone_module.compose(ret["bb"], bb)
+            # ret["bb"][:, 4:] = 0.0
             #
             sc = self.sidechain_module(batch, f_out)
             ret["sc"] = self.sidechain_module.compose(ret["sc"], sc)
@@ -355,9 +362,11 @@ class Model(nn.Module):
                 loss["sc"] = self.sidechain_module.loss_f(
                     batch, ret["sc"], sc, loss.get("sc", {})
                 )
+        # ret["bb"][:, 4:] = 10.0 * (batch.output_xyz[:, 1] - batch.pos0)
+        # ret["bb"][:, :4] = batch.correct_quat
 
+        ret["R"], ret["opr_bb"] = build_structure(batch, ret["bb"], sc=ret["sc"])
         if self.compute_loss or self.training:
-            ret["R"] = build_structure(batch, ret["bb"], sc=ret["sc"])
             loss["R"] = self.loss_f(batch, ret)
             for k, v in loss["bb"].items():
                 loss["bb"][k] = v / self.num_recycle
@@ -369,7 +378,7 @@ class Model(nn.Module):
         return ret, loss, metrics
 
     def update_graph(self, batch, bb):
-        batch.pos = batch.pos + 0.1 * bb[:, 4:]
+        batch.pos = batch.pos0 + 0.1 * bb[:, 4:]
 
     def loss_f(self, batch, ret):
         R = ret["R"]
@@ -378,6 +387,10 @@ class Model(nn.Module):
         if self.loss_weight.get("rigid_body", 0.0) > 0.0:
             loss["rigid_body"] = (
                 loss_f_rigid_body(R, batch.output_xyz) * self.loss_weight.rigid_body
+            )
+        if self.loss_weight.get("FAPE_CA", 0.0) > 0.0:
+            loss["FAPE_CA"] = (
+                loss_f_FAPE_CA(batch, R, ret["opr_bb"]) * self.loss_weight.FAPE_CA
             )
         if self.loss_weight.get("quaternion", 0.0) > 0.0:
             loss["quaternion"] = (
@@ -465,7 +478,7 @@ def build_structure(batch, bb, sc=None):
     R[:, 2, 0] = 2 * (q[:, 1] * q[:, 3] - q[:, 0] * q[:, 2])
     R[:, 2, 1] = 2 * (q[:, 2] * q[:, 3] + q[:, 0] * q[:, 1])
     opr[:, 0, :3] = R
-    opr[:, 0, 3, :] = 0.1 * bb[:, 4:] + batch.pos
+    opr[:, 0, 3, :] = 0.1 * bb[:, 4:] + batch.pos0
 
     # sidechain operations
     if sc is not None:
@@ -487,4 +500,4 @@ def build_structure(batch, bb, sc=None):
 
     opr = torch.take_along_dim(opr, rigids_dep[..., None, None], axis=1)
     R = rotate_vector(opr[:, :, :3], rigids) + opr[:, :, 3]
-    return R
+    return R, opr[:, 0]

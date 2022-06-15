@@ -29,15 +29,19 @@ class Model(pl.LightningModule):
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=0.01)
-        lr_scheduler = torch.optim.lr_scheduler.SequentialLR(
-            optimizer,
-            [
-                torch.optim.lr_scheduler.LinearLR(optimizer, 0.1, 1.0, 10),
-                torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.98),
-            ],
-            [10],  # milestone
-        )
-        return {"optimizer": optimizer, "lr_scheduler": lr_scheduler}
+        return optimizer
+
+    # def configure_optimizers(self):
+    #     optimizer = torch.optim.Adam(self.parameters(), lr=0.01)
+    #     lr_scheduler = torch.optim.lr_scheduler.SequentialLR(
+    #         optimizer,
+    #         [
+    #             torch.optim.lr_scheduler.LinearLR(optimizer, 0.1, 1.0, 10),
+    #             torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.98),
+    #         ],
+    #         [10],  # milestone
+    #     )
+    #     return {"optimizer": optimizer, "lr_scheduler": lr_scheduler}
 
     def get_loss_sum(self, loss):
         loss_sum = 0.0
@@ -172,17 +176,12 @@ def main():
     config = copy.deepcopy(libmodel.CONFIG)
     config.update_from_flattened_dict(
         {
-            "backbone.loss_weight.rigid_body": 1.0,
-            "backbone.loss_weight.quaternion": 1.0,
-            "backbone.loss_weight.distance_matrix": 1.0,
-            "backbone.loss_weight.bonded_energy": 1.0,
-            "sidechain.loss_weight.torsion_angle": 1.0,
-            "globals.loss_weight.mse_R": 1.0,
             "globals.loss_weight.rigid_body": 1.0,
-            "globals.loss_weight.quaternion": 1.0,
-            "globals.loss_weight.distance_matrix": 1.0,
-            "globals.loss_weight.bonded_energy": 1.0,
-            "globals.loss_weight.torsion_angle": 1.0,
+            "globals.loss_weight.FAPE_CA": 1.0,
+            # "globals.loss_weight.quaternion": 1.0,
+            # "globals.loss_weight.distance_matrix": 1.0,
+            # "globals.loss_weight.bonded_energy": 1.0,
+            # "globals.loss_weight.torsion_angle": 1.0,
         }
     )
     model = Model(config, compute_loss=True)
