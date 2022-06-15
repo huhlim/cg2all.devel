@@ -65,12 +65,17 @@ class PDBset(torch_geometric.data.Dataset):
         else:
             noise_size = 0.0
         #
+        geom_s = cg.get_local_geometry(r)
+        #
         data = torch_geometric.data.Data(
             pos=torch.tensor(r[cg.atom_mask_cg == 1.0], dtype=DTYPE)
         )
+        data.pos0 = data.pos.clone()
+        #
         n_neigh = np.zeros((r.shape[0], 1), dtype=float)
         edge_src, edge_dst = torch_cluster.radius_graph(
-            data.pos, 1.0, 
+            data.pos,
+            1.0,
         )
         n_neigh[edge_src] += 1.0
         n_neigh[edge_dst] += 1.0
@@ -80,28 +85,41 @@ class PDBset(torch_geometric.data.Dataset):
         # 0d
         # one-hot encoding of residue type
         index = cg.bead_index[cg.atom_mask_cg == 1.0]
-        f_in[0].append(np.eye(cg.max_bead_type)[index])
-        f_in[0].append(n_neigh)
+        f_in[0].append(np.eye(cg.max_bead_type)[index])  # 22
+        f_in[0].append(n_neigh)  # 1
+        #
+        f_in[0].append(geom_s["bond_length"][1][0][:, None])  # 4
+        f_in[0].append(geom_s["bond_length"][1][1][:, None])
+        f_in[0].append(geom_s["bond_length"][2][0][:, None])
+        f_in[0].append(geom_s["bond_length"][2][1][:, None])
+        #
+        f_in[0].append(geom_s["bond_angle"][0][:, None])  # 2
+        f_in[0].append(geom_s["bond_angle"][1][:, None])
+        #
+        f_in[0].append(geom_s["dihedral_angle"].reshape(-1, 8))  # 8
+        #
         # noise-level
-        f_in[0].append(np.full((r.shape[0], 1), noise_size))
-        f_in[0] = torch.tensor(np.concatenate(f_in[0], axis=1), dtype=DTYPE)
+        f_in[0].append(np.full((r.shape[0], 1), noise_size))  # 1
+        #
+        f_in[0] = torch.tensor(
+            np.concatenate(f_in[0], axis=1), dtype=DTYPE
+        )  # 38x0e = 38
         #
         # 1d: unit vectors from adjacent residues to the current residue
-        for shift in [1, 2]:
-            dr = np.zeros((r.shape[0] + shift, 3))  # shape=(Nres+1, 3)
-            dr[shift:-shift] = r[:-shift, 0, :] - r[shift:, 0, :]
-            dr[shift:-shift] /= np.linalg.norm(dr[shift:-shift], axis=1)[:, None]
-            dr[:-shift][cg.continuous == 0.0] = 0.0
-            f_in[1].append(dr[:-shift, None])
-            f_in[1].append(-dr[shift:, None])
-        f_in[1] = torch.tensor(np.concatenate(f_in[1], axis=1), dtype=DTYPE)
+        f_in[1].append(geom_s["bond_vector"][1][0])
+        f_in[1].append(geom_s["bond_vector"][1][1])
+        f_in[1].append(geom_s["bond_vector"][2][0])
+        f_in[1].append(geom_s["bond_vector"][2][1])
+        f_in[1] = torch.tensor(
+            np.concatenate(f_in[1], axis=1), dtype=DTYPE
+        )  # 4x1o = 12
         f_in = torch.cat(
             [
                 f_in[0],
                 f_in[1].reshape(f_in[1].shape[0], -1),
             ],
             dim=1,
-        )
+        )  # 38x0e + 12x1o = 50
         data.f_in = f_in
         #
         data.chain_index = torch.tensor(cg.chain_index, dtype=int)
@@ -199,7 +217,6 @@ def test():
         train_set, batch_size=5, shuffle=True, num_workers=1
     )
     batch = next(iter(train_loader))
-    print(batch.correct_quat)
     for batch in train_loader:
         traj_s = create_trajectory_from_batch(
             batch, batch.output_xyz, write_native=True

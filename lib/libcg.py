@@ -4,6 +4,7 @@
 import mdtraj
 import numpy as np
 from libpdb import PDB
+from numpy_basics import v_size, v_norm, inner_product, torsion_angle
 from residue_constants import MAX_RESIDUE_TYPE
 
 # %%
@@ -48,6 +49,51 @@ class ResidueBasedModel(PDB):
         if dcd_fn is not None:
             traj = mdtraj.Trajectory(xyz, self.top_cg)
             traj.save(dcd_fn)
+
+    def get_local_geometry(self, r):
+        not_defined = self.continuous == 0.0
+        geom_s = {}
+        #
+        # bond vectors
+        geom_s["bond_length"] = {}
+        geom_s["bond_vector"] = {}
+        for shift in [1, 2]:
+            b_len = np.zeros(r.shape[0] + shift)
+            dr = np.zeros((r.shape[0] + shift, 3))
+            dr[shift:-shift] = r[:-shift, 0, :] - r[shift:, 0, :]
+            b_len[shift:-shift] = v_size(dr[shift:-shift])
+            dr[shift:-shift] /= b_len[shift:-shift, None]
+            dr[:-shift][not_defined] = 0.0
+            geom_s["bond_length"][shift] = (b_len[:-shift], b_len[shift:])
+            geom_s["bond_vector"][shift] = (dr[:-shift], -dr[shift:])
+
+        # bond angles
+        v1 = geom_s["bond_vector"][1][0]
+        v2 = geom_s["bond_vector"][1][1]
+        cosine = inner_product(v1, v2)
+        sine = 1.0 - cosine**2
+        cosine[not_defined] = 0.0
+        sine[not_defined] = 0.0
+        cosine[:-1][not_defined[1:]] = 0.0
+        sine[:-1][not_defined[1:]] = 0.0
+        cosine[-1] = 0.0
+        sine[-1] = 0.0
+        geom_s["bond_angle"] = (cosine, sine)
+
+        # dihedral angles
+        R = np.array([r[0:-3], r[1:-2], r[2:-1], r[3:]]).reshape(-1, 4, 3)
+        t_ang = torsion_angle(R)
+        cosine = np.cos(t_ang)
+        sine = np.sin(t_ang)
+        for i in range(3):
+            cosine[: -(i + 1)][not_defined[i + 1 : -3]] = 0.0
+            sine[: -(i + 1)][not_defined[i + 1 : -3]] = 0.0
+        sc = np.zeros((r.shape[0], 4, 2))
+        for i in range(4):
+            sc[i : i + cosine.shape[0], i, 0] = cosine
+            sc[i : i + sine.shape[0], i, 1] = sine
+        geom_s["dihedral_angle"] = sc
+        return geom_s
 
 
 # %%
