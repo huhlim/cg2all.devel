@@ -15,7 +15,7 @@ import e3nn
 import e3nn.nn
 from e3nn import o3
 
-from libconfig import DTYPE
+from libconfig import DTYPE, EPS
 
 
 class ConvLayer(nn.Module):
@@ -183,11 +183,11 @@ class SE3Transformer(nn.Module):
         dot = _dot - _dot.max()  # to avoid numerical issues
         exp = edge_weight_cutoff[:, None] * dot.exp()
         z = torch_scatter.scatter(exp, edge_dst, dim=0, dim_size=len(f_in))
-        z[z == 0] = 1.0
+        z[z < EPS] = 1.0
         alpha = exp / z[edge_dst]
         #
         f_out = torch_scatter.scatter(
-            alpha.relu().sqrt() * v, edge_dst, dim=0, dim_size=len(f_in)
+            (alpha.relu() + EPS).sqrt() * v, edge_dst, dim=0, dim_size=len(f_in)
         )
         if self.return_attn:
             attn = torch.zeros((n_node, n_node), dtype=torch.float)
