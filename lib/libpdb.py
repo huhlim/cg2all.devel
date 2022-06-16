@@ -164,7 +164,7 @@ class PDB(object):
         for i_res in range(self.n_residue):
             mask, opr_s = self.get_backbone_orientation(i_res)
             self.bb_mask[i_res] = mask
-            self.bb[:, i_res, :3, :] = opr_s[0] # rotation matrix
+            self.bb[:, i_res, :3, :] = opr_s[0]  # rotation matrix
             self.bb[:, i_res, 3, :] = opr_s[1]  # translation vector
             #
             mask, tor_s = self.get_torsion_angles(i_res)

@@ -72,7 +72,6 @@ CONFIG_BASE["attn_Irreps"] = "40x0e + 20x1o"
 CONFIG_BASE["l_max"] = 2
 CONFIG_BASE["mlp_num_neurons"] = [20, 20]
 CONFIG_BASE["activation"] = "relu"
-CONFIG_BASE["norm"] = True
 CONFIG_BASE["radius"] = 1.0
 CONFIG_BASE["skip_connection"] = True
 CONFIG_BASE["loss_weight"] = ConfigDict()
@@ -88,7 +87,6 @@ CONFIG["backbone"].update(
         "in_Irreps": "40x0e + 20x1o",
         "out_Irreps": "4x0e + 1x1o",  # quaternion + translation
         "mid_Irreps": "20x0e + 10x1o",
-        "norm": False,
         "skip_connection": True,
         "loss_weight": {
             "rigid_body": 0.0,
@@ -106,7 +104,6 @@ CONFIG["sidechain"].update(
         "in_Irreps": "40x0e + 20x1o",
         "out_Irreps": f"{MAX_TORSION*2:d}x0e",
         "mid_Irreps": "20x0e + 10x1o",
-        "norm": False,
         "skip_connection": True,
         "loss_weight": {"torsion_angle": 0.0},
     }
@@ -143,7 +140,6 @@ class BaseModule(nn.Module):
                 l_max=config.l_max,
                 mlp_num_neurons=config.mlp_num_neurons,
                 activation=self.activation,
-                norm=config.norm,
             )
 
         elif config.layer_type == "SE3Transformer":
@@ -155,7 +151,6 @@ class BaseModule(nn.Module):
                 l_max=config.l_max,
                 mlp_num_neurons=config.mlp_num_neurons,
                 activation=self.activation,
-                norm=config.norm,
             )
 
         elif config.layer_type == "Linear":
@@ -188,7 +183,7 @@ class BaseModule(nn.Module):
                 feat = feat + feat0
             radius_prev = layer.radius
         #
-        feat_out = self.layer_1(batch, feat)
+        feat_out, graph = self.layer_1(batch, feat)
         return feat_out
 
     def forward_linear(self, feat):
@@ -264,7 +259,9 @@ class BackboneModule(BaseModule):
         # quaternion
         # q = q1 * q0
         q0 = bb0[:, :4]  # assume q0 is normalized
-        q1 = v_norm(bb1[:, :4].clone())
+        q1 = bb1[:, :4].clone()
+        q1[:, 0] = q1[:, 0] + EPS
+        q1 = v_norm(q1)
         q = q1.clone()
         q[:, 0] = q0[:, 0] * q1[:, 0] - torch.sum(q0[:, 1:] * q1[:, 1:], dim=-1)
         q[:, 1:] = (
@@ -344,11 +341,10 @@ class Model(nn.Module):
         ret["sc"] = self.sidechain_module.init_value(batch).to(device)
         #
         for _ in range(self.num_recycle):
-            f_out, _ = self.feature_extraction_module(batch, batch.f_in)
+            f_out = self.feature_extraction_module(batch, batch.f_in)
             #
             bb = self.backbone_module(batch, f_out)
             ret["bb"] = self.backbone_module.compose(ret["bb"], bb)
-            # ret["bb"][:, 4:] = 0.0
             #
             sc = self.sidechain_module(batch, f_out)
             ret["sc"] = self.sidechain_module.compose(ret["sc"], sc)
@@ -362,8 +358,6 @@ class Model(nn.Module):
                 loss["sc"] = self.sidechain_module.loss_f(
                     batch, ret["sc"], sc, loss.get("sc", {})
                 )
-        # ret["bb"][:, 4:] = 10.0 * (batch.output_xyz[:, 1] - batch.pos0)
-        # ret["bb"][:, :4] = batch.correct_quat
 
         ret["R"], ret["opr_bb"] = build_structure(batch, ret["bb"], sc=ret["sc"])
         if self.compute_loss or self.training:
