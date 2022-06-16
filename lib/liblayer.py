@@ -18,11 +18,6 @@ from e3nn import o3
 from libconfig import DTYPE
 
 
-class Linear(e3nn.nn.FullyConnectedNet):
-    def __init__(self, in_features, out_features, act=None):
-        super().__init__([in_features, out_features], act=act)
-
-
 class ConvLayer(nn.Module):
     def __init__(
         self,
@@ -32,7 +27,6 @@ class ConvLayer(nn.Module):
         l_max: Optional[int] = 2,
         mlp_num_neurons: Optional[List[int]] = [20, 20],
         activation=torch.relu,
-        norm: Optional[bool] = True,
     ) -> None:
         #
         super().__init__()
@@ -49,11 +43,18 @@ class ConvLayer(nn.Module):
         #
         neurons = mlp_num_neurons + [self.tensor_product.weight_numel]
         self.mlp = e3nn.nn.FullyConnectedNet(neurons, act=activation)
-        if norm:
-            self.norm = e3nn.nn.BatchNorm(self.out_Irreps)
-        else:
-            self.norm = None
-        #
+
+    @staticmethod
+    def count_neighbors(batch_index, edge_src):
+        batch_size = batch_index.max().item() + 1
+        n_neigh = torch.zeros(batch_size, device=edge_src.device, dtype=DTYPE)
+        n_residue = torch.zeros(batch_size, device=edge_src.device, dtype=DTYPE)
+        n_neigh.index_add_(
+            0, batch_index[edge_src], torch.ones_like(edge_src, dtype=DTYPE)
+        )
+        n_residue.index_add_(0, batch_index, torch.ones_like(batch_index, dtype=DTYPE))
+        n_neigh = n_neigh / n_residue
+        return n_neigh
 
     def forward(
         self,
@@ -66,8 +67,9 @@ class ConvLayer(nn.Module):
             edge_src, edge_dst = torch_cluster.radius_graph(
                 data.pos, self.radius, batch=data.batch
             )
+            n_neigh = self.count_neighbors(data.batch, edge_src)
         else:
-            edge_src, edge_dst = graph
+            edge_src, edge_dst, n_neigh = graph
         edge_vec = data.pos[edge_dst] - data.pos[edge_src]
         #
         sh = o3.spherical_harmonics(
@@ -89,9 +91,8 @@ class ConvLayer(nn.Module):
         f_out = torch_scatter.scatter(
             f_out, edge_dst, dim=0, dim_size=n_node, reduce="sum"
         )
-        if self.norm is not None:
-            f_out = self.norm(f_out)
-        return f_out, (edge_src, edge_dst)
+        f_out = f_out.div(n_neigh[data.batch][:, None] ** 0.5)
+        return f_out, (edge_src, edge_dst, n_neigh)
 
 
 class SE3Transformer(nn.Module):
@@ -104,7 +105,6 @@ class SE3Transformer(nn.Module):
         l_max: Optional[int] = 2,
         mlp_num_neurons: Optional[List[int]] = [20, 20],
         activation=torch.relu,
-        norm: Optional[bool] = True,
         return_attn: Optional[bool] = False,
     ) -> None:
         #
@@ -138,10 +138,6 @@ class SE3Transformer(nn.Module):
         self.dot_product = o3.FullyConnectedTensorProduct(
             self.attn_Irreps, self.attn_Irreps, "0e"
         )
-        if norm:
-            self.norm = e3nn.nn.BatchNorm(self.out_Irreps)
-        else:
-            self.norm = None
         self.return_attn = return_attn
 
     def forward(
@@ -159,10 +155,6 @@ class SE3Transformer(nn.Module):
             edge_src, edge_dst = graph
         edge_vec = data.pos[edge_dst] - data.pos[edge_src]
         #
-        sh = o3.spherical_harmonics(
-            self.sh_Irreps, edge_vec, normalize=True, normalization="component"
-        )
-        #
         edge_length = edge_vec.norm(dim=1)
         edge_length_embedding = e3nn.math.soft_one_hot_linspace(
             edge_length,
@@ -178,6 +170,10 @@ class SE3Transformer(nn.Module):
         )
         #
         # compute the queries (per node), keys (per edge), and values (per edge)
+        sh = o3.spherical_harmonics(
+            self.sh_Irreps, edge_vec, normalize=True, normalization="component"
+        )
+        #
         q = self.h_q(f_in)
         k = self.tensor_product_k(f_in[edge_src], sh, self.mlp_k(edge_length_embedding))
         v = self.tensor_product_v(f_in[edge_src], sh, self.mlp_v(edge_length_embedding))
@@ -193,8 +189,6 @@ class SE3Transformer(nn.Module):
         f_out = torch_scatter.scatter(
             alpha.relu().sqrt() * v, edge_dst, dim=0, dim_size=len(f_in)
         )
-        if self.norm is not None:
-            f_out = self.norm(f_out)
         if self.return_attn:
             attn = torch.zeros((n_node, n_node), dtype=torch.float)
             attn[edge_src, edge_dst] = alpha[:, 0]
