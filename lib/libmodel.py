@@ -13,6 +13,7 @@ import e3nn.nn
 from e3nn import o3
 
 import liblayer
+import libnorm
 from libconfig import DTYPE, EPS
 from residue_constants import (
     MAX_ATOM,
@@ -47,7 +48,7 @@ RIGID_GROUPS_DEP[RIGID_GROUPS_DEP == -1] = MAX_RIGID - 1
 CONFIG = ConfigDict()
 
 CONFIG["globals"] = ConfigDict()
-CONFIG["globals"]["num_recycle"] = 2
+CONFIG["globals"]["num_recycle"] = 1
 CONFIG["globals"]["loss_weight"] = ConfigDict()
 CONFIG["globals"]["loss_weight"].update(
     {
@@ -73,21 +74,35 @@ CONFIG_BASE["l_max"] = 2
 CONFIG_BASE["mlp_num_neurons"] = [20, 20]
 CONFIG_BASE["activation"] = "relu"
 CONFIG_BASE["radius"] = 1.0
+CONFIG_BASE["norm"] = True
 CONFIG_BASE["skip_connection"] = True
 CONFIG_BASE["loss_weight"] = ConfigDict()
 
 CONFIG["feature_extraction"] = copy.deepcopy(CONFIG_BASE)
+CONFIG["transition"] = copy.deepcopy(CONFIG_BASE)
 CONFIG["backbone"] = copy.deepcopy(CONFIG_BASE)
 CONFIG["sidechain"] = copy.deepcopy(CONFIG_BASE)
 
-CONFIG["backbone"].update(
+CONFIG["transition"].update(
     {
         "layer_type": "Linear",
         "num_layers": 2,
         "in_Irreps": "40x0e + 20x1o",
+        "out_Irreps": "40x0e + 20x1o",  # quaternion + translation
+        "mid_Irreps": "40x0e + 20x1o",
+        "skip_connection": True,
+        "norm": True,
+    }
+)
+CONFIG["backbone"].update(
+    {
+        "layer_type": "Linear",
+        "num_layers": 1,
+        "in_Irreps": "40x0e + 20x1o",
         "out_Irreps": "4x0e + 1x1o",  # quaternion + translation
         "mid_Irreps": "20x0e + 10x1o",
         "skip_connection": True,
+        "norm": False,
         "loss_weight": {
             "rigid_body": 0.0,
             "quaternion": 0.0,
@@ -105,6 +120,7 @@ CONFIG["sidechain"].update(
         "out_Irreps": f"{MAX_TORSION*2:d}x0e",
         "mid_Irreps": "20x0e + 10x1o",
         "skip_connection": True,
+        "norm": False,
         "loss_weight": {"torsion_angle": 0.0},
     }
 )
@@ -131,6 +147,10 @@ class BaseModule(nn.Module):
         else:
             raise NotImplementedError
         self.skip_connection = config.skip_connection
+        if config.norm:
+            self.norm = libnorm.LayerNorm(self.out_Irreps)
+        else:
+            self.norm = None
         #
         if config.layer_type == "ConvLayer":
             self.use_graph = True
@@ -164,9 +184,13 @@ class BaseModule(nn.Module):
 
     def forward(self, batch, feat):
         if self.use_graph:
-            return self.forward_graph(batch, feat)
+            out = self.forward_graph(batch, feat)
         else:
-            return self.forward_linear(feat)
+            out = self.forward_linear(feat)
+        #
+        if self.norm is not None:
+            out = self.norm(out)
+        return out
 
     def forward_graph(self, batch, feat):
         feat, graph = self.layer_0(batch, feat)
