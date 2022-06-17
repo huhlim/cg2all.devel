@@ -1,15 +1,12 @@
 #!/usr/bin/env python
 
-#%%
 import torch
 from torch import nn
-
 
 from e3nn import o3
 from e3nn.util.jit import compile_mode
 
 
-#%%
 @compile_mode("unsupported")
 class LayerNorm(nn.Module):
     __constants__ = ["irreps", "eps", "elementwise_affine"]
@@ -78,7 +75,7 @@ class LayerNorm(nn.Module):
             else:
                 field_norm = (
                     o3.Norm(n * irrep)(field).pow(2).mean(dim=(1, 2), keepdim=True)
-                )
+                )  # [batch, 1, 1]
             field_norm = torch.pow(field_norm + self.eps, -0.5)
             field = field * field_norm
             #
@@ -100,6 +97,3 @@ class LayerNorm(nn.Module):
         output = torch.cat(field_s, dim=2)
         return output.reshape(batch_size, *size, dim_total)
         #
-
-
-#%%
