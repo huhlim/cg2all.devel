@@ -65,7 +65,10 @@ class ConvLayer(nn.Module):
         n_node = data.pos.size(0)
         if graph is None:
             edge_src, edge_dst = torch_cluster.radius_graph(
-                data.pos, self.radius, batch=data.batch
+                data.pos,
+                self.radius,
+                batch=data.batch,
+                max_num_neighbors=n_node - 1,
             )
             n_neigh = self.count_neighbors(data.batch, edge_src)
         else:
@@ -149,7 +152,10 @@ class SE3Transformer(nn.Module):
         n_node = data.pos.size(0)
         if graph is None:
             edge_src, edge_dst = torch_cluster.radius_graph(
-                data.pos, self.radius, batch=data.batch
+                data.pos,
+                self.radius,
+                batch=data.batch,
+                max_num_neighbors=n_node - 1,
             )
         else:
             edge_src, edge_dst = graph

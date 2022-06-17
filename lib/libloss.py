@@ -175,7 +175,9 @@ def loss_f_torsion_angle(sc, sc1, sc_ref, mask, norm_weight=0.01):
 
 def loss_f_distance_matrix(R, batch, radius=1.0):
     R_ref = batch.output_xyz[:, ATOM_INDEX_CA]
-    edge_src, edge_dst = torch_cluster.radius_graph(R_ref, radius, batch=batch.batch)
+    edge_src, edge_dst = torch_cluster.radius_graph(
+        R_ref, radius, batch=batch.batch, max_num_neighbors=R_ref.size(0) - 1
+    )
     d_ref = v_size(R_ref[edge_dst] - R_ref[edge_src])
     d = v_size(R[edge_dst, ATOM_INDEX_CA] - R[edge_src, ATOM_INDEX_CA])
     #
