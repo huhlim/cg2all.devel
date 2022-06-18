@@ -184,6 +184,14 @@ def main():
             # "globals.loss_weight.torsion_angle": 1.0,
         }
     )
+    # config.update_from_flattened_dict(
+    #     {
+    #         "feature_extraction.num_layers": 4,
+    #         "feature_extraction.mid_Irreps": "80x0e + 40x1o",
+    #         "backbone.num_layers": 4,
+    #         "backbone.mid_Irreps": "40x0e + 20x1o",
+    #     }
+    # )
     model = Model(config, compute_loss=True)
     trainer = pl.Trainer(
         max_epochs=100,
@@ -192,7 +200,7 @@ def main():
         check_val_every_n_epoch=5,
     )
     trainer.fit(model, train_loader, val_loader)
-    trainer.test(model, test_loader)
+    #trainer.test(model, test_loader)
 
 
 if __name__ == "__main__":

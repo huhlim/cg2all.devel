@@ -34,14 +34,15 @@ def main():
     config = copy.deepcopy(CONFIG)
     config.update_from_flattened_dict(
         {
+            "feature_extraction.layer_type": "SE3Transformer",
             # "backbone.loss_weight.rigid_body": 1.0,
             # "backbone.loss_weight.quaternion": 1.0,
             # "backbone.loss_weight.distance_matrix": 1.0,
             # "backbone.loss_weight.bonded_energy": 1.0,
             # "sidechain.loss_weight.torsion_angle": 1.0,
             # "globals.loss_weight.mse_R": 1.0,
-            "globals.loss_weight.FAPE_CA": 1.0,
-            # "globals.loss_weight.rigid_body": 1.0,
+            # "globals.loss_weight.FAPE_CA": 1.0,
+            "globals.loss_weight.rigid_body": 1.0,
             # "globals.loss_weight.quaternion": 1.0,
             # "globals.loss_weight.distance_matrix": 1.0,
             # "globals.loss_weight.bonded_energy": 1.0,
