@@ -6,6 +6,7 @@ import functools
 
 import torch
 import torch.nn as nn
+import torch.utils.checkpoint
 from ml_collections import ConfigDict
 
 import e3nn
@@ -124,6 +125,10 @@ CONFIG["sidechain"].update(
         "loss_weight": {"torsion_angle": 0.0},
     }
 )
+
+
+def _get_gpu_mem():
+    return torch.cuda.memory_allocated()/1024/1024, torch.cuda.memory_allocated()/1024/1024
 
 
 class BaseModule(nn.Module):
@@ -337,10 +342,11 @@ class SidechainModule(BaseModule):
 
 
 class Model(nn.Module):
-    def __init__(self, _config, compute_loss=False):
+    def __init__(self, _config, compute_loss=False, checkpoint=False):
         super().__init__()
         #
         self.compute_loss = compute_loss
+        self.checkpoint = checkpoint
         self.num_recycle = _config.globals.num_recycle
         self.loss_weight = _config.globals.loss_weight
         #
@@ -365,7 +371,10 @@ class Model(nn.Module):
         ret["sc"] = self.sidechain_module.init_value(batch).to(device)
         #
         for _ in range(self.num_recycle):
-            f_out = self.feature_extraction_module(batch, batch.f_in)
+            if self.training and self.checkpoint:
+                f_out = torch.utils.checkpoint.checkpoint(self.feature_extraction_module, batch, batch.f_in)
+            else:
+                f_out = self.feature_extraction_module(batch, batch.f_in)
             #
             bb = self.backbone_module(batch, f_out)
             ret["bb"] = self.backbone_module.compose(ret["bb"], bb)

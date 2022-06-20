@@ -19,17 +19,13 @@ import libmodel
 
 
 class Model(pl.LightningModule):
-    def __init__(self, _config, compute_loss=False):
+    def __init__(self, _config, compute_loss=False, checkpoint=False):
         super().__init__()
         self.save_hyperparameters(_config.to_dict())
-        self.model = libmodel.Model(_config, compute_loss=compute_loss)
+        self.model = libmodel.Model(_config, compute_loss=compute_loss, checkpoint=checkpoint)
 
     def forward(self, batch: torch_geometric.data.Batch):
         return self.model.forward(batch)
-
-#    def configure_optimizers(self):
-#        optimizer = torch.optim.Adam(self.parameters(), lr=0.0001)
-#        return optimizer
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=0.01)
@@ -180,7 +176,7 @@ def main():
     config = copy.deepcopy(libmodel.CONFIG)
     config.update_from_flattened_dict(
         {
-            "globals.num_recycle": 2,
+            "globals.num_recycle": 8,
             "globals.loss_weight.rigid_body": 1.0,
             "globals.loss_weight.FAPE_CA": 5.0,
             "globals.loss_weight.bonded_energy": 1.0,
@@ -192,7 +188,7 @@ def main():
             #"globals.loss_weight.torsion_angle": 1.0,
         }
     )
-    model = Model(config, compute_loss=True)
+    model = Model(config, compute_loss=True, checkpoint=True)
     trainer = pl.Trainer(
         max_epochs=100,
         accelerator="auto",
@@ -200,7 +196,7 @@ def main():
         check_val_every_n_epoch=5,
     )
     trainer.fit(model, train_loader, val_loader)
-    trainer.test(model, test_loader)
+    # trainer.test(model, test_loader)
 
 
 if __name__ == "__main__":

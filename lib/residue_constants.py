@@ -43,6 +43,7 @@ BOND_ANGLE0 = (np.deg2rad(120.0), np.deg2rad(116.5))
 TORSION_ANGLE0 = (np.deg2rad(0.0), np.deg2rad(180.0))
 
 AMINO_ACID_ALT_s = {"HIS": "HSD"}
+AMINO_ACID_REV_s = {"HSD": "HIS", "HSE": "HIS"}
 ATOM_NAME_ALT_s = {}
 with open(DATA_HOME / "rename_atoms.dat") as fp:
     for line in fp:

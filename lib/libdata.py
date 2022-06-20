@@ -15,7 +15,7 @@ import e3nn
 
 import libcg
 from libconfig import BASE, DTYPE
-from residue_constants import AMINO_ACID_s, residue_s
+from residue_constants import AMINO_ACID_s, AMINO_ACID_REV_s, residue_s
 
 
 class Normalizer(object):
@@ -186,10 +186,11 @@ def create_topology_from_data(data: torch_geometric.data.Data) -> mdtraj.Topolog
         resSeq += 1
         residue_type_index = int(data.residue_type[i_res])
         residue_name = AMINO_ACID_s[residue_type_index]
+        residue_name_std = AMINO_ACID_REV_s.get(residue_name, residue_name)
         if residue_name == "UNK":
             continue
         ref_res = residue_s[residue_name]
-        top_residue = top.add_residue(residue_name, top_chain, resSeq)
+        top_residue = top.add_residue(residue_name_std, top_chain, resSeq)
         #
         for i_atm, atom_name in enumerate(ref_res.atom_s):
             if data.output_atom_mask[i_res, i_atm] > 0.0:
