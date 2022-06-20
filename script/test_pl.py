@@ -22,7 +22,9 @@ class Model(pl.LightningModule):
     def __init__(self, _config, compute_loss=False, checkpoint=False):
         super().__init__()
         self.save_hyperparameters(_config.to_dict())
-        self.model = libmodel.Model(_config, compute_loss=compute_loss, checkpoint=checkpoint)
+        self.model = libmodel.Model(
+            _config, compute_loss=compute_loss, checkpoint=checkpoint
+        )
 
     def forward(self, batch: torch_geometric.data.Batch):
         return self.model.forward(batch)
@@ -156,21 +158,37 @@ def main():
     #
     cg_model = functools.partial(ResidueBasedModel, center_of_mass=True)
     _PDBset = functools.partial(
-        PDBset, cg_model=cg_model, noise_level=0.0, get_structure_information=True, cached=cached,
+        PDBset,
+        cg_model=cg_model,
+        noise_level=0.0,
+        get_structure_information=True,
+        cached=cached,
     )
     #
     batch_size = 16
     train_set = _PDBset(pdb_dir, pdblist_train)
     train_loader = torch_geometric.loader.DataLoader(
-        train_set, batch_size=batch_size, shuffle=True, num_workers=8, pin_memory=pin_memory,
+        train_set,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=8,
+        pin_memory=pin_memory,
     )
     val_set = _PDBset(pdb_dir, pdblist_val)
     val_loader = torch_geometric.loader.DataLoader(
-        val_set, batch_size=batch_size, shuffle=False, num_workers=8, pin_memory=pin_memory,
+        val_set,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=8,
+        pin_memory=pin_memory,
     )
     test_set = _PDBset(pdb_dir, pdblist_test)
     test_loader = torch_geometric.loader.DataLoader(
-        test_set, batch_size=batch_size, shuffle=False, num_workers=8, pin_memory=pin_memory,
+        test_set,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=8,
+        pin_memory=pin_memory,
     )
     #
     config = copy.deepcopy(libmodel.CONFIG)
@@ -185,12 +203,12 @@ def main():
             "backbone.loss_weight.FAPE_CA": 2.5,
             "backbone.loss_weight.bonded_energy": 0.5,
             "backbone.loss_weight.distance_matrix": 50.0,
-            #"globals.loss_weight.torsion_angle": 1.0,
+            # "globals.loss_weight.torsion_angle": 1.0,
         }
     )
     model = Model(config, compute_loss=True, checkpoint=True)
     trainer = pl.Trainer(
-        max_epochs=100,
+        max_epochs=1000,
         accelerator="auto",
         gradient_clip_val=1.0,
         check_val_every_n_epoch=5,

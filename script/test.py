@@ -27,9 +27,15 @@ def main():
     pdblist = BASE / "pdb/pdblist"
     cg_model = functools.partial(ResidueBasedModel, center_of_mass=True)
     #
-    train_set = PDBset(base_dir, pdblist, cg_model, get_structure_information=True, cached=True)
+    train_set = PDBset(
+        base_dir, pdblist, cg_model, get_structure_information=True, cached=True
+    )
     train_loader = torch_geometric.loader.DataLoader(
-        train_set, batch_size=8, shuffle=True, num_workers=1, pin_memory=True, 
+        train_set,
+        batch_size=8,
+        shuffle=True,
+        num_workers=1,
+        pin_memory=True,
     )
     batch = next(iter(train_loader))
     #

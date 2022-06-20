@@ -2,6 +2,7 @@
 
 import sys
 import copy
+import random
 import functools
 
 import torch
@@ -128,7 +129,10 @@ CONFIG["sidechain"].update(
 
 
 def _get_gpu_mem():
-    return torch.cuda.memory_allocated()/1024/1024, torch.cuda.memory_allocated()/1024/1024
+    return (
+        torch.cuda.memory_allocated() / 1024 / 1024,
+        torch.cuda.memory_allocated() / 1024 / 1024,
+    )
 
 
 class BaseModule(nn.Module):
@@ -370,9 +374,15 @@ class Model(nn.Module):
         ret["bb"] = self.backbone_module.init_value(batch).to(device)
         ret["sc"] = self.sidechain_module.init_value(batch).to(device)
         #
-        for _ in range(self.num_recycle):
+        if self.training:
+            num_recycle = random.randint(1, self.num_recycle)
+        else:
+            num_recycle = self.num_recycle
+        for _ in range(num_recycle):
             if self.training and self.checkpoint:
-                f_out = torch.utils.checkpoint.checkpoint(self.feature_extraction_module, batch, batch.f_in)
+                f_out = torch.utils.checkpoint.checkpoint(
+                    self.feature_extraction_module, batch, batch.f_in
+                )
             else:
                 f_out = self.feature_extraction_module(batch, batch.f_in)
             #

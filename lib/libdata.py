@@ -26,10 +26,10 @@ class Normalizer(object):
         # apply only on scalar data
         self.mean[n_scalar:] = 0.0
         self.std[n_scalar:] = 1.0
-        self.std[self.std==0.0] = 1.0
+        self.std[self.std == 0.0] = 1.0
 
     def __call__(self, X):
-        return (X-self.mean) / self.std
+        return (X - self.mean) / self.std
 
 
 # %%
@@ -246,7 +246,12 @@ def test():
     cg_model = functools.partial(libcg.ResidueBasedModel, center_of_mass=True)
     #
     train_set = PDBset(
-        base_dir, pdblist, cg_model, noise_level=0.5, get_structure_information=True, cached=True,
+        base_dir,
+        pdblist,
+        cg_model,
+        noise_level=0.5,
+        get_structure_information=True,
+        cached=True,
     )
     train_loader = torch_geometric.loader.DataLoader(
         train_set, batch_size=5, shuffle=True, num_workers=1

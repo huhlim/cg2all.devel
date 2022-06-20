@@ -109,9 +109,9 @@ class Martini(PDB):
 
 def main():
     pdb = ResidueBasedModel("pdb.processed/1HEO.pdb")
-    print (pdb.residue_index[14])
-    print (AMINO_ACID_s[pdb.residue_index[14]])
+    print(pdb.residue_index[14])
+    print(AMINO_ACID_s[pdb.residue_index[14]])
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

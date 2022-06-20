@@ -15,6 +15,7 @@ sys.path.insert(0, "lib")
 from libdata import PDBset
 from libcg import ResidueBasedModel
 
+
 def main():
     base_dir = pathlib.Path("./")
     pdb_dir = base_dir / "pdb.pisces"
@@ -24,7 +25,11 @@ def main():
     #
     cg_model = functools.partial(ResidueBasedModel, center_of_mass=True)
     _PDBset = functools.partial(
-        PDBset, cg_model=cg_model, noise_level=0.0, get_structure_information=True, cached=False,
+        PDBset,
+        cg_model=cg_model,
+        noise_level=0.0,
+        get_structure_information=True,
+        cached=False,
     )
     #
     batch_size = 16
@@ -39,8 +44,8 @@ def main():
     mean = f_in.mean(axis=0)
     std = f_in.std(axis=0)
     out = np.array([mean, std])
-    np.save(pdb_dir / 'transform.npy', out)
+    np.save(pdb_dir / "transform.npy", out)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()
-
