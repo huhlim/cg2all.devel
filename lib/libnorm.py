@@ -31,7 +31,6 @@ class LayerNorm(nn.Module):
         self.dim = self.irreps.dim
         num_scalar = sum(mul for mul, ir in self.irreps if ir.is_scalar())
         num_features = self.irreps.num_irreps
-        print(num_features)
 
         if self.elementwise_affine:
             self.weight = nn.Parameter(torch.ones(num_features))

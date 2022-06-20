@@ -17,6 +17,21 @@ import libcg
 from libconfig import BASE, DTYPE
 from residue_constants import AMINO_ACID_s, residue_s
 
+
+class Normalizer(object):
+    def __init__(self, mean, std, n_scalar=38):
+        self.mean = mean
+        self.std = std
+        #
+        # apply only on scalar data
+        self.mean[n_scalar:] = 0.0
+        self.std[n_scalar:] = 1.0
+        self.std[self.std==0.0] = 1.0
+
+    def __call__(self, X):
+        return (X-self.mean) / self.std
+
+
 # %%
 class PDBset(torch_geometric.data.Dataset):
     def __init__(
@@ -26,6 +41,7 @@ class PDBset(torch_geometric.data.Dataset):
         cg_model,
         noise_level=0.0,
         get_structure_information=False,
+        cached=False,
     ):
         super().__init__()
         #
@@ -41,11 +57,25 @@ class PDBset(torch_geometric.data.Dataset):
         self.cg_model = cg_model
         self.noise_level = noise_level
         self.get_structure_information = get_structure_information
+        #
+        transform_npy_fn = basedir / "transform.npy"
+        if transform_npy_fn.exists():
+            self.transform = Normalizer(*np.load(transform_npy_fn))
+        else:
+            self.transform = None
+        #
+        self.cached = {}
+        if cached:
+            for i in range(len(self)):
+                self.cached[i] = self[i]
 
     def __len__(self):
         return self.n_pdb
 
     def __getitem__(self, index) -> torch_geometric.data.Data:
+        if index in self.cached:
+            return self.cached[index]
+        #
         pdb_id = self.pdb_s[index]
         pdb_fn = self.basedir / f"{pdb_id}.pdb"
         #
@@ -68,7 +98,7 @@ class PDBset(torch_geometric.data.Dataset):
         geom_s = cg.get_local_geometry(r)
         #
         data = torch_geometric.data.Data(
-            pos=torch.tensor(r[cg.atom_mask_cg == 1.0], dtype=DTYPE)
+            pos=torch.as_tensor(r[cg.atom_mask_cg == 1.0], dtype=DTYPE)
         )
         data.pos0 = data.pos.clone()
         #
@@ -84,8 +114,8 @@ class PDBset(torch_geometric.data.Dataset):
         f_in = [[], []]  # 0d, 1d
         # 0d
         # one-hot encoding of residue type
-        index = cg.bead_index[cg.atom_mask_cg == 1.0]
-        f_in[0].append(np.eye(cg.max_bead_type)[index])  # 22
+        cg_index = cg.bead_index[cg.atom_mask_cg == 1.0]
+        f_in[0].append(np.eye(cg.max_bead_type)[cg_index])  # 22
         f_in[0].append(n_neigh)  # 1
         #
         f_in[0].append(geom_s["bond_length"][1][0][:, None])  # 4
@@ -101,7 +131,7 @@ class PDBset(torch_geometric.data.Dataset):
         # noise-level
         f_in[0].append(np.full((r.shape[0], 1), noise_size))  # 1
         #
-        f_in[0] = torch.tensor(
+        f_in[0] = torch.as_tensor(
             np.concatenate(f_in[0], axis=1), dtype=DTYPE
         )  # 38x0e = 38
         #
@@ -110,7 +140,7 @@ class PDBset(torch_geometric.data.Dataset):
         f_in[1].append(geom_s["bond_vector"][1][1])
         f_in[1].append(geom_s["bond_vector"][2][0])
         f_in[1].append(geom_s["bond_vector"][2][1])
-        f_in[1] = torch.tensor(
+        f_in[1] = torch.as_tensor(
             np.concatenate(f_in[1], axis=1), dtype=DTYPE
         )  # 4x1o = 12
         f_in = torch.cat(
@@ -120,20 +150,24 @@ class PDBset(torch_geometric.data.Dataset):
             ],
             dim=1,
         )  # 38x0e + 12x1o = 50
-        data.f_in = f_in
+        if self.transform:
+            data.f_in = self.transform(f_in)
+        else:
+            data.f_in = f_in
         #
-        data.chain_index = torch.tensor(cg.chain_index, dtype=int)
-        data.residue_type = torch.tensor(cg.residue_index, dtype=int)
-        data.continuous = torch.tensor(cg.continuous, dtype=DTYPE)
-        data.output_atom_mask = torch.tensor(cg.atom_mask, dtype=DTYPE)
-        data.output_xyz = torch.tensor(cg.R[frame_index], dtype=DTYPE)
+        data.chain_index = torch.as_tensor(cg.chain_index, dtype=int)
+        data.residue_type = torch.as_tensor(cg.residue_index, dtype=int)
+        data.continuous = torch.as_tensor(cg.continuous, dtype=DTYPE)
+        data.output_atom_mask = torch.as_tensor(cg.atom_mask, dtype=DTYPE)
+        data.output_xyz = torch.as_tensor(cg.R[frame_index], dtype=DTYPE)
         #
         if self.get_structure_information:
             cg.get_structure_information()
-            data.correct_bb = torch.tensor(cg.bb[frame_index], dtype=DTYPE)
+            data.correct_bb = torch.as_tensor(cg.bb[frame_index], dtype=DTYPE)
             data.correct_quat = e3nn.o3.matrix_to_quaternion(data.correct_bb[:, :3])
-            data.correct_torsion = torch.tensor(cg.torsion[frame_index], dtype=DTYPE)
-            data.torsion_mask = torch.tensor(cg.torsion_mask, dtype=DTYPE)
+            data.correct_torsion = torch.as_tensor(cg.torsion[frame_index], dtype=DTYPE)
+            data.torsion_mask = torch.as_tensor(cg.torsion_mask, dtype=DTYPE)
+        #
         return data
 
 
@@ -211,7 +245,7 @@ def test():
     cg_model = functools.partial(libcg.ResidueBasedModel, center_of_mass=True)
     #
     train_set = PDBset(
-        base_dir, pdblist, cg_model, noise_level=0.5, get_structure_information=True
+        base_dir, pdblist, cg_model, noise_level=0.5, get_structure_information=True, cached=True,
     )
     train_loader = torch_geometric.loader.DataLoader(
         train_set, batch_size=5, shuffle=True, num_workers=1

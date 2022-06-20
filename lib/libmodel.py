@@ -48,7 +48,7 @@ RIGID_GROUPS_DEP[RIGID_GROUPS_DEP == -1] = MAX_RIGID - 1
 CONFIG = ConfigDict()
 
 CONFIG["globals"] = ConfigDict()
-CONFIG["globals"]["num_recycle"] = 1
+CONFIG["globals"]["num_recycle"] = 2
 CONFIG["globals"]["loss_weight"] = ConfigDict()
 CONFIG["globals"]["loss_weight"].update(
     {
@@ -65,10 +65,10 @@ CONFIG["globals"]["loss_weight"].update(
 CONFIG_BASE = ConfigDict()
 CONFIG_BASE = {}
 CONFIG_BASE["layer_type"] = "ConvLayer"
-CONFIG_BASE["num_layers"] = 3
+CONFIG_BASE["num_layers"] = 4
 CONFIG_BASE["in_Irreps"] = "38x0e + 4x1o"
-CONFIG_BASE["out_Irreps"] = "40x0e + 20x1o"
-CONFIG_BASE["mid_Irreps"] = "40x0e + 20x1o"
+CONFIG_BASE["out_Irreps"] = "80x0e + 20x1o"
+CONFIG_BASE["mid_Irreps"] = "80x0e + 20x1o"
 CONFIG_BASE["attn_Irreps"] = "40x0e + 20x1o"
 CONFIG_BASE["l_max"] = 2
 CONFIG_BASE["mlp_num_neurons"] = [20, 20]
@@ -87,9 +87,9 @@ CONFIG["transition"].update(
     {
         "layer_type": "Linear",
         "num_layers": 2,
-        "in_Irreps": "40x0e + 20x1o",
-        "out_Irreps": "40x0e + 20x1o",  # quaternion + translation
-        "mid_Irreps": "40x0e + 20x1o",
+        "in_Irreps": "80x0e + 20x1o",
+        "out_Irreps": "80x0e + 20x1o",
+        "mid_Irreps": "80x0e + 20x1o",
         "skip_connection": True,
         "norm": True,
     }
@@ -98,9 +98,9 @@ CONFIG["backbone"].update(
     {
         "layer_type": "Linear",
         "num_layers": 1,
-        "in_Irreps": "40x0e + 20x1o",
+        "in_Irreps": "80x0e + 20x1o",
         "out_Irreps": "4x0e + 1x1o",  # quaternion + translation
-        "mid_Irreps": "20x0e + 10x1o",
+        "mid_Irreps": "20x0e + 4x1o",
         "skip_connection": True,
         "norm": False,
         "loss_weight": {
@@ -116,9 +116,9 @@ CONFIG["sidechain"].update(
     {
         "layer_type": "Linear",
         "num_layers": 2,
-        "in_Irreps": "40x0e + 20x1o",
+        "in_Irreps": "80x0e + 20x1o",
         "out_Irreps": f"{MAX_TORSION*2:d}x0e",
-        "mid_Irreps": "20x0e + 10x1o",
+        "mid_Irreps": "20x0e + 4x1o",
         "skip_connection": True,
         "norm": False,
         "loss_weight": {"torsion_angle": 0.0},

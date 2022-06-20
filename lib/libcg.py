@@ -5,7 +5,7 @@ import mdtraj
 import numpy as np
 from libpdb import PDB
 from numpy_basics import v_size, v_norm, inner_product, torsion_angle
-from residue_constants import MAX_RESIDUE_TYPE
+from residue_constants import MAX_RESIDUE_TYPE, AMINO_ACID_s
 
 # %%
 class ResidueBasedModel(PDB):
@@ -105,3 +105,13 @@ class Martini(PDB):
 
     def convert_to_cg(self):
         raise NotImplementedError
+
+
+def main():
+    pdb = ResidueBasedModel("pdb.processed/1HEO.pdb")
+    print (pdb.residue_index[14])
+    print (AMINO_ACID_s[pdb.residue_index[14]])
+
+
+if __name__ == '__main__':
+    main()

@@ -13,7 +13,7 @@ class PDB(object):
     def __init__(self, pdb_fn, dcd_fn=None):
         # read protein
         pdb = mdtraj.load(pdb_fn, standard_names=False)
-        load_index = pdb.top.select("protein")
+        load_index = pdb.top.select("protein or (resname HSD or resname HSE)")
         if dcd_fn is None:
             self.is_dcd = False
             self.traj = pdb.atom_slice(load_index)
