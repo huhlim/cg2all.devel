@@ -68,39 +68,53 @@ CONFIG_BASE = ConfigDict()
 CONFIG_BASE = {}
 CONFIG_BASE["layer_type"] = "ConvLayer"
 CONFIG_BASE["num_layers"] = 4
-CONFIG_BASE["in_Irreps"] = "38x0e + 4x1o"
-CONFIG_BASE["out_Irreps"] = "80x0e + 20x1o"
+CONFIG_BASE["in_Irreps"] = "40x0e + 10x1o"
+CONFIG_BASE["out_Irreps"] = "40x0e + 10x1o"
 CONFIG_BASE["mid_Irreps"] = "80x0e + 20x1o"
 CONFIG_BASE["attn_Irreps"] = "40x0e + 20x1o"
 CONFIG_BASE["l_max"] = 2
 CONFIG_BASE["mlp_num_neurons"] = [20, 20]
 CONFIG_BASE["activation"] = "relu"
-CONFIG_BASE["radius"] = 1.0
+CONFIG_BASE["radius"] = 1.2
 CONFIG_BASE["norm"] = True
 CONFIG_BASE["skip_connection"] = True
 CONFIG_BASE["loss_weight"] = ConfigDict()
 
+CONFIG["initialization"] = copy.deepcopy(CONFIG_BASE)
 CONFIG["feature_extraction"] = copy.deepcopy(CONFIG_BASE)
 CONFIG["transition"] = copy.deepcopy(CONFIG_BASE)
 CONFIG["backbone"] = copy.deepcopy(CONFIG_BASE)
 CONFIG["sidechain"] = copy.deepcopy(CONFIG_BASE)
 
-CONFIG["transition"].update(
+CONFIG["initialization"].update(
     {
         "layer_type": "Linear",
         "num_layers": 2,
-        "in_Irreps": "80x0e + 20x1o",
-        "out_Irreps": "80x0e + 20x1o",
-        "mid_Irreps": "80x0e + 20x1o",
+        "in_Irreps": "38x0e + 4x1o",
+        "out_Irreps": "40x0e + 10x1o",
+        "mid_Irreps": "40x0e + 10x1o",
         "skip_connection": True,
         "norm": True,
     }
 )
+
+CONFIG["transition"].update(
+    {
+        "layer_type": "Linear",
+        "num_layers": 2,
+        "in_Irreps": "40x0e + 10x1o",
+        "out_Irreps": "40x0e + 10x1o",
+        "mid_Irreps": "40x0e + 10x1o",
+        "skip_connection": True,
+        "norm": True,
+    }
+)
+
 CONFIG["backbone"].update(
     {
         "layer_type": "Linear",
-        "num_layers": 1,
-        "in_Irreps": "80x0e + 20x1o",
+        "num_layers": 2,
+        "in_Irreps": "40x0e + 10x1o",
         "out_Irreps": "4x0e + 1x1o",  # quaternion + translation
         "mid_Irreps": "20x0e + 4x1o",
         "skip_connection": True,
@@ -118,7 +132,7 @@ CONFIG["sidechain"].update(
     {
         "layer_type": "Linear",
         "num_layers": 2,
-        "in_Irreps": "80x0e + 20x1o",
+        "in_Irreps": "40x0e + 10x1o",
         "out_Irreps": f"{MAX_TORSION*2:d}x0e",
         "mid_Irreps": "20x0e + 4x1o",
         "skip_connection": True,
@@ -354,8 +368,14 @@ class Model(nn.Module):
         self.num_recycle = _config.globals.num_recycle
         self.loss_weight = _config.globals.loss_weight
         #
+        self.initialization_module = FeatureExtractionModule(
+            _config.initialization, compute_loss=False
+        )
         self.feature_extraction_module = FeatureExtractionModule(
             _config.feature_extraction, compute_loss=False
+        )
+        self.transition_module = FeatureExtractionModule(
+            _config.transition, compute_loss=False
         )
         self.backbone_module = BackboneModule(
             _config.backbone, compute_loss=compute_loss
@@ -374,25 +394,30 @@ class Model(nn.Module):
         ret["bb"] = self.backbone_module.init_value(batch).to(device)
         ret["sc"] = self.sidechain_module.init_value(batch).to(device)
         #
-        if self.training:
-            num_recycle = random.randint(1, self.num_recycle)
-        else:
-            num_recycle = self.num_recycle
-        for _ in range(num_recycle):
+        # 38x0e + 4x1o --> 40x0e + 10x1o
+        f_out = self.initialization_module(batch, batch.f_in)
+        #
+        for _ in range(self.num_recycle):
+            # 40x0e + 10x1o --> 40x0e + 10x1o
             if self.training and self.checkpoint:
                 f_out = torch.utils.checkpoint.checkpoint(
-                    self.feature_extraction_module, batch, batch.f_in
+                    self.feature_extraction_module, batch, f_out, 
                 )
             else:
-                f_out = self.feature_extraction_module(batch, batch.f_in)
+                f_out = self.feature_extraction_module(batch, f_out)
             #
+            # 40x0e + 10x1o --> 40x0e + 10x1o
+            f_out = self.transition_module(batch, f_out)
+            #
+            # 40x0e + 10x1o --> 4x0e + 1x1o
             bb = self.backbone_module(batch, f_out)
             ret["bb"] = self.backbone_module.compose(ret["bb"], bb)
             #
+            # 40x0e + 10x1o --> 14x0e
             sc = self.sidechain_module(batch, f_out)
             ret["sc"] = self.sidechain_module.compose(ret["sc"], sc)
             #
-            self.update_graph(batch, ret["bb"])
+            #self.update_graph(batch, ret["bb"])
             #
             if self.compute_loss or self.training:
                 loss["bb"] = self.backbone_module.loss_f(
