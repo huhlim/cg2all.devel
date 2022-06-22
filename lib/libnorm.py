@@ -73,7 +73,7 @@ class LayerNorm(nn.Module):
                 field_norm = field.pow(2).mean(dim=(1, 2), keepdim=True)
             else:
                 field_norm = (
-                    o3.Norm(n * irrep)(field).pow(2).mean(dim=(1, 2), keepdim=True)
+                    o3.Norm(n * irrep, squared=True)(field).mean(dim=(1, 2), keepdim=True)
                 )  # [batch, 1, 1]
             field_norm = torch.pow(field_norm + self.eps, -0.5)
             field = field * field_norm
