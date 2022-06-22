@@ -29,9 +29,10 @@ from residue_constants import (
 from libloss import (
     v_norm,
     v_norm_safe,
+    inner_product,
     loss_f_rigid_body,
     loss_f_FAPE_CA,
-    loss_f_quaternion,
+    loss_f_rotation_matrix,
     loss_f_mse_R,
     loss_f_distance_matrix,
     loss_f_torsion_angle,
@@ -58,8 +59,8 @@ CONFIG["globals"]["loss_weight"].update(
         "mse_R": 0.0,
         "bonded_energy": 0.0,
         "distance_matrix": 0.0,
+        "rotation_matrix": 0.0,
         "torsion_angle": 0.0,
-        "quaternion": 0.0,
     }
 )
 
@@ -89,7 +90,7 @@ CONFIG["sidechain"] = copy.deepcopy(CONFIG_BASE)
 CONFIG["initialization"].update(
     {
         "layer_type": "Linear",
-        "num_layers": 2,
+        "num_layers": 4,
         "in_Irreps": "38x0e + 4x1o",
         "out_Irreps": "40x0e + 10x1o",
         "mid_Irreps": "40x0e + 10x1o",
@@ -101,7 +102,7 @@ CONFIG["initialization"].update(
 CONFIG["transition"].update(
     {
         "layer_type": "Linear",
-        "num_layers": 2,
+        "num_layers": 4,
         "in_Irreps": "40x0e + 10x1o",
         "out_Irreps": "40x0e + 10x1o",
         "mid_Irreps": "40x0e + 10x1o",
@@ -113,17 +114,17 @@ CONFIG["transition"].update(
 CONFIG["backbone"].update(
     {
         "layer_type": "Linear",
-        "num_layers": 2,
+        "num_layers": 4,
         "in_Irreps": "40x0e + 10x1o",
-        "out_Irreps": "4x0e + 1x1o",  # quaternion + translation
+        "out_Irreps": "3x1o",  # two for rotation, one for translation
         "mid_Irreps": "20x0e + 4x1o",
         "skip_connection": True,
         "norm": False,
         "loss_weight": {
             "rigid_body": 0.0,
-            "quaternion": 0.0,
             "bonded_energy": 0.0,
             "distance_matrix": 0.0,
+            "rotation_matrix": 0.0,
         },
     }
 )
@@ -275,11 +276,10 @@ class BackboneModule(BaseModule):
             loss["FAPE_CA"] = (
                 loss_f_FAPE_CA(batch, R, opr_bb) * self.loss_weight.FAPE_CA
             )
-
-        if self.loss_weight.get("quaternion", 0.0) > 0.0:
-            loss["quaternion"] = (
-                loss_f_quaternion(bb, bb1, batch.correct_quat)
-                * self.loss_weight.quaternion
+        if self.loss_weight.get("rotation_matrix", 0.0) > 0.0:
+            loss["rotation_matrix"] = (
+                loss_f_rotation_matrix(bb, bb1, batch.correct_bb)
+                * self.loss_weight.rotation_matrix
             )
         if self.loss_weight.get("bonded_energy", 0.0) > 0.0:
             loss["bonded_energy"] = (
@@ -299,30 +299,25 @@ class BackboneModule(BaseModule):
         return loss
 
     @staticmethod
+    # Three vectors
     def compose(bb0, bb1):
-        # translation
-        bb1[:, 4:] = bb1[:, 4:] + bb0[:, 4:]
+        v0 = bb1[:, 0:3]
+        v1 = bb1[:, 3:6]
+        e0 = v_norm_safe(v0)
+        u1 = v1 - e0 * inner_product(e0, v1)[:, None]
+        e1 = v_norm_safe(u1)
+        e2 = torch.cross(e0, e1)
         #
-        # quaternion
-        # q = q1 * q0
-        q0 = bb0[:, :4]  # assume q0 is normalized
-        q1 = bb1[:, :4].clone()
-        q1[:, 0] = q1[:, 0] + EPS
-        q1 = v_norm(q1)
-        q = q1.clone()
-        q[:, 0] = q0[:, 0] * q1[:, 0] - torch.sum(q0[:, 1:] * q1[:, 1:], dim=-1)
-        q[:, 1:] = (
-            q0[:, :1] * q1[:, 1:]
-            + q1[:, :1] * q0[:, 1:]
-            + torch.cross(q1[:, 1:], q0[:, 1:])
-        )
-        bb1[:, :4] = q
-        return bb1
+        t = bb1[:, 6:9]
+        #
+        opr = torch.stack([e0, e1, e2, t], dim=1)
+        return combine_operations(bb0, opr)
 
     def init_value(self, batch):
-        out = torch.zeros((batch.pos.size(0), self.out_Irreps.dim), dtype=DTYPE)
-        out[:, 0] = 1.0
-        return out
+        n_residue = batch.pos.size(0)
+        opr = torch.zeros((n_residue, 4, 3), dtype=DTYPE)
+        opr[:, :3] = opr[:, :3] + torch.eye(3)[None, :, :]
+        return opr
 
 
 class SidechainModule(BaseModule):
@@ -401,7 +396,9 @@ class Model(nn.Module):
             # 40x0e + 10x1o --> 40x0e + 10x1o
             if self.training and self.checkpoint:
                 f_out = torch.utils.checkpoint.checkpoint(
-                    self.feature_extraction_module, batch, f_out, 
+                    self.feature_extraction_module,
+                    batch,
+                    f_out,
                 )
             else:
                 f_out = self.feature_extraction_module(batch, f_out)
@@ -417,7 +414,7 @@ class Model(nn.Module):
             sc = self.sidechain_module(batch, f_out)
             ret["sc"] = self.sidechain_module.compose(ret["sc"], sc)
             #
-            #self.update_graph(batch, ret["bb"])
+            # self.update_graph(batch, ret["bb"])
             #
             if self.compute_loss or self.training:
                 loss["bb"] = self.backbone_module.loss_f(
@@ -440,7 +437,7 @@ class Model(nn.Module):
         return ret, loss, metrics
 
     def update_graph(self, batch, bb):
-        batch.pos = batch.pos0 + 0.1 * bb[:, 4:]
+        batch.pos = batch.pos0 + bb[:, 3]
 
     def loss_f(self, batch, ret):
         R = ret["R"]
@@ -454,10 +451,10 @@ class Model(nn.Module):
             loss["FAPE_CA"] = (
                 loss_f_FAPE_CA(batch, R, ret["opr_bb"]) * self.loss_weight.FAPE_CA
             )
-        if self.loss_weight.get("quaternion", 0.0) > 0.0:
-            loss["quaternion"] = (
-                loss_f_quaternion(ret["bb"], None, batch.correct_quat)
-                * self.loss_weight.quaternion
+        if self.loss_weight.get("rotation_matrix", 0.0) > 0.0:
+            loss["rotation_matrix"] = (
+                loss_f_rotation_matrix(ret["bb"], None, batch.correct_bb)
+                * self.loss_weight.rotation_matrix
             )
         if self.loss_weight.get("mse_R", 0.0) > 0.0:
             loss["mse_R"] = (
@@ -494,19 +491,20 @@ class Model(nn.Module):
         return metric_s
 
 
-def build_structure(batch, bb, sc=None):
+
+
+def combine_operations(X, Y):
     def rotate_matrix(R, X):
         return torch.einsum("...ij,...jk->...ik", R, X)
-
     def rotate_vector(R, X):
         return torch.einsum("...ij,...j", R, X)
+    y = Y.clone()
+    Y[..., :3, :] = rotate_matrix(X[..., :3, :], y[..., :3, :])
+    Y[..., 3, :] = rotate_vector(X[..., :3, :], y[..., 3, :]) + X[..., 3, :]
+    return Y
 
-    def combine_operations(X, Y):
-        y = Y.clone()
-        Y[..., :3, :] = rotate_matrix(X[..., :3, :], y[..., :3, :])
-        Y[..., 3, :] = rotate_vector(X[..., :3, :], y[..., 3, :]) + X[..., 3, :]
-        return Y
 
+def build_structure(batch, bb, sc=None):
     device = bb.device
     residue_type = batch.residue_type
     n_residue = batch.residue_type.size(0)
@@ -520,27 +518,8 @@ def build_structure(batch, bb, sc=None):
     opr = torch.zeros_like(transforms, device=device)
     #
     # backbone operations
-    # angle = bb[:, :2]
-    # angle[:, 0] = angle[:, 0] + EPS
-    # norm = torch.linalg.norm(angle, dim=-1)
-    # cosine = angle[:, 0] / norm
-    # sine = angle[:, 1] / norm
-    # v = v_norm(bb[:, 2:5])
-    # q = torch.cat([cosine[:, None], v * sine[:, None]], dim=1)
-    q = bb[:, :4]
-    #
-    R = torch.zeros((n_residue, 3, 3), dtype=DTYPE, device=device)
-    R[:, 0, 0] = q[:, 0] ** 2 + q[:, 1] ** 2 - q[:, 2] ** 2 - q[:, 3] ** 2
-    R[:, 1, 1] = q[:, 0] ** 2 - q[:, 1] ** 2 + q[:, 2] ** 2 - q[:, 3] ** 2
-    R[:, 2, 2] = q[:, 0] ** 2 - q[:, 1] ** 2 - q[:, 2] ** 2 + q[:, 3] ** 2
-    R[:, 0, 1] = 2 * (q[:, 1] * q[:, 2] - q[:, 0] * q[:, 3])
-    R[:, 0, 2] = 2 * (q[:, 1] * q[:, 3] + q[:, 0] * q[:, 2])
-    R[:, 1, 0] = 2 * (q[:, 1] * q[:, 2] + q[:, 0] * q[:, 3])
-    R[:, 1, 2] = 2 * (q[:, 2] * q[:, 3] - q[:, 0] * q[:, 1])
-    R[:, 2, 0] = 2 * (q[:, 1] * q[:, 3] - q[:, 0] * q[:, 2])
-    R[:, 2, 1] = 2 * (q[:, 2] * q[:, 3] + q[:, 0] * q[:, 1])
-    opr[:, 0, :3] = R
-    opr[:, 0, 3, :] = 0.1 * bb[:, 4:] + batch.pos0
+    opr[:, 0] = bb
+    opr[:, 0, 3] = opr[:, 0, 3] + batch.pos0
 
     # sidechain operations
     if sc is not None:

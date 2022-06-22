@@ -31,15 +31,16 @@ class Model(pl.LightningModule):
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=0.01)
-        lr_scheduler = torch.optim.lr_scheduler.SequentialLR(
-            optimizer,
-            [
-                torch.optim.lr_scheduler.LinearLR(optimizer, 0.1, 1.0, 10),
-                torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.98),
-            ],
-            [10],  # milestone
-        )
-        return {"optimizer": optimizer, "lr_scheduler": lr_scheduler}
+        return optimizer
+        #lr_scheduler = torch.optim.lr_scheduler.SequentialLR(
+        #    optimizer,
+        #    [
+        #        torch.optim.lr_scheduler.LinearLR(optimizer, 0.1, 1.0, 10),
+        #        torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.99),
+        #    ],
+        #    [10],  # milestone
+        #)
+        #return {"optimizer": optimizer, "lr_scheduler": lr_scheduler}
 
     def get_loss_sum(self, loss):
         loss_sum = 0.0
@@ -194,16 +195,20 @@ def main():
     config = copy.deepcopy(libmodel.CONFIG)
     config.update_from_flattened_dict(
         {
-            "globals.num_recycle": 8,
+            "globals.num_recycle": 1,
             "globals.loss_weight.rigid_body": 1.0,
             "globals.loss_weight.FAPE_CA": 5.0,
-            "globals.loss_weight.bonded_energy": 1.0,
-            "globals.loss_weight.distance_matrix": 100.0,
-            "backbone.loss_weight.rigid_body": 0.5,
-            "backbone.loss_weight.FAPE_CA": 2.5,
-            "backbone.loss_weight.bonded_energy": 0.5,
-            "backbone.loss_weight.distance_matrix": 50.0,
-            # "globals.loss_weight.torsion_angle": 1.0,
+            "feature_extraction.layer_type": "SE3Transformer",
+            # "globals.loss_weight.bonded_energy": 1.0,
+            # "globals.loss_weight.rotation_matrix": 1.0,
+            # "globals.loss_weight.distance_matrix": 100.0,
+            # "globals.loss_weight.torsion_angle": 0.2,
+            # "backbone.loss_weight.rigid_body": 0.5,
+            # "backbone.loss_weight.FAPE_CA": 2.5,
+            # "backbone.loss_weight.bonded_energy": 0.5,
+            # "backbone.loss_weight.rotation_matrix": 0.5,
+            # "backbone.loss_weight.distance_matrix": 50.0,
+            # "sidechain.loss_weight.torsion_angle": 0.1,
         }
     )
     model = Model(config, compute_loss=True, checkpoint=True)

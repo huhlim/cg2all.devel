@@ -66,21 +66,6 @@ def loss_f_rotation_matrix(
     return loss_bb + loss_bb_norm * norm_weight
 
 
-# distance between two quaternions
-def loss_f_quaternion(
-    bb: torch.Tensor, bb1: torch.Tensor, q_ref: torch.Tensor, norm_weight: float = 0.01
-) -> torch.Tensor:
-    # d(q1, q2) = 1.0 - <q1, q2>^2
-    loss_quat_dist = torch.mean(1.0 - torch.sum(bb[:, :4] * q_ref, dim=-1))
-    #
-    if bb1 is not None:
-        quat_norm = torch.linalg.norm(bb1[:, :4], dim=-1)
-        loss_quat_norm = torch.mean(torch.pow(quat_norm - 1.0, 2))
-    else:
-        loss_quat_norm = 0.0
-    return loss_quat_dist + loss_quat_norm * norm_weight
-
-
 def loss_f_FAPE_CA(
     batch: torch_geometric.data.Batch,
     R: torch.Tensor,
