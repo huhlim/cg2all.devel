@@ -21,9 +21,9 @@ v_size = lambda v: torch.linalg.norm(v, dim=-1)
 v_norm = lambda v: v / v_size(v)[..., None]
 
 
-def v_norm_safe(v):
+def v_norm_safe(v, index=0):
     u = v.clone()
-    u[..., 0] = u[..., 0] + EPS
+    u[..., index] = u[..., index] + EPS
     return v_norm(u)
 
 
