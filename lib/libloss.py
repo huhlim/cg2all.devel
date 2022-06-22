@@ -51,6 +51,21 @@ def loss_f_rigid_body(R: torch.Tensor, R_ref: torch.Tensor) -> torch.Tensor:
     return loss_translation + loss_rotation_0 + loss_rotation_1
 
 
+def loss_f_rotation_matrix(
+    bb: torch.Tensor, bb1: torch.Tensor, bb_ref: torch.Tensor, norm_weight: float = 0.01
+) -> torch.Tensor:
+    loss_bb = torch.mean(torch.pow(bb[:, :2] - bb_ref[:, :2], 2))
+    #
+    if bb1 is not None:
+        loss_bb_norm = torch.mean(torch.pow(v_size(bb1[:, 0:3]) - 1.0, 2))
+        loss_bb_norm = loss_bb_norm + torch.mean(
+            torch.pow(v_size(bb1[:, 3:6]) - 1.0, 2)
+        )
+    else:
+        loss_bb_norm = 0.0
+    return loss_bb + loss_bb_norm * norm_weight
+
+
 # distance between two quaternions
 def loss_f_quaternion(
     bb: torch.Tensor, bb1: torch.Tensor, q_ref: torch.Tensor, norm_weight: float = 0.01
@@ -70,7 +85,7 @@ def loss_f_FAPE_CA(
     batch: torch_geometric.data.Batch,
     R: torch.Tensor,
     bb: torch.Tensor,
-    d_clamp: float = 1.0,
+    d_clamp: float = 2.0,
 ) -> torch.Tensor:
     def rotate_vector_inv(R, X):
         R_inv = torch.inverse(R)
