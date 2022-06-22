@@ -41,11 +41,9 @@ def main():
     config.update_from_flattened_dict(
         {
             "globals.num_recycle": 2,
+            "feature_extraction.layer_type": "SE3Transformer",
             "globals.loss_weight.rigid_body": 1.0,
-            "globals.loss_weight.FAPE_CA": 1.0,
-            "globals.loss_weight.bonded_energy": 1.0,
-            "globals.loss_weight.distance_matrix": 1.0,
-            "globals.loss_weight.rotation_matrix": 1.0,
+            "globals.loss_weight.FAPE_CA": 5.0,
         }
     )
     #
@@ -64,7 +62,7 @@ def main():
                 loss_sum += loss_value
                 print(module_name, loss_name, loss_value)
         print(loss_sum)
-        loss_sum.backward()
+        loss_sum.backward(retain_graph=True)
 
         optimizer.step()
     #

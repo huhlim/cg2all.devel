@@ -51,7 +51,7 @@ RIGID_GROUPS_DEP[RIGID_GROUPS_DEP == -1] = MAX_RIGID - 1
 CONFIG = ConfigDict()
 
 CONFIG["globals"] = ConfigDict()
-CONFIG["globals"]["num_recycle"] = 2
+CONFIG["globals"]["num_recycle"] = 1
 CONFIG["globals"]["loss_weight"] = ConfigDict()
 CONFIG["globals"]["loss_weight"].update(
     {
@@ -303,9 +303,9 @@ class BackboneModule(BaseModule):
     def compose(bb0, bb1):
         v0 = bb1[:, 0:3]
         v1 = bb1[:, 3:6]
-        e0 = v_norm_safe(v0)
+        e0 = v_norm_safe(v0, index=0)
         u1 = v1 - e0 * inner_product(e0, v1)[:, None]
-        e1 = v_norm_safe(u1)
+        e1 = v_norm_safe(u1, index=1)
         e2 = torch.cross(e0, e1)
         #
         t = bb1[:, 6:9]
@@ -491,13 +491,15 @@ class Model(nn.Module):
         return metric_s
 
 
+def rotate_matrix(R, X):
+    return torch.einsum("...ij,...jk->...ik", R, X)
+
+
+def rotate_vector(R, X):
+    return torch.einsum("...ij,...j", R, X)
 
 
 def combine_operations(X, Y):
-    def rotate_matrix(R, X):
-        return torch.einsum("...ij,...jk->...ik", R, X)
-    def rotate_vector(R, X):
-        return torch.einsum("...ij,...j", R, X)
     y = Y.clone()
     Y[..., :3, :] = rotate_matrix(X[..., :3, :], y[..., :3, :])
     Y[..., 3, :] = rotate_vector(X[..., :3, :], y[..., 3, :]) + X[..., 3, :]
