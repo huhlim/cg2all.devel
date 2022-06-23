@@ -40,7 +40,7 @@ def main():
     config = copy.deepcopy(CONFIG)
     config.update_from_flattened_dict(
         {
-            "globals.num_recycle": 2,
+            "globals.num_recycle": 1,
             "feature_extraction.layer_type": "SE3Transformer",
             "globals.loss_weight.rigid_body": 1.0,
             "globals.loss_weight.FAPE_CA": 5.0,

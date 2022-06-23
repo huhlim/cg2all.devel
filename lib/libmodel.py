@@ -151,10 +151,11 @@ def _get_gpu_mem():
 
 
 class BaseModule(nn.Module):
-    def __init__(self, config, compute_loss=False):
+    def __init__(self, config, compute_loss=False, checkpoint=False):
         super().__init__()
         #
         self.compute_loss = compute_loss
+        self.checkpoint = checkpoint
         self.loss_weight = config.loss_weight
         #
         self.in_Irreps = o3.Irreps(config.in_Irreps)
@@ -217,38 +218,63 @@ class BaseModule(nn.Module):
         return out
 
     def forward_graph(self, batch, feat):
-        feat, graph = self.layer_0(batch, feat)
+        if self.training and self.checkpoint:
+            feat, graph = torch.utils.checkpoint.checkpoint(self.layer_0, batch, feat)
+        else:
+            feat, graph = self.layer_0(batch, feat)
         radius_prev = self.layer_0.radius
         #
         for i, layer in enumerate(self.layer_s):
             if self.skip_connection:
                 feat0 = feat.clone()
             if layer.radius == radius_prev:
-                feat, graph = layer(batch, feat, graph)
+                if self.training and self.checkpoint:
+                    feat, graph = torch.utils.checkpoint.checkpoint(
+                        layer, batch, feat, graph
+                    )
+                else:
+                    feat, graph = layer(batch, feat, graph)
             else:
-                feat, graph = layer(batch, feat)
+                if self.training and self.checkpoint:
+                    feat, graph = torch.utils.checkpoint.checkpoint(layerbatch, feat)
+                else:
+                    feat, graph = layer(batch, feat)
             if self.skip_connection:
                 feat = feat + feat0
             radius_prev = layer.radius
         #
-        feat_out, graph = self.layer_1(batch, feat)
+        if self.training and self.checkpoint:
+            feat_out, graph = torch.utils.checkpoint.checkpoint(
+                self.layer_1, batch, feat
+            )
+        else:
+            feat_out, graph = self.layer_1(batch, feat)
         return feat_out
 
     def forward_linear(self, feat):
-        feat = self.layer_0(feat)
+        if self.training and self.checkpoint:
+            feat = torch.utils.checkpoint.checkpoint(self.layer_0, feat)
+        else:
+            feat = self.layer_0(feat)
 
         for i, layer in enumerate(self.layer_s):
             if self.skip_connection:
                 feat0 = feat.clone()
                 #
-            feat = layer(feat)
+            if self.training and self.checkpoint:
+                feat = torch.utils.checkpoint.checkpoint(layer, feat)
+            else:
+                feat = layer(feat)
             #
             if self.activation is not None:
                 feat = self.activation(feat)
             if self.skip_connection:
                 feat = feat + feat0
         #
-        feat_out = self.layer_1(feat)
+        if self.training and self.checkpoint:
+            feat_out = torch.utils.checkpoint.checkpoint(self.layer_1, feat)
+        else:
+            feat_out = self.layer_1(feat)
         return feat_out
 
     def loss_f(self, batch, f_out):
@@ -256,13 +282,13 @@ class BaseModule(nn.Module):
 
 
 class FeatureExtractionModule(BaseModule):
-    def __init__(self, config, compute_loss=False):
-        super().__init__(config, compute_loss=compute_loss)
+    def __init__(self, config, compute_loss=False, checkpoint=False):
+        super().__init__(config, compute_loss=compute_loss, checkpoint=checkpoint)
 
 
 class BackboneModule(BaseModule):
-    def __init__(self, config, compute_loss=False):
-        super().__init__(config, compute_loss=compute_loss)
+    def __init__(self, config, compute_loss=False, checkpoint=False):
+        super().__init__(config, compute_loss=compute_loss, checkpoint=checkpoint)
 
     def loss_f(self, batch, bb, bb1, loss_prev):
         R, opr_bb = build_structure(batch, bb, sc=None)
@@ -321,8 +347,8 @@ class BackboneModule(BaseModule):
 
 
 class SidechainModule(BaseModule):
-    def __init__(self, config, compute_loss=False):
-        super().__init__(config, compute_loss=compute_loss)
+    def __init__(self, config, compute_loss=False, checkpoint=False):
+        super().__init__(config, compute_loss=compute_loss, checkpoint=checkpoint)
 
     def forward(self, batch, feat):
         out = super().forward(batch, feat)
@@ -364,22 +390,34 @@ class Model(nn.Module):
         self.loss_weight = _config.globals.loss_weight
         #
         self.initialization_module = FeatureExtractionModule(
-            _config.initialization, compute_loss=False
+            _config.initialization,
+            compute_loss=False,
+            checkpoint=checkpoint,
         )
         self.feature_extraction_module = FeatureExtractionModule(
-            _config.feature_extraction, compute_loss=False
+            _config.feature_extraction,
+            compute_loss=False,
+            checkpoint=checkpoint,
         )
         self.transition_module = FeatureExtractionModule(
-            _config.transition, compute_loss=False
+            _config.transition,
+            compute_loss=False,
+            checkpoint=checkpoint,
         )
         self.backbone_module = BackboneModule(
-            _config.backbone, compute_loss=compute_loss
+            _config.backbone,
+            compute_loss=compute_loss,
+            checkpoint=checkpoint,
         )
         self.sidechain_module = SidechainModule(
-            _config.sidechain, compute_loss=compute_loss
+            _config.sidechain,
+            compute_loss=compute_loss,
+            checkpoint=checkpoint,
         )
 
     def forward(self, batch):
+        torch.cuda.empty_cache()
+        #
         n_residue = batch.pos.size(0)
         device = batch.pos.device
         #
@@ -394,14 +432,7 @@ class Model(nn.Module):
         #
         for _ in range(self.num_recycle):
             # 40x0e + 10x1o --> 40x0e + 10x1o
-            if self.training and self.checkpoint:
-                f_out = torch.utils.checkpoint.checkpoint(
-                    self.feature_extraction_module,
-                    batch,
-                    f_out,
-                )
-            else:
-                f_out = self.feature_extraction_module(batch, f_out)
+            f_out = self.feature_extraction_module(batch, f_out)
             #
             # 40x0e + 10x1o --> 40x0e + 10x1o
             f_out = self.transition_module(batch, f_out)

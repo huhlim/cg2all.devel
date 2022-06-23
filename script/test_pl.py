@@ -30,20 +30,20 @@ class Model(pl.LightningModule):
         return self.model.forward(batch)
 
     def backward(self, loss, optimizer, optimizer_idx):
-        loss.backward(retain_graph=True)
+        loss.backward()
 
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), lr=0.01)
-        return optimizer
-        # lr_scheduler = torch.optim.lr_scheduler.SequentialLR(
-        #    optimizer,
-        #    [
-        #        torch.optim.lr_scheduler.LinearLR(optimizer, 0.1, 1.0, 10),
-        #        torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.99),
-        #    ],
-        #    [10],  # milestone
-        # )
-        # return {"optimizer": optimizer, "lr_scheduler": lr_scheduler}
+        optimizer = torch.optim.Adam(self.parameters(), lr=0.001)
+        # return optimizer
+        lr_scheduler = torch.optim.lr_scheduler.SequentialLR(
+            optimizer,
+            [
+                torch.optim.lr_scheduler.LinearLR(optimizer, 0.1, 1.0, 10),
+                torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=1.0),
+            ],
+            [10],  # milestone
+        )
+        return {"optimizer": optimizer, "lr_scheduler": lr_scheduler}
 
     def get_loss_sum(self, loss):
         loss_sum = 0.0
@@ -87,7 +87,7 @@ class Model(pl.LightningModule):
         traj_s = create_trajectory_from_batch(batch, out["R"], write_native=True)
         log_dir = pathlib.Path(self.logger.log_dir)
         for i, traj in enumerate(traj_s):
-            out_f = log_dir / f"test_{self.current_epoch//5}_{i}.pdb"
+            out_f = log_dir / f"test_{self.current_epoch}_{i}.pdb"
             try:
                 traj.save(out_f)
             except:
@@ -115,10 +115,10 @@ class Model(pl.LightningModule):
         loss_sum, loss_s = self.get_loss_sum(loss)
         #
         log_dir = pathlib.Path(self.logger.log_dir)
-        if batch_idx == 0 and (1 + self.current_epoch) % 5 == 0:
+        if batch_idx == 0:
             traj_s = create_trajectory_from_batch(batch, out["R"], write_native=True)
             for i, traj in enumerate(traj_s):
-                out_f = log_dir / f"val_{self.current_epoch//5}_{i}.pdb"
+                out_f = log_dir / f"val_{self.current_epoch}_{i}.pdb"
                 try:
                     traj.save(out_f)
                 except:
@@ -143,7 +143,7 @@ class Model(pl.LightningModule):
 
 def main():
     hostname = os.getenv("HOSTNAME", "local")
-    if (hostname == "markov.bch.msu.edu" or hostname.startswith("gpu")) and False:
+    if hostname == "markov.bch.msu.edu" or hostname.startswith("gpu"):  # and False:
         base_dir = pathlib.Path("./")
         pdb_dir = base_dir / "pdb.pisces"
         pdblist_train = pdb_dir / "targets.train"
@@ -169,7 +169,7 @@ def main():
         cached=cached,
     )
     #
-    batch_size = 16
+    batch_size = 4
     train_set = _PDBset(pdb_dir, pdblist_train)
     train_loader = torch_geometric.loader.DataLoader(
         train_set,
@@ -198,31 +198,24 @@ def main():
     config = copy.deepcopy(libmodel.CONFIG)
     config.update_from_flattened_dict(
         {
-            "globals.num_recycle": 2,
+            "globals.num_recycle": 1,
             "feature_extraction.layer_type": "SE3Transformer",
             "globals.loss_weight.rigid_body": 1.0,
             "globals.loss_weight.FAPE_CA": 5.0,
             # "globals.loss_weight.bonded_energy": 1.0,
             # "globals.loss_weight.rotation_matrix": 1.0,
-            # "globals.loss_weight.distance_matrix": 100.0,
             # "globals.loss_weight.torsion_angle": 0.2,
-            # "backbone.loss_weight.rigid_body": 0.5,
-            # "backbone.loss_weight.FAPE_CA": 2.5,
-            # "backbone.loss_weight.bonded_energy": 0.5,
-            # "backbone.loss_weight.rotation_matrix": 0.5,
-            # "backbone.loss_weight.distance_matrix": 50.0,
-            # "sidechain.loss_weight.torsion_angle": 0.1,
         }
     )
     model = Model(config, compute_loss=True, checkpoint=True)
     trainer = pl.Trainer(
-        max_epochs=500,
+        max_epochs=1000,
         accelerator="auto",
         gradient_clip_val=1.0,
-        check_val_every_n_epoch=5,
+        check_val_every_n_epoch=1,
     )
     trainer.fit(model, train_loader, val_loader)
-    # trainer.test(model, test_loader)
+    trainer.test(model, test_loader)
 
 
 if __name__ == "__main__":
