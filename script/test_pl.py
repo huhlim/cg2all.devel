@@ -17,14 +17,14 @@ from libdata import PDBset, create_trajectory_from_batch
 from libcg import ResidueBasedModel
 import libmodel
 
-
 class Model(pl.LightningModule):
-    def __init__(self, _config, compute_loss=False, checkpoint=False):
+    def __init__(self, _config, compute_loss=False, checkpoint=False, memcheck=False):
         super().__init__()
         self.save_hyperparameters(_config.to_dict())
         self.model = libmodel.Model(
             _config, compute_loss=compute_loss, checkpoint=checkpoint
         )
+        self.memcheck = memcheck
 
     def forward(self, batch: torch_geometric.data.Batch):
         return self.model.forward(batch)
@@ -32,16 +32,32 @@ class Model(pl.LightningModule):
     def backward(self, loss, optimizer, optimizer_idx):
         loss.backward()
 
+    def on_train_batch_start(self, batch, batch_idx):
+        if self.device.type == "cuda":
+            torch.cuda.empty_cache()
+            if self.memcheck:
+                torch.cuda.reset_peak_memory_stats()
+                self.n_residue = batch.pos.size(0)
+
+    def on_train_batch_end(self, outputs, batch, batch_idx):
+        if self.memcheck and self.device.type == "cuda":
+            max_memory = torch.cuda.max_memory_allocated() / 1024**2  # in MBytes
+            self.log(
+                "memory",
+                {"n_residue": self.n_residue, "max_memory": max_memory},
+                prog_bar=True,
+            )
+
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=0.001)
         # return optimizer
         lr_scheduler = torch.optim.lr_scheduler.SequentialLR(
             optimizer,
             [
-                torch.optim.lr_scheduler.LinearLR(optimizer, 0.1, 1.0, 10),
+                torch.optim.lr_scheduler.LinearLR(optimizer, 0.001, 1.0, 20),
                 torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=1.0),
             ],
-            [10],  # milestone
+            [20],  # milestone
         )
         return {"optimizer": optimizer, "lr_scheduler": lr_scheduler}
 
@@ -142,6 +158,8 @@ class Model(pl.LightningModule):
 
 
 def main():
+    pl.seed_everything(25, workers=True)
+    #
     hostname = os.getenv("HOSTNAME", "local")
     if hostname == "markov.bch.msu.edu" or hostname.startswith("gpu"):  # and False:
         base_dir = pathlib.Path("./")
@@ -200,19 +218,24 @@ def main():
         {
             "globals.num_recycle": 1,
             "feature_extraction.layer_type": "SE3Transformer",
-            "globals.loss_weight.rigid_body": 1.0,
+            "feature_extraction.num_layers": 8,
+            "initialization.num_layers": 8,
+            "transition.num_layers": 8,
+            "backbone.num_layers": 8,
+            "globals.loss_weight.rigid_body": 2.0,
             "globals.loss_weight.FAPE_CA": 5.0,
-            # "globals.loss_weight.bonded_energy": 1.0,
-            # "globals.loss_weight.rotation_matrix": 1.0,
-            # "globals.loss_weight.torsion_angle": 0.2,
+            "globals.loss_weight.bonded_energy": 1.0,
+            "globals.loss_weight.rotation_matrix": 1.0,
+            "globals.loss_weight.torsion_angle": 0.2,
         }
     )
-    model = Model(config, compute_loss=True, checkpoint=True)
+    model = Model(config, compute_loss=True, checkpoint=True, memcheck=True)
     trainer = pl.Trainer(
         max_epochs=1000,
         accelerator="auto",
         gradient_clip_val=1.0,
         check_val_every_n_epoch=1,
+        log_every_n_steps=1,
     )
     trainer.fit(model, train_loader, val_loader)
     trainer.test(model, test_loader)

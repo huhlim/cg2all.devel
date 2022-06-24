@@ -416,8 +416,6 @@ class Model(nn.Module):
         )
 
     def forward(self, batch):
-        torch.cuda.empty_cache()
-        #
         n_residue = batch.pos.size(0)
         device = batch.pos.device
         #
