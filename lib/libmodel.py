@@ -72,7 +72,7 @@ CONFIG_BASE["num_layers"] = 4
 CONFIG_BASE["in_Irreps"] = "40x0e + 10x1o"
 CONFIG_BASE["out_Irreps"] = "40x0e + 10x1o"
 CONFIG_BASE["mid_Irreps"] = "80x0e + 20x1o"
-CONFIG_BASE["attn_Irreps"] = "40x0e + 20x1o"
+CONFIG_BASE["attn_Irreps"] = "80x0e + 20x1o"
 CONFIG_BASE["l_max"] = 2
 CONFIG_BASE["mlp_num_neurons"] = [20, 20]
 CONFIG_BASE["activation"] = "relu"
@@ -139,6 +139,17 @@ CONFIG["sidechain"].update(
         "skip_connection": True,
         "norm": False,
         "loss_weight": {"torsion_angle": 0.0},
+    }
+)
+
+CONFIG["feature_extraction"].update(
+    {
+        "layer_type": "SE3Transformer",
+        "num_layers": 4,
+        "in_Irreps": "",
+        "out_Irreps": "40x0e + 10x1o",
+        "mid_Irreps": "80x0e + 20x1o",
+        "attn_Irreps": "80x0e + 20x1o",
     }
 )
 
@@ -281,17 +292,35 @@ class BaseModule(nn.Module):
         raise NotImplementedError
 
 
+class TransitionModule(BaseModule):
+    def __init__(self, config, compute_loss=False, checkpoint=False):
+        super().__init__(config, compute_loss=compute_loss, checkpoint=checkpoint)
+
+
 class FeatureExtractionModule(BaseModule):
     def __init__(self, config, compute_loss=False, checkpoint=False):
         super().__init__(config, compute_loss=compute_loss, checkpoint=checkpoint)
+
+    def forward(self, batch, f_in, ret):
+        n_residue = f_in.size(0)
+        feat = torch.cat(
+            [
+                f_in,
+                ret["bb"][:, :2].view(n_residue, -1),
+                ret["bb"][:, -1],
+                ret["sc"].view(n_residue, -1),
+            ],
+            dim=1,
+        )
+        return super().forward(batch, feat)
 
 
 class BackboneModule(BaseModule):
     def __init__(self, config, compute_loss=False, checkpoint=False):
         super().__init__(config, compute_loss=compute_loss, checkpoint=checkpoint)
 
-    def loss_f(self, batch, bb, bb1, loss_prev):
-        R, opr_bb = build_structure(batch, bb, sc=None)
+    def loss_f(self, batch, bb, bb1, loss_prev, stop_grad=False):
+        R, opr_bb = build_structure(batch, bb, sc=None, stop_grad=stop_grad)
         #
         loss = {}
         if self.loss_weight.get("rigid_body", 0.0) > 0.0:
@@ -389,7 +418,7 @@ class Model(nn.Module):
         self.num_recycle = _config.globals.num_recycle
         self.loss_weight = _config.globals.loss_weight
         #
-        self.initialization_module = FeatureExtractionModule(
+        self.initialization_module = TransitionModule(
             _config.initialization,
             compute_loss=False,
             checkpoint=checkpoint,
@@ -399,7 +428,7 @@ class Model(nn.Module):
             compute_loss=False,
             checkpoint=checkpoint,
         )
-        self.transition_module = FeatureExtractionModule(
+        self.transition_module = TransitionModule(
             _config.transition,
             compute_loss=False,
             checkpoint=checkpoint,
@@ -426,11 +455,11 @@ class Model(nn.Module):
         ret["sc"] = self.sidechain_module.init_value(batch).to(device)
         #
         # 38x0e + 4x1o --> 40x0e + 10x1o
-        f_out = self.initialization_module(batch, batch.f_in)
+        f_in = self.initialization_module(batch, batch.f_in)
         #
-        for _ in range(self.num_recycle):
+        for k in range(self.num_recycle):
             # 40x0e + 10x1o --> 40x0e + 10x1o
-            f_out = self.feature_extraction_module(batch, f_out)
+            f_out = self.feature_extraction_module(batch, f_in, ret)
             #
             # 40x0e + 10x1o --> 40x0e + 10x1o
             f_out = self.transition_module(batch, f_out)
@@ -443,11 +472,9 @@ class Model(nn.Module):
             sc = self.sidechain_module(batch, f_out)
             ret["sc"] = self.sidechain_module.compose(ret["sc"], sc)
             #
-            # self.update_graph(batch, ret["bb"])
-            #
             if self.compute_loss or self.training:
                 loss["bb"] = self.backbone_module.loss_f(
-                    batch, ret["bb"], bb, loss.get("bb", {})
+                    batch, ret["bb"], bb, loss.get("bb", {}), stop_grad=(k+1 < self.num_recycle),
                 )
                 loss["sc"] = self.sidechain_module.loss_f(
                     batch, ret["sc"], sc, loss.get("sc", {})
@@ -464,9 +491,6 @@ class Model(nn.Module):
         metrics = self.calc_metrics(batch, ret)
 
         return ret, loss, metrics
-
-    def update_graph(self, batch, bb):
-        batch.pos = batch.pos0 + bb[:, 3]
 
     def loss_f(self, batch, ret):
         R = ret["R"]
@@ -535,7 +559,7 @@ def combine_operations(X, Y):
     return Y
 
 
-def build_structure(batch, bb, sc=None):
+def build_structure(batch, bb, sc=None, stop_grad=False):
     device = bb.device
     residue_type = batch.residue_type
     n_residue = batch.residue_type.size(0)
@@ -549,8 +573,11 @@ def build_structure(batch, bb, sc=None):
     opr = torch.zeros_like(transforms, device=device)
     #
     # backbone operations
-    opr[:, 0] = bb
-    opr[:, 0, 3] = opr[:, 0, 3] + batch.pos0
+    if stop_grad:
+        opr[:, 0, :3] = bb[:, :3].detach()
+    else:
+        opr[:, 0, :3] = bb[:, :3]
+    opr[:, 0, 3] = bb[:, 3] + batch.pos0
 
     # sidechain operations
     if sc is not None:

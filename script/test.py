@@ -40,11 +40,23 @@ def main():
     config = copy.deepcopy(CONFIG)
     config.update_from_flattened_dict(
         {
-            "globals.num_recycle": 1,
+            "globals.num_recycle": 2,
             "feature_extraction.layer_type": "SE3Transformer",
             "globals.loss_weight.rigid_body": 1.0,
             "globals.loss_weight.FAPE_CA": 5.0,
+            "backbone.loss_weight.rigid_body": 1.0,
+            "backbone.loss_weight.FAPE_CA": 5.0,
         }
+    )
+    feature_extraction_in_Irreps = " + ".join(
+        [
+            config.initialization.out_Irreps,
+            config.backbone.out_Irreps,
+            config.sidechain.out_Irreps,
+        ]
+    )
+    config.update_from_flattened_dict(
+        {"feature_extraction.in_Irreps": feature_extraction_in_Irreps}
     )
     #
     model = Model(config, compute_loss=True)

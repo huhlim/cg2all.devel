@@ -17,6 +17,7 @@ from libdata import PDBset, create_trajectory_from_batch
 from libcg import ResidueBasedModel
 import libmodel
 
+
 class Model(pl.LightningModule):
     def __init__(self, _config, compute_loss=False, checkpoint=False, memcheck=False):
         super().__init__()
@@ -44,7 +45,7 @@ class Model(pl.LightningModule):
             max_memory = torch.cuda.max_memory_allocated() / 1024**2  # in MBytes
             self.log(
                 "memory",
-                {"n_residue": self.n_residue, "max_memory": max_memory},
+                {"n_residue": float(self.n_residue), "max_memory": max_memory},
                 prog_bar=True,
             )
 
@@ -54,10 +55,10 @@ class Model(pl.LightningModule):
         lr_scheduler = torch.optim.lr_scheduler.SequentialLR(
             optimizer,
             [
-                torch.optim.lr_scheduler.LinearLR(optimizer, 0.001, 1.0, 20),
+                torch.optim.lr_scheduler.LinearLR(optimizer, 0.1, 1.0, 10),
                 torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=1.0),
             ],
-            [20],  # milestone
+            [10],  # milestone
         )
         return {"optimizer": optimizer, "lr_scheduler": lr_scheduler}
 
@@ -161,7 +162,7 @@ def main():
     pl.seed_everything(25, workers=True)
     #
     hostname = os.getenv("HOSTNAME", "local")
-    if hostname == "markov.bch.msu.edu" or hostname.startswith("gpu"):  # and False:
+    if hostname == "markov.bch.msu.edu" or hostname.startswith("gpu"):# and False:
         base_dir = pathlib.Path("./")
         pdb_dir = base_dir / "pdb.pisces"
         pdblist_train = pdb_dir / "targets.train"
@@ -216,26 +217,41 @@ def main():
     config = copy.deepcopy(libmodel.CONFIG)
     config.update_from_flattened_dict(
         {
-            "globals.num_recycle": 1,
+            "globals.num_recycle": 8,
             "feature_extraction.layer_type": "SE3Transformer",
-            "feature_extraction.num_layers": 8,
-            "initialization.num_layers": 8,
-            "transition.num_layers": 8,
-            "backbone.num_layers": 8,
-            "globals.loss_weight.rigid_body": 2.0,
+            "feature_extraction.num_layers": 4,
+            "initialization.num_layers": 4,
+            "transition.num_layers": 4,
+            "backbone.num_layers": 4,
+            "globals.loss_weight.rigid_body": 1.0,
             "globals.loss_weight.FAPE_CA": 5.0,
             "globals.loss_weight.bonded_energy": 1.0,
             "globals.loss_weight.rotation_matrix": 1.0,
             "globals.loss_weight.torsion_angle": 0.2,
+            "backbone.loss_weight.bonded_energy": 0.5,
+            "backbone.loss_weight.rigid_body": 0.5,
+            "backbone.loss_weight.rotation_matrix": 0.5,
+            "backbone.loss_weight.FAPE_CA": 2.5,
+            "sidechain.loss_weight.torsion_angle": 0.1,
         }
     )
+    feature_extraction_in_Irreps = " + ".join(
+        [
+            config.initialization.out_Irreps,
+            config.backbone.out_Irreps,
+            config.sidechain.out_Irreps,
+        ]
+    )
+    config.update_from_flattened_dict(
+        {"feature_extraction.in_Irreps": feature_extraction_in_Irreps}
+    )
+    #
     model = Model(config, compute_loss=True, checkpoint=True, memcheck=True)
     trainer = pl.Trainer(
-        max_epochs=1000,
+        max_epochs=100,
         accelerator="auto",
         gradient_clip_val=1.0,
         check_val_every_n_epoch=1,
-        log_every_n_steps=1,
     )
     trainer.fit(model, train_loader, val_loader)
     trainer.test(model, test_loader)
