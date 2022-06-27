@@ -5,6 +5,7 @@ import sys
 import copy
 import pathlib
 import functools
+import subprocess as sp
 
 import numpy as np
 
@@ -18,7 +19,7 @@ from libcg import ResidueBasedModel
 import libmodel
 
 
-IS_DEVELOP = True
+IS_DEVELOP = False
 
 
 class Model(pl.LightningModule):
@@ -132,13 +133,15 @@ class Model(pl.LightningModule):
         return {"loss": loss_sum, "metric": metric, "out": out}
 
     def validation_step(self, batch, batch_idx):
+        log_dir = pathlib.Path(self.logger.log_dir)
+        #
         if self.current_epoch == 0 and batch_idx == 0:
             self.model.test_equivariance(batch)
+            sp.call(["cp", "lib/libmodel.py", log_dir])
         #
         out, loss, metric = self.forward(batch)
         loss_sum, loss_s = self.get_loss_sum(loss)
         #
-        log_dir = pathlib.Path(self.logger.log_dir)
         if batch_idx == 0:
             traj_s = create_trajectory_from_batch(batch, out["R"], write_native=True)
             for i, traj in enumerate(traj_s):
@@ -229,37 +232,45 @@ def main():
     config = copy.deepcopy(libmodel.CONFIG)
     config.update_from_flattened_dict(
         {
-            "globals.num_recycle": 1,
+            "globals.num_recycle": 2,
             "feature_extraction.layer_type": "SE3Transformer",
             "feature_extraction.num_layers": 4,
             "initialization.num_layers": 4,
             "transition.num_layers": 4,
             "backbone.num_layers": 4,
+            #
             "globals.loss_weight.rigid_body": 1.0,
             "globals.loss_weight.FAPE_CA": 5.0,
             "globals.loss_weight.bonded_energy": 1.0,
             "globals.loss_weight.rotation_matrix": 1.0,
-            "globals.loss_weight.torsion_angle": 0.2,
-            # "backbone.loss_weight.bonded_energy": 0.5,
-            # "backbone.loss_weight.rigid_body": 0.5,
-            # "backbone.loss_weight.rotation_matrix": 0.5,
-            # "backbone.loss_weight.FAPE_CA": 2.5,
-            # "sidechain.loss_weight.torsion_angle": 0.1,
+            "globals.loss_weight.torsion_angle": 1.0,
+            #
+            "backbone.loss_weight.rigid_body": 0.5,
+            "backbone.loss_weight.FAPE_CA": 2.5,
+            "backbone.loss_weight.bonded_energy": 0.5,
+            "backbone.loss_weight.rotation_matrix": 0.5,
+            "sidechain.loss_weight.torsion_angle": 0.5,
         }
     )
-    feature_extraction_in_Irreps = " + ".join(
-        [
-            config.initialization.out_Irreps,
-            config.backbone.out_Irreps,
-            config.sidechain.out_Irreps,
-        ]
-    )
-    sidechain_in_Irreps = " + ".join(
-        [
-            config.transition.out_Irreps,
-            config.backbone.out_Irreps,
-        ]
-    )
+    #
+    if config.globals.num_recycle > 1:
+        feature_extraction_in_Irreps = " + ".join(
+            [
+                config.initialization.out_Irreps,
+                config.backbone.out_Irreps,
+                config.sidechain.out_Irreps,
+            ]
+        )
+        sidechain_in_Irreps = " + ".join(
+            [
+                config.transition.out_Irreps,
+                config.backbone.out_Irreps,
+            ]
+        )
+    else:
+        feature_extraction_in_Irreps = config.initialization.out_Irreps
+        sidechain_in_Irreps = config.transition.out_Irreps
+    #
     config.update_from_flattened_dict(
         {
             "feature_extraction.in_Irreps": feature_extraction_in_Irreps,
