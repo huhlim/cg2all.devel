@@ -18,6 +18,9 @@ from libcg import ResidueBasedModel
 import libmodel
 
 
+IS_DEVELOP = True
+
+
 class Model(pl.LightningModule):
     def __init__(self, _config, compute_loss=False, checkpoint=False, memcheck=False):
         super().__init__()
@@ -50,7 +53,7 @@ class Model(pl.LightningModule):
             )
 
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), lr=0.001)
+        optimizer = torch.optim.Adam(self.parameters(), lr=0.01)
         # return optimizer
         lr_scheduler = torch.optim.lr_scheduler.SequentialLR(
             optimizer,
@@ -94,6 +97,7 @@ class Model(pl.LightningModule):
             batch_size=batch.num_graphs,
             on_epoch=True,
             on_step=False,
+            prog_bar=IS_DEVELOP,
         )
         return {"loss": loss_sum, "metric": metric, "out": out}
 
@@ -128,6 +132,9 @@ class Model(pl.LightningModule):
         return {"loss": loss_sum, "metric": metric, "out": out}
 
     def validation_step(self, batch, batch_idx):
+        if self.current_epoch == 0 and batch_idx == 0:
+            self.model.test_equivariance(batch)
+        #
         out, loss, metric = self.forward(batch)
         loss_sum, loss_s = self.get_loss_sum(loss)
         #
@@ -159,10 +166,15 @@ class Model(pl.LightningModule):
 
 
 def main():
-    pl.seed_everything(25, workers=True)
+    if IS_DEVELOP:
+        pl.seed_everything(25, workers=True)
     #
     hostname = os.getenv("HOSTNAME", "local")
-    if hostname == "markov.bch.msu.edu" or hostname.startswith("gpu"):# and False:
+    if (
+        hostname == "markov.bch.msu.edu"
+        or hostname.startswith("gpu")
+        and (not IS_DEVELOP)
+    ):
         base_dir = pathlib.Path("./")
         pdb_dir = base_dir / "pdb.pisces"
         pdblist_train = pdb_dir / "targets.train"
@@ -217,7 +229,7 @@ def main():
     config = copy.deepcopy(libmodel.CONFIG)
     config.update_from_flattened_dict(
         {
-            "globals.num_recycle": 8,
+            "globals.num_recycle": 1,
             "feature_extraction.layer_type": "SE3Transformer",
             "feature_extraction.num_layers": 4,
             "initialization.num_layers": 4,
@@ -228,11 +240,11 @@ def main():
             "globals.loss_weight.bonded_energy": 1.0,
             "globals.loss_weight.rotation_matrix": 1.0,
             "globals.loss_weight.torsion_angle": 0.2,
-            "backbone.loss_weight.bonded_energy": 0.5,
-            "backbone.loss_weight.rigid_body": 0.5,
-            "backbone.loss_weight.rotation_matrix": 0.5,
-            "backbone.loss_weight.FAPE_CA": 2.5,
-            "sidechain.loss_weight.torsion_angle": 0.1,
+            # "backbone.loss_weight.bonded_energy": 0.5,
+            # "backbone.loss_weight.rigid_body": 0.5,
+            # "backbone.loss_weight.rotation_matrix": 0.5,
+            # "backbone.loss_weight.FAPE_CA": 2.5,
+            # "sidechain.loss_weight.torsion_angle": 0.1,
         }
     )
     feature_extraction_in_Irreps = " + ".join(
@@ -242,18 +254,37 @@ def main():
             config.sidechain.out_Irreps,
         ]
     )
+    sidechain_in_Irreps = " + ".join(
+        [
+            config.transition.out_Irreps,
+            config.backbone.out_Irreps,
+        ]
+    )
     config.update_from_flattened_dict(
-        {"feature_extraction.in_Irreps": feature_extraction_in_Irreps}
+        {
+            "feature_extraction.in_Irreps": feature_extraction_in_Irreps,
+            "sidechain.in_Irreps": sidechain_in_Irreps,
+        }
     )
     #
     model = Model(config, compute_loss=True, checkpoint=True, memcheck=True)
-    trainer = pl.Trainer(
-        max_epochs=100,
-        accelerator="auto",
-        gradient_clip_val=1.0,
-        check_val_every_n_epoch=1,
-    )
-    trainer.fit(model, train_loader, val_loader)
+    if IS_DEVELOP:
+        trainer = pl.Trainer(
+            max_epochs=100,
+            accelerator="gpu",
+            gradient_clip_val=1.0,
+            check_val_every_n_epoch=10,
+            #        overfit_batches=5,
+        )
+        trainer.fit(model, train_loader, val_loader)
+    else:
+        trainer = pl.Trainer(
+            max_epochs=100,
+            accelerator="gpu",
+            gradient_clip_val=1.0,
+            check_val_every_n_epoch=1,
+        )
+        trainer.fit(model, train_loader, val_loader)
     trainer.test(model, test_loader)
 
 

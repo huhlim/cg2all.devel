@@ -13,6 +13,7 @@ from ml_collections import ConfigDict
 import e3nn
 import e3nn.nn
 from e3nn import o3
+from e3nn.util.test import equivariance_error
 
 import liblayer
 import libnorm
@@ -75,9 +76,9 @@ CONFIG_BASE["mid_Irreps"] = "80x0e + 20x1o"
 CONFIG_BASE["attn_Irreps"] = "80x0e + 20x1o"
 CONFIG_BASE["l_max"] = 2
 CONFIG_BASE["mlp_num_neurons"] = [20, 20]
-CONFIG_BASE["activation"] = "relu"
+CONFIG_BASE["activation"] = None
 CONFIG_BASE["radius"] = 1.2
-CONFIG_BASE["norm"] = True
+CONFIG_BASE["norm"] = [False, False, True]
 CONFIG_BASE["skip_connection"] = True
 CONFIG_BASE["loss_weight"] = ConfigDict()
 
@@ -95,7 +96,21 @@ CONFIG["initialization"].update(
         "out_Irreps": "40x0e + 10x1o",
         "mid_Irreps": "40x0e + 10x1o",
         "skip_connection": True,
-        "norm": True,
+        "norm": [False, True, True],
+    }
+)
+
+CONFIG["feature_extraction"].update(
+    {
+        "layer_type": "SE3Transformer",
+        "num_layers": 4,
+        "in_Irreps": "",
+        "out_Irreps": "40x0e + 10x1o",
+        "mid_Irreps": "80x0e + 20x1o",
+        "attn_Irreps": "80x0e + 20x1o",
+        "activation": "relu",
+        "skip_connection": True,
+        "norm": [False, True, True],
     }
 )
 
@@ -107,7 +122,7 @@ CONFIG["transition"].update(
         "out_Irreps": "40x0e + 10x1o",
         "mid_Irreps": "40x0e + 10x1o",
         "skip_connection": True,
-        "norm": True,
+        "norm": [False, True, True],
     }
 )
 
@@ -119,7 +134,7 @@ CONFIG["backbone"].update(
         "out_Irreps": "3x1o",  # two for rotation, one for translation
         "mid_Irreps": "20x0e + 4x1o",
         "skip_connection": True,
-        "norm": False,
+        "norm": [False, True, False],
         "loss_weight": {
             "rigid_body": 0.0,
             "bonded_energy": 0.0,
@@ -137,19 +152,8 @@ CONFIG["sidechain"].update(
         "out_Irreps": f"{MAX_TORSION*2:d}x0e",
         "mid_Irreps": "20x0e + 4x1o",
         "skip_connection": True,
-        "norm": False,
+        "norm": [False, True, False],
         "loss_weight": {"torsion_angle": 0.0},
-    }
-)
-
-CONFIG["feature_extraction"].update(
-    {
-        "layer_type": "SE3Transformer",
-        "num_layers": 4,
-        "in_Irreps": "",
-        "out_Irreps": "40x0e + 10x1o",
-        "mid_Irreps": "80x0e + 20x1o",
-        "attn_Irreps": "80x0e + 20x1o",
     }
 )
 
@@ -183,10 +187,13 @@ class BaseModule(nn.Module):
         else:
             raise NotImplementedError
         self.skip_connection = config.skip_connection
-        if config.norm:
-            self.norm = libnorm.LayerNorm(self.out_Irreps)
-        else:
-            self.norm = None
+        for i, (norm, irreps) in enumerate(
+            zip(config.norm, [self.in_Irreps, self.mid_Irreps, self.out_Irreps])
+        ):
+            if norm:
+                self.add_module(f"norm_{i}", libnorm.LayerNorm(irreps))
+            else:
+                self.add_module(f"norm_{i}", None)
         #
         if config.layer_type == "ConvLayer":
             self.use_graph = True
@@ -219,13 +226,16 @@ class BaseModule(nn.Module):
         self.layer_1 = layer_partial(self.mid_Irreps, self.out_Irreps)
 
     def forward(self, batch, feat):
+        if self.norm_0:
+            feat = self.norm_0(feat)
+        #
         if self.use_graph:
             out = self.forward_graph(batch, feat)
         else:
             out = self.forward_linear(feat)
         #
-        if self.norm is not None:
-            out = self.norm(out)
+        if self.norm_2:
+            out = self.norm_2(out)
         return out
 
     def forward_graph(self, batch, feat):
@@ -238,6 +248,10 @@ class BaseModule(nn.Module):
         for i, layer in enumerate(self.layer_s):
             if self.skip_connection:
                 feat0 = feat.clone()
+            #
+            if self.norm_1:
+                feat = self.norm_1(feat)
+            #
             if layer.radius == radius_prev:
                 if self.training and self.checkpoint:
                     feat, graph = torch.utils.checkpoint.checkpoint(
@@ -250,9 +264,13 @@ class BaseModule(nn.Module):
                     feat, graph = torch.utils.checkpoint.checkpoint(layerbatch, feat)
                 else:
                     feat, graph = layer(batch, feat)
+            radius_prev = layer.radius
+            #
             if self.skip_connection:
                 feat = feat + feat0
-            radius_prev = layer.radius
+        #
+        if self.norm_1:
+            feat = self.norm_1(feat)
         #
         if self.training and self.checkpoint:
             feat_out, graph = torch.utils.checkpoint.checkpoint(
@@ -267,11 +285,16 @@ class BaseModule(nn.Module):
             feat = torch.utils.checkpoint.checkpoint(self.layer_0, feat)
         else:
             feat = self.layer_0(feat)
+        if self.activation is not None:
+            feat = self.activation(feat)
 
         for i, layer in enumerate(self.layer_s):
             if self.skip_connection:
                 feat0 = feat.clone()
-                #
+            #
+            if self.norm_1:
+                feat = self.norm_1(feat)
+            #
             if self.training and self.checkpoint:
                 feat = torch.utils.checkpoint.checkpoint(layer, feat)
             else:
@@ -279,8 +302,12 @@ class BaseModule(nn.Module):
             #
             if self.activation is not None:
                 feat = self.activation(feat)
+            #
             if self.skip_connection:
                 feat = feat + feat0
+        #
+        if self.norm_1:
+            feat = self.norm_1(feat)
         #
         if self.training and self.checkpoint:
             feat_out = torch.utils.checkpoint.checkpoint(self.layer_1, feat)
@@ -290,6 +317,41 @@ class BaseModule(nn.Module):
 
     def loss_f(self, batch, f_out):
         raise NotImplementedError
+
+    def preprocess_feat(self, f_in):
+        return f_in
+
+    def test_equivariance(self, batch, feat, *arg):
+        device = feat.device
+        feat = self.preprocess_feat(feat, *arg)
+        #
+        random_rotation = o3.rand_matrix()
+        in_matrix = self.in_Irreps.D_from_matrix(random_rotation)
+        out_matrix = self.out_Irreps.D_from_matrix(random_rotation)
+        #
+        random_rotation = random_rotation.to(device)
+        in_matrix = in_matrix.to(device)
+        out_matrix = out_matrix.to(device)
+        #
+        output_0 = self.forward(batch, feat) @ out_matrix.T
+        #
+        batch.pos = batch.pos @ random_rotation.T
+        batch.pos0 = batch.pos0 @ random_rotation.T
+        feat = feat @ in_matrix.T
+        output_1 = self.forward(batch, feat)
+        #
+        status = torch.allclose(output_0, output_1, rtol=1e-4, atol=1e-4)
+        print("Equivariance test for", self.__class__.__name__, status)
+        if not status:
+            print(output_0)
+            print(output_1)
+            raise ValueError
+        return output_1
+
+
+class InitializationModule(BaseModule):
+    def __init__(self, config, compute_loss=False, checkpoint=False):
+        super().__init__(config, compute_loss=compute_loss, checkpoint=checkpoint)
 
 
 class TransitionModule(BaseModule):
@@ -301,7 +363,7 @@ class FeatureExtractionModule(BaseModule):
     def __init__(self, config, compute_loss=False, checkpoint=False):
         super().__init__(config, compute_loss=compute_loss, checkpoint=checkpoint)
 
-    def forward(self, batch, f_in, ret):
+    def preprocess_feat(self, f_in, ret):
         n_residue = f_in.size(0)
         feat = torch.cat(
             [
@@ -312,7 +374,38 @@ class FeatureExtractionModule(BaseModule):
             ],
             dim=1,
         )
+        return feat
+
+    def forward(self, batch, f_in, ret):
+        feat = self.preprocess_feat(f_in, ret)
         return super().forward(batch, feat)
+
+    def test_equivariance(self, batch, feat, *arg):
+        device = feat.device
+        feat = self.preprocess_feat(feat, *arg)
+        #
+        random_rotation = o3.rand_matrix()
+        in_matrix = self.in_Irreps.D_from_matrix(random_rotation)
+        out_matrix = self.out_Irreps.D_from_matrix(random_rotation)
+        #
+        random_rotation = random_rotation.to(device)
+        in_matrix = in_matrix.to(device)
+        out_matrix = out_matrix.to(device)
+        #
+        output_0 = super().forward(batch, feat) @ out_matrix.T
+        #
+        batch.pos = batch.pos @ random_rotation.T
+        batch.pos0 = batch.pos0 @ random_rotation.T
+        feat = feat @ in_matrix.T
+        output_1 = super().forward(batch, feat)
+        #
+        status = torch.allclose(output_0, output_1, rtol=1e-4, atol=1e-4)
+        print("Equivariance test for", self.__class__.__name__, status)
+        if not status:
+            print(output_0)
+            print(output_1)
+            raise ValueError
+        return output_1
 
 
 class BackboneModule(BaseModule):
@@ -379,10 +472,52 @@ class SidechainModule(BaseModule):
     def __init__(self, config, compute_loss=False, checkpoint=False):
         super().__init__(config, compute_loss=compute_loss, checkpoint=checkpoint)
 
-    def forward(self, batch, feat):
+    def preprocess_feat(self, feat, bb):
+        n_residue = feat.size(0)
+        feat = torch.cat(
+            [
+                feat,
+                bb[:, :2].view(n_residue, -1),
+                bb[:, -1],
+            ],
+            dim=1,
+        )
+        return feat
+
+    def forward(self, batch, feat, bb):
+        feat = self.preprocess_feat(feat, bb)
         out = super().forward(batch, feat)
         out = out.reshape(-1, MAX_TORSION, 2)
         return out
+
+    def test_equivariance(self, batch, feat, *arg):
+        device = feat.device
+        feat = self.preprocess_feat(feat, *arg)
+        #
+        random_rotation = o3.rand_matrix()
+        in_matrix = self.in_Irreps.D_from_matrix(random_rotation)
+        out_matrix = self.out_Irreps.D_from_matrix(random_rotation)
+        #
+        random_rotation = random_rotation.to(device)
+        in_matrix = in_matrix.to(device)
+        out_matrix = out_matrix.to(device)
+        #
+        output_0 = super().forward(batch, feat) @ out_matrix.T
+        output_0 = output_0.reshape(-1, MAX_TORSION, 2)
+        #
+        batch.pos = batch.pos @ random_rotation.T
+        batch.pos0 = batch.pos0 @ random_rotation.T
+        feat = feat @ in_matrix.T
+        output_1 = super().forward(batch, feat)
+        output_1 = output_1.reshape(-1, MAX_TORSION, 2)
+        #
+        status = torch.allclose(output_0, output_1, rtol=1e-4, atol=1e-4)
+        print("Equivariance test for", self.__class__.__name__, status)
+        if not status:
+            print(output_0)
+            print(output_1)
+            raise ValueError("Could NOT pass equivariance test!")
+        return output_1
 
     def loss_f(self, batch, sc, sc1, loss_prev):
         loss = {}
@@ -418,7 +553,7 @@ class Model(nn.Module):
         self.num_recycle = _config.globals.num_recycle
         self.loss_weight = _config.globals.loss_weight
         #
-        self.initialization_module = TransitionModule(
+        self.initialization_module = InitializationModule(
             _config.initialization,
             compute_loss=False,
             checkpoint=checkpoint,
@@ -469,12 +604,16 @@ class Model(nn.Module):
             ret["bb"] = self.backbone_module.compose(ret["bb"], bb)
             #
             # 40x0e + 10x1o --> 14x0e
-            sc = self.sidechain_module(batch, f_out)
+            sc = self.sidechain_module(batch, f_out, ret["bb"])
             ret["sc"] = self.sidechain_module.compose(ret["sc"], sc)
             #
             if self.compute_loss or self.training:
                 loss["bb"] = self.backbone_module.loss_f(
-                    batch, ret["bb"], bb, loss.get("bb", {}), stop_grad=(k+1 < self.num_recycle),
+                    batch,
+                    ret["bb"],
+                    bb,
+                    loss.get("bb", {}),
+                    stop_grad=(k + 1 < self.num_recycle),
                 )
                 loss["sc"] = self.sidechain_module.loss_f(
                     batch, ret["sc"], sc, loss.get("sc", {})
@@ -542,6 +681,32 @@ class Model(nn.Module):
         metric_s["rmsd_all"] = rmsd_all(R, R_ref, batch.output_atom_mask)
         metric_s["bond_energy"] = bonded_energy(R, batch.continuous)
         return metric_s
+
+    def test_equivariance(self, batch):
+        n_residue = batch.pos.size(0)
+        device = batch.pos.device
+        #
+        ret = {}
+        ret["bb"] = self.backbone_module.init_value(batch).to(device)
+        ret["sc"] = self.sidechain_module.init_value(batch).to(device)
+        #
+        # 38x0e + 4x1o --> 40x0e + 10x1o
+        f_in = self.initialization_module.test_equivariance(batch, batch.f_in)
+        #
+        for k in range(self.num_recycle):
+            # 40x0e + 10x1o --> 40x0e + 10x1o
+            f_out = self.feature_extraction_module.test_equivariance(batch, f_in, ret)
+            #
+            # 40x0e + 10x1o --> 40x0e + 10x1o
+            f_out = self.transition_module.test_equivariance(batch, f_out)
+            #
+            # 40x0e + 10x1o --> 4x0e + 1x1o
+            bb = self.backbone_module.test_equivariance(batch, f_out)
+            ret["bb"] = self.backbone_module.compose(ret["bb"], bb)
+            #
+            # 40x0e + 10x1o --> 14x0e
+            sc = self.sidechain_module.test_equivariance(batch, f_out, ret["bb"])
+            ret["sc"] = self.sidechain_module.compose(ret["sc"], sc)
 
 
 def rotate_matrix(R, X):

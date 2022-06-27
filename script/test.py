@@ -55,13 +55,26 @@ def main():
             config.sidechain.out_Irreps,
         ]
     )
+    sidechain_in_Irreps = " + ".join(
+        [
+            config.transition.out_Irreps,
+            config.backbone.out_Irreps,
+        ]
+    )
     config.update_from_flattened_dict(
-        {"feature_extraction.in_Irreps": feature_extraction_in_Irreps}
+        {
+            "feature_extraction.in_Irreps": feature_extraction_in_Irreps,
+            "sidechain.in_Irreps": sidechain_in_Irreps,
+        }
     )
     #
     model = Model(config, compute_loss=True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cpu")
     model = model.to(device)
+    model.eval()
+    model.test_equivariant(batch)
+    #
     optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
     model.train()
     #
