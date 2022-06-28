@@ -19,7 +19,7 @@ from libcg import ResidueBasedModel
 import libmodel
 
 
-IS_DEVELOP = False
+IS_DEVELOP = True
 
 
 class Model(pl.LightningModule):
@@ -137,7 +137,9 @@ class Model(pl.LightningModule):
         #
         if self.current_epoch == 0 and batch_idx == 0:
             self.model.test_equivariance(batch)
+            #
             sp.call(["cp", "lib/libmodel.py", log_dir])
+            sp.call(["cp", __file__, log_dir])
         #
         out, loss, metric = self.forward(batch)
         loss_sum, loss_s = self.get_loss_sum(loss)
@@ -183,16 +185,16 @@ def main():
         pdblist_train = pdb_dir / "targets.train"
         pdblist_test = pdb_dir / "targets.test"
         pdblist_val = pdb_dir / "targets.valid"
-        cached = False
         pin_memory = False
+        batch_size = 8
     else:
         base_dir = pathlib.Path("./")
         pdb_dir = base_dir / "pdb.processed"
         pdblist_train = pdb_dir / "pdblist"
         pdblist_test = pdb_dir / "pdblist"
         pdblist_val = pdb_dir / "pdblist"
-        cached = True
         pin_memory = True
+        batch_size = 1
     #
     cg_model = functools.partial(ResidueBasedModel, center_of_mass=True)
     _PDBset = functools.partial(
@@ -200,10 +202,9 @@ def main():
         cg_model=cg_model,
         noise_level=0.0,
         get_structure_information=True,
-        cached=cached,
+        random_rotation=False,
     )
     #
-    batch_size = 4
     train_set = _PDBset(pdb_dir, pdblist_train)
     train_loader = torch_geometric.loader.DataLoader(
         train_set,
@@ -232,12 +233,12 @@ def main():
     config = copy.deepcopy(libmodel.CONFIG)
     config.update_from_flattened_dict(
         {
-            "globals.num_recycle": 2,
+            "globals.num_recycle": 1,
             "feature_extraction.layer_type": "SE3Transformer",
-            "feature_extraction.num_layers": 4,
-            "initialization.num_layers": 4,
-            "transition.num_layers": 4,
-            "backbone.num_layers": 4,
+            "feature_extraction.num_layers": 2,
+            "initialization.num_layers": 2,
+            "transition.num_layers": 2,
+            "backbone.num_layers": 2,
             #
             "globals.loss_weight.rigid_body": 1.0,
             "globals.loss_weight.FAPE_CA": 5.0,
@@ -245,11 +246,11 @@ def main():
             "globals.loss_weight.rotation_matrix": 1.0,
             "globals.loss_weight.torsion_angle": 1.0,
             #
-            "backbone.loss_weight.rigid_body": 0.5,
-            "backbone.loss_weight.FAPE_CA": 2.5,
-            "backbone.loss_weight.bonded_energy": 0.5,
-            "backbone.loss_weight.rotation_matrix": 0.5,
-            "sidechain.loss_weight.torsion_angle": 0.5,
+            # "backbone.loss_weight.rigid_body": 0.5,
+            # "backbone.loss_weight.FAPE_CA": 2.5,
+            # "backbone.loss_weight.bonded_energy": 0.5,
+            # "backbone.loss_weight.rotation_matrix": 0.5,
+            # "sidechain.loss_weight.torsion_angle": 0.5,
         }
     )
     #
@@ -258,7 +259,6 @@ def main():
             [
                 config.initialization.out_Irreps,
                 config.backbone.out_Irreps,
-                config.sidechain.out_Irreps,
             ]
         )
         sidechain_in_Irreps = " + ".join(
