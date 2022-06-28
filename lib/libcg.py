@@ -14,7 +14,6 @@ class ResidueBasedModel(PDB):
         self.max_bead_type = MAX_RESIDUE_TYPE
         self.center_of_mass = center_of_mass
         self.convert_to_cg()
-        #
 
     def convert_to_cg(self):
         self.top_cg = self.top.subset(self.top.select("name CA"))

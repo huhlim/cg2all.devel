@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-# %%
+import copy
 import numpy as np
 import pathlib
 import functools
@@ -32,7 +32,6 @@ class Normalizer(object):
         return (X - self.mean) / self.std
 
 
-# %%
 class PDBset(torch_geometric.data.Dataset):
     def __init__(
         self,
@@ -41,7 +40,7 @@ class PDBset(torch_geometric.data.Dataset):
         cg_model,
         noise_level=0.0,
         get_structure_information=False,
-        cached=False,
+        random_rotation=False,
     ):
         super().__init__()
         #
@@ -57,52 +56,46 @@ class PDBset(torch_geometric.data.Dataset):
         self.cg_model = cg_model
         self.noise_level = noise_level
         self.get_structure_information = get_structure_information
+        self.random_rotation = random_rotation
         #
         transform_npy_fn = basedir / "transform.npy"
         if transform_npy_fn.exists():
             self.transform = Normalizer(*np.load(transform_npy_fn))
         else:
             self.transform = None
-        #
-        self.cached = {}
-        if cached:
-            for i in range(len(self)):
-                self.cached[i] = self[i]
 
     def __len__(self):
         return self.n_pdb
 
     def __getitem__(self, index) -> torch_geometric.data.Data:
-        if index in self.cached:
-            return self.cached[index]
-        #
         pdb_id = self.pdb_s[index]
         pdb_fn = self.basedir / f"{pdb_id}.pdb"
         #
         cg = self.cg_model(pdb_fn)
+        if self.random_rotation:
+            cg = self.rotate_randomly(cg)
         frame_index = np.random.randint(cg.n_frame)
         #
-        r = cg.R_cg[frame_index]
-        #
+        r_cg = cg.R_cg[frame_index]
         if self.noise_level > 0.0:
             noise_size = np.random.normal(
                 loc=self.noise_level, scale=self.noise_level / 2.0
             )
             if noise_size >= 0.0:
-                r += np.random.normal(scale=noise_size, size=r.shape)
+                r_cg += np.random.normal(scale=noise_size, size=r_cg.shape)
             else:
                 noise_size = 0.0
         else:
             noise_size = 0.0
         #
-        geom_s = cg.get_local_geometry(r)
+        geom_s = cg.get_local_geometry(r_cg)
         #
         data = torch_geometric.data.Data(
-            pos=torch.as_tensor(r[cg.atom_mask_cg == 1.0], dtype=DTYPE)
+            pos=torch.as_tensor(r_cg[cg.atom_mask_cg == 1.0], dtype=DTYPE)
         )
         data.pos0 = data.pos.clone()
         #
-        n_neigh = np.zeros((r.shape[0], 1), dtype=float)
+        n_neigh = np.zeros((r_cg.shape[0], 1), dtype=float)
         edge_src, edge_dst = torch_cluster.radius_graph(
             data.pos,
             1.0,
@@ -129,7 +122,7 @@ class PDBset(torch_geometric.data.Dataset):
         f_in[0].append(geom_s["dihedral_angle"].reshape(-1, 8))  # 8
         #
         # noise-level
-        f_in[0].append(np.full((r.shape[0], 1), noise_size))  # 1
+        f_in[0].append(np.full((r_cg.shape[0], 1), noise_size))  # 1
         #
         f_in[0] = torch.as_tensor(
             np.concatenate(f_in[0], axis=1), dtype=DTYPE
@@ -164,11 +157,18 @@ class PDBset(torch_geometric.data.Dataset):
         if self.get_structure_information:
             cg.get_structure_information()
             data.correct_bb = torch.as_tensor(cg.bb[frame_index], dtype=DTYPE)
-            data.correct_quat = e3nn.o3.matrix_to_quaternion(data.correct_bb[:, :3])
             data.correct_torsion = torch.as_tensor(cg.torsion[frame_index], dtype=DTYPE)
             data.torsion_mask = torch.as_tensor(cg.torsion_mask, dtype=DTYPE)
         #
         return data
+
+    def rotate_randomly(self, cg):
+        random_rotation = e3nn.o3.rand_matrix().numpy()
+        #
+        out = copy.deepcopy(cg)
+        out.R_cg = out.R_cg @ random_rotation.T
+        out.R = out.R @ random_rotation.T
+        return out
 
 
 def create_topology_from_data(data: torch_geometric.data.Data) -> mdtraj.Topology:
@@ -239,7 +239,6 @@ def create_trajectory_from_batch(
     return traj_s
 
 
-# %%
 def test():
     base_dir = BASE / "pdb.processed"
     pdblist = BASE / "pdb/pdblist"
@@ -251,7 +250,6 @@ def test():
         cg_model,
         noise_level=0.5,
         get_structure_information=True,
-        cached=True,
     )
     train_loader = torch_geometric.loader.DataLoader(
         train_set, batch_size=5, shuffle=True, num_workers=1
@@ -265,5 +263,3 @@ def test():
 
 if __name__ == "__main__":
     test()
-
-# %%
