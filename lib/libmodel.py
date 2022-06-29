@@ -353,8 +353,8 @@ class BaseModule(nn.Module):
         status = torch.allclose(output_0, output_1, rtol=1e-3, atol=1e-3)
         print("Equivariance test for", self.__class__.__name__, status)
         if not status:
-            print(output_0)
-            print(output_1)
+            print(output_0[0])
+            print(output_1[0])
             raise ValueError("Could NOT pass equivariance test!")
         return output
 
@@ -431,8 +431,8 @@ class FeatureExtractionModule(BaseModule):
         status = torch.allclose(output_0, output_1, rtol=1e-3, atol=1e-3)
         print("Equivariance test for", self.__class__.__name__, status)
         if not status:
-            print(output_0)
-            print(output_1)
+            print(output_0[0])
+            print(output_1[0])
             raise ValueError("Could NOT pass equivariance test!")
         return output
 
@@ -481,25 +481,70 @@ class BackboneModule(BaseModule):
         return loss
 
     @staticmethod
-    # Three vectors
-    def compose(bb0, bb1):
-        v0 = bb1[:, 0:3]
-        v1 = bb1[:, 3:6]
+    def output_to_opr(bb):
+        v0 = bb[:, 0:3]
+        v1 = bb[:, 3:6]
         e0 = v_norm_safe(v0, index=0)
         u1 = v1 - e0 * inner_product(e0, v1)[:, None]
         e1 = v_norm_safe(u1, index=1)
         e2 = torch.cross(e0, e1)
+        rot = torch.stack([e0, e1, e2], dim=1).mT
         #
-        t = bb1[:, 6:9]
-        #
-        opr = torch.stack([e0, e1, e2, t], dim=1)
-        return combine_operations(bb0, opr)
+        t = bb[:, 6:9][..., None, :]
+        opr = torch.cat([rot, t], dim=1)
+        return opr
+
+    @staticmethod
+    def compose(bb0, bb1):
+        opr = BackboneModule.output_to_opr(bb1)
+        out = combine_operations(bb0, opr)
+        return out
 
     def init_value(self, batch):
         n_residue = batch.pos.size(0)
         opr = torch.zeros((n_residue, 4, 3), dtype=DTYPE)
         opr[:, :3] = opr[:, :3] + torch.eye(3)[None, :, :]
         return opr
+
+    def test_equivariance(self, random_rotation, batch0, feat, *arg):
+        device = feat.device
+        feat = self.preprocess_feat(feat, *arg)
+        #
+        in_matrix = self.in_Irreps.D_from_matrix(random_rotation)
+        out_matrix = self.out_Irreps.D_from_matrix(random_rotation)
+        #
+        random_rotation = random_rotation.to(device)
+        in_matrix = in_matrix.to(device)
+        out_matrix = out_matrix.to(device)
+        #
+        batch = copy.deepcopy(batch0)
+        output = super().forward(batch, feat)
+        output_0 = output.clone() @ out_matrix.T
+        bb = self.output_to_opr(output)
+        bb_0 = bb.clone()
+        bb_0[:, :3] = rotate_matrix(random_rotation, bb_0[:, :3])
+        bb_0[:, 3] = rotate_vector(random_rotation, bb_0[:, 3])
+        #
+        batch.pos = batch.pos @ random_rotation.T
+        batch.pos0 = batch.pos0 @ random_rotation.T
+        feat = feat @ in_matrix.T
+        output_1 = super().forward(batch, feat)
+        bb_1 = self.output_to_opr(output_1)
+        #
+        status = torch.allclose(
+            output_0, output_1, rtol=1e-3, atol=1e-3
+        ) and torch.allclose(bb_0, bb_1, rtol=1e-3, atol=1e-3)
+        print("Equivariance test for", self.__class__.__name__, status)
+        if not status:
+            print(random_rotation)
+            print(output[0])
+            print(output_0[0])
+            print(output_1[0])
+            print(bb[0])
+            print(bb_0[0])
+            print(bb_1[0])
+            raise ValueError("Could NOT pass equivariance test!")
+        return output
 
 
 class SidechainModule(BaseModule):
@@ -559,8 +604,8 @@ class SidechainModule(BaseModule):
         status = torch.allclose(output_0, output_1, rtol=1e-3, atol=1e-3)
         print("Equivariance test for", self.__class__.__name__, status)
         if not status:
-            print(output_0)
-            print(output_1)
+            print(output_0[0])
+            print(output_1[0])
             raise ValueError("Could NOT pass equivariance test!")
         return output
 
@@ -727,47 +772,60 @@ class Model(nn.Module):
         ret = {}
         ret["bb"] = self.backbone_module.init_value(batch).to(device)
         #
-        x = self.initialization_module.test_equivariance(random_rotation, batch, batch.f_in)
-        x = self.feature_extraction_module.test_equivariance(random_rotation, batch, x, ret)
+        x = self.initialization_module.test_equivariance(
+            random_rotation, batch, batch.f_in
+        )
+        x = self.feature_extraction_module.test_equivariance(
+            random_rotation, batch, x, ret
+        )
         x = self.transition_module.test_equivariance(random_rotation, batch, x)
         #
         bb = self.backbone_module.test_equivariance(random_rotation, batch, x)
         ret["bb"] = self.backbone_module.compose(ret["bb"], bb)
         #
-        sc = self.sidechain_module.test_equivariance(random_rotation, batch, x, ret["bb"])
+        sc = self.sidechain_module.test_equivariance(
+            random_rotation, batch, x, ret["bb"]
+        )
         ret["sc"] = self.sidechain_module.compose(sc)
-        
-        in_matrix = self.initialization_module.in_Irreps.D_from_matrix(random_rotation).to(device)
+
+        in_matrix = self.initialization_module.in_Irreps.D_from_matrix(
+            random_rotation
+        ).to(device)
         random_rotation = random_rotation.to(device)
         #
-        out_0 = self.forward(batch)[0]
-        r_0 = out_0["R"] @ random_rotation.T
-        rot_0 = out_0["bb"][:, :3] @ random_rotation.T
-        trans_0 = out_0["bb"][:, 3] @ random_rotation.T
+        batch_0 = copy.deepcopy(batch)
+        out_0 = self.forward(batch_0)[0]
+        r_0 = rotate_vector(random_rotation, out_0["R"])
+        rot_0 = rotate_matrix(random_rotation, out_0["opr_bb"][:, :3])
+        trans_0 = rotate_vector(random_rotation, out_0["opr_bb"][:, 3])
         #
-        batch.pos = batch.pos @ random_rotation.T
-        batch.pos0 = batch.pos0 @ random_rotation.T
-        batch.f_in = batch.f_in @ in_matrix.T
-        out_1 = self.forward(batch)[0]
+        batch_1 = copy.deepcopy(batch)
+        batch_1.pos = batch_1.pos @ random_rotation.T
+        batch_1.pos0 = batch_1.pos0 @ random_rotation.T
+        batch_1.f_in = batch_1.f_in @ in_matrix.T
+        out_1 = self.forward(batch_1)[0]
         r_1 = out_1["R"]
         #
         status = torch.allclose(r_0, r_1, rtol=1e-3, atol=1e-3)
         print("Equivariance test for", self.__class__.__name__, status)
         if not status:
+            print(out_0["R"][0])
             print(r_0[0])
             print(r_1[0])
+            print("-----------------------")
+            print(out_0["opr_bb"][0])
             print(rot_0[0])
             print(trans_0[0])
-            print(out_1["bb"][0])
+            print(out_1["opr_bb"][0])
             raise ValueError("Could NOT pass equivariance test!")
 
 
 def rotate_matrix(R, X):
-    return torch.einsum("...ij,...jk->...ik", R, X)
+    return R @ X
 
 
 def rotate_vector(R, X):
-    return torch.einsum("...ij,...j", R, X)
+    return (X[..., None, :] @ R.mT)[..., 0, :]
 
 
 def combine_operations(X, Y):
