@@ -12,8 +12,8 @@ from libconfig import DATA_HOME
 def combine_opr_s(opr_s):
     R, t = opr_s[0]
     for opr in opr_s[1:]:
-        R = opr[0].dot(R)
-        t = opr[0].dot(t) + opr[1]
+        R = opr[0] @ R
+        t = opr[0] @ t + opr[1]
     return R, t
 
 
