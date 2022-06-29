@@ -66,7 +66,7 @@ def rigid_from_3points(x):
 # Translate and rotate a set of coordinates
 def translate_and_rotate(x, R, t):
     # return R.dot(x.T).T + t
-    return np.moveaxis(R.dot(x.T), -1, -2) + t[..., None, :]
+    return x @ np.moveaxis(R, -1, -2) + t
 
 
 # %%
