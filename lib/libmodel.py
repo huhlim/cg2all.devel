@@ -355,7 +355,7 @@ class BaseModule(nn.Module):
         if not status:
             print(output_0[0])
             print(output_1[0])
-            raise ValueError("Could NOT pass equivariance test!")
+            sys.exit("Could NOT pass equivariance test!")
         return output
 
 
@@ -396,7 +396,7 @@ class FeatureExtractionModule(BaseModule):
         feat = torch.cat(
             [
                 f_in,
-                ret["bb"][:, :2].view(n_residue, -1),
+                # ret["bb"][:, :2].view(n_residue, -1),
                 ret["bb"][:, -1],
             ],
             dim=1,
@@ -433,7 +433,7 @@ class FeatureExtractionModule(BaseModule):
         if not status:
             print(output_0[0])
             print(output_1[0])
-            raise ValueError("Could NOT pass equivariance test!")
+            sys.exit("Could NOT pass equivariance test!")
         return output
 
 
@@ -497,8 +497,10 @@ class BackboneModule(BaseModule):
     @staticmethod
     def compose(bb0, bb1):
         opr = BackboneModule.output_to_opr(bb1)
-        out = combine_operations(bb0, opr)
-        return out
+        opr[:, 3] = opr[:, 3] + bb0[:, 3]
+        # out = combine_operations(bb0, opr)
+        # out = combine_operations(opr, bb0)
+        return opr
 
     def init_value(self, batch):
         n_residue = batch.pos.size(0)
@@ -543,7 +545,7 @@ class BackboneModule(BaseModule):
             print(bb[0])
             print(bb_0[0])
             print(bb_1[0])
-            raise ValueError("Could NOT pass equivariance test!")
+            sys.exit("Could NOT pass equivariance test!")
         return output
 
 
@@ -564,7 +566,7 @@ class SidechainModule(BaseModule):
         feat = torch.cat(
             [
                 feat,
-                bb[:,:2].view(n_residue, -1),
+                # bb[:, :2].view(n_residue, -1),
                 bb[:, -1],
             ],
             dim=1,
@@ -606,7 +608,7 @@ class SidechainModule(BaseModule):
         if not status:
             print(output_0[0])
             print(output_1[0])
-            raise ValueError("Could NOT pass equivariance test!")
+            sys.exit("Could NOT pass equivariance test!")
         return output
 
     def loss_f(self, batch, sc, sc1, loss_prev):
@@ -664,32 +666,61 @@ class Model(nn.Module):
             num_recycle=self.num_recycle,
         )
 
-    def forward(self, batch):
+    def forward(self, batch, return_intermediates=False):
         n_residue = batch.pos.size(0)
         device = batch.pos.device
         #
         loss = {}
+        if return_intermediates:
+            intermediates = {}
+            intermediates["initialization_module"] = []
+            intermediates["feature_extraction_module"] = []
+            intermediates["transition_module"] = []
+            intermediates["backbone_module"] = []
+            intermediates["sidechain_module"] = []
+            intermediates["R"] = []
+            intermediates["opr_bb"] = []
+            intermediates["bb"] = []
         #
         ret = {}
         ret["bb"] = self.backbone_module.init_value(batch).to(device)
         #
         # 38x0e + 4x1o --> 40x0e + 10x1o
         f_in = self.initialization_module(batch, batch.f_in)
+        if return_intermediates:
+            intermediates["initialization_module"].append(f_in.clone())
         #
         for k in range(self.num_recycle):
+            print("Iteration", k)
             # 40x0e + 10x1o --> 40x0e + 10x1o
             f_out = self.feature_extraction_module(batch, f_in, ret)
+            if return_intermediates:
+                intermediates["feature_extraction_module"].append(f_out.clone())
             #
             # 40x0e + 10x1o --> 40x0e + 10x1o
             f_out = self.transition_module(batch, f_out)
+            if return_intermediates:
+                intermediates["transition_module"].append(f_out.clone())
             #
             # 40x0e + 10x1o --> 4x0e + 1x1o
             bb = self.backbone_module(batch, f_out)
             ret["bb"] = self.backbone_module.compose(ret["bb"], bb)
+            if return_intermediates:
+                intermediates["backbone_module"].append(bb.clone())
+                intermediates["bb"].append(ret["bb"].clone())
             #
             # 40x0e + 10x1o --> 14x0e
             sc = self.sidechain_module(batch, f_out, ret["bb"])
             ret["sc"] = self.sidechain_module.compose(sc)
+            if return_intermediates:
+                intermediates["sidechain_module"].append(sc.clone())
+            #
+            if return_intermediates:
+                ret["R"], ret["opr_bb"] = build_structure(
+                    batch, ret["bb"], sc=ret["sc"]
+                )
+                intermediates["R"].append(ret["R"].clone())
+                intermediates["opr_bb"].append(ret["opr_bb"].clone())
             #
             if self.compute_loss or self.training:
                 loss["bb"] = self.backbone_module.loss_f(
@@ -712,7 +743,59 @@ class Model(nn.Module):
                 loss["sc"][k] = v / self.num_recycle
 
         metrics = self.calc_metrics(batch, ret)
-        return ret, loss, metrics
+        #
+        if return_intermediates:
+            return ret, loss, metrics, intermediates
+        else:
+            return ret, loss, metrics
+
+    def forward_for_develop(self, batch):
+        device = batch.pos.device
+        #
+        intermediates = {}
+        intermediates["initialization_module"] = []
+        intermediates["feature_extraction_module"] = []
+        intermediates["transition_module"] = []
+        intermediates["backbone_module"] = []
+        intermediates["sidechain_module"] = []
+        intermediates["R"] = []
+        intermediates["opr_bb"] = []
+        intermediates["bb"] = []
+        #
+        ret = {}
+        ret["bb"] = self.backbone_module.init_value(batch).to(device)
+        #
+        # 38x0e + 4x1o --> 40x0e + 10x1o
+        f_in = self.initialization_module(batch, batch.f_in)
+        intermediates["initialization_module"].append(f_in.clone())
+        #
+        for k in range(self.num_recycle):
+            # 40x0e + 10x1o --> 40x0e + 10x1o
+            f_out = self.feature_extraction_module(batch, f_in, ret)
+            intermediates["feature_extraction_module"].append(f_out.clone())
+            #
+            # 40x0e + 10x1o --> 40x0e + 10x1o
+            f_out = self.transition_module(batch, f_out)
+            intermediates["transition_module"].append(f_out.clone())
+            #
+            # 40x0e + 10x1o --> 4x0e + 1x1o
+            bb = self.backbone_module(batch, f_out)
+            ret["bb"] = self.backbone_module.compose(ret["bb"], bb)
+            intermediates["backbone_module"].append(bb.clone())
+            intermediates["bb"].append(ret["bb"].clone())
+            #
+            # 40x0e + 10x1o --> 14x0e
+            sc = self.sidechain_module(batch, f_out, ret["bb"])
+            ret["sc"] = self.sidechain_module.compose(sc)
+            intermediates["sidechain_module"].append(sc.clone())
+            #
+            ret["R"], ret["opr_bb"] = build_structure(batch, ret["bb"], sc=ret["sc"])
+            intermediates["R"].append(ret["R"].clone())
+            intermediates["opr_bb"].append(ret["opr_bb"].clone())
+
+        ret["R"], ret["opr_bb"] = build_structure(batch, ret["bb"], sc=ret["sc"])
+        #
+        return ret, intermediates
 
     def loss_f(self, batch, ret):
         R = ret["R"]
@@ -775,18 +858,19 @@ class Model(nn.Module):
         x = self.initialization_module.test_equivariance(
             random_rotation, batch, batch.f_in
         )
-        x = self.feature_extraction_module.test_equivariance(
-            random_rotation, batch, x, ret
-        )
-        x = self.transition_module.test_equivariance(random_rotation, batch, x)
-        #
-        bb = self.backbone_module.test_equivariance(random_rotation, batch, x)
-        ret["bb"] = self.backbone_module.compose(ret["bb"], bb)
-        #
-        sc = self.sidechain_module.test_equivariance(
-            random_rotation, batch, x, ret["bb"]
-        )
-        ret["sc"] = self.sidechain_module.compose(sc)
+        for _ in range(min(2, self.num_recycle)):
+            x = self.feature_extraction_module.test_equivariance(
+                random_rotation, batch, x, ret
+            )
+            x = self.transition_module.test_equivariance(random_rotation, batch, x)
+            #
+            bb = self.backbone_module.test_equivariance(random_rotation, batch, x)
+            ret["bb"] = self.backbone_module.compose(ret["bb"], bb)
+            #
+            sc = self.sidechain_module.test_equivariance(
+                random_rotation, batch, x, ret["bb"]
+            )
+            ret["sc"] = self.sidechain_module.compose(sc)
 
         in_matrix = self.initialization_module.in_Irreps.D_from_matrix(
             random_rotation
@@ -794,30 +878,70 @@ class Model(nn.Module):
         random_rotation = random_rotation.to(device)
         #
         batch_0 = copy.deepcopy(batch)
-        out_0 = self.forward(batch_0)[0]
+        out_0, X_0 = self.forward_for_develop(batch_0)
         r_0 = rotate_vector(random_rotation, out_0["R"])
-        rot_0 = rotate_matrix(random_rotation, out_0["opr_bb"][:, :3])
-        trans_0 = rotate_vector(random_rotation, out_0["opr_bb"][:, 3])
         #
         batch_1 = copy.deepcopy(batch)
         batch_1.pos = batch_1.pos @ random_rotation.T
         batch_1.pos0 = batch_1.pos0 @ random_rotation.T
         batch_1.f_in = batch_1.f_in @ in_matrix.T
-        out_1 = self.forward(batch_1)[0]
+        out_1, X_1 = self.forward_for_develop(batch_1)
         r_1 = out_1["R"]
         #
         status = torch.allclose(r_0, r_1, rtol=1e-3, atol=1e-3)
         print("Equivariance test for", self.__class__.__name__, status)
-        if not status:
-            print(out_0["R"][0])
-            print(r_0[0])
-            print(r_1[0])
-            print("-----------------------")
-            print(out_0["opr_bb"][0])
-            print(rot_0[0])
-            print(trans_0[0])
-            print(out_1["opr_bb"][0])
-            raise ValueError("Could NOT pass equivariance test!")
+        if status:
+            return
+        #
+        D_from_matrix = {
+            "initialization_module": self.initialization_module.out_Irreps.D_from_matrix(
+                random_rotation
+            ),
+            "feature_extraction_module": self.feature_extraction_module.out_Irreps.D_from_matrix(
+                random_rotation
+            ),
+            "transition_module": self.transition_module.out_Irreps.D_from_matrix(
+                random_rotation
+            ),
+            "backbone_module": self.backbone_module.out_Irreps.D_from_matrix(
+                random_rotation
+            ),
+            "sidechain_module": self.sidechain_module.out_Irreps.D_from_matrix(
+                random_rotation
+            ),
+        }
+        #
+        # test each step
+        for module_name, matrix in D_from_matrix.items():
+            for k, (x0, x1) in enumerate(zip(X_0[module_name], X_1[module_name])):
+                y0 = x0 @ matrix.T
+                status = torch.allclose(y0, x1, rtol=1e-3, atol=1e-3)
+                print(
+                    f"Equivariance test for model.{module_name}, iteration={k}, {status}"
+                )
+        #
+        # opr_bb
+        for k, (r0, r1) in enumerate(zip(X_0["opr_bb"], X_1["opr_bb"])):
+            rot0 = rotate_matrix(random_rotation, r0[:, :3])
+            rot1 = r1[:, :3]
+            status = torch.allclose(rot0, rot1, rtol=1e-3, atol=1e-3)
+            print(
+                f"Equivariance test for model.opr_bb.rotation, iteration={k}, {status}"
+            )
+            tr0 = rotate_vector(random_rotation, r0[:, 3])
+            tr1 = r1[:, 3]
+            status = torch.allclose(tr0, tr1, rtol=1e-3, atol=1e-3)
+            print(
+                f"Equivariance test for model.opr_bb.translation, iteration={k}, {status}"
+            )
+
+        # R
+        for k, (r0, r1) in enumerate(zip(X_0["R"], X_1["R"])):
+            _r0 = rotate_vector(random_rotation, r0)
+            status = torch.allclose(_r0, r1, rtol=1e-3, atol=1e-3)
+            print(f"Equivariance test for model.R, iteration={k}, {status}")
+        #
+        sys.exit("Could NOT pass equivariance test!")
 
 
 def rotate_matrix(R, X):
