@@ -147,7 +147,7 @@ CONFIG["backbone"].update(
 CONFIG["sidechain"].update(
     {
         "layer_type": "Linear",
-        "num_layers": 2,
+        "num_layers": 4,
         "in_Irreps": "40x0e + 10x1o",
         "out_Irreps": f"{MAX_TORSION*2:d}x0e",
         "mid_Irreps": "20x0e + 4x1o",
@@ -396,7 +396,7 @@ class FeatureExtractionModule(BaseModule):
         feat = torch.cat(
             [
                 f_in,
-                ret["bb"][:, :2].view(n_residue, -1),
+                ret["bb"][:, :, :2].view(n_residue, -1),
                 ret["bb"][:, -1],
             ],
             dim=1,
@@ -564,7 +564,7 @@ class SidechainModule(BaseModule):
         feat = torch.cat(
             [
                 feat,
-                bb[:, :2].view(n_residue, -1),
+                bb[:, :, :2].view(n_residue, -1),
                 bb[:, -1],
             ],
             dim=1,

@@ -20,6 +20,7 @@ import libmodel
 
 
 IS_DEVELOP = True
+N_PROC = int(os.getenv("N_PROC", "8"))
 
 
 class Model(pl.LightningModule):
@@ -194,7 +195,7 @@ def main():
         pdblist_test = pdb_dir / "pdblist"
         pdblist_val = pdb_dir / "pdblist"
         pin_memory = True
-        batch_size = 1
+        batch_size = 2
     #
     cg_model = functools.partial(ResidueBasedModel, center_of_mass=True)
     _PDBset = functools.partial(
@@ -202,43 +203,40 @@ def main():
         cg_model=cg_model,
         noise_level=0.0,
         get_structure_information=True,
-        random_rotation=False,
+        random_rotation=True,
     )
     #
-    train_set = _PDBset(pdb_dir, pdblist_train)
-    train_loader = torch_geometric.loader.DataLoader(
-        train_set,
+    _DataLoader = functools.partial(
+        torch_geometric.loader.DataLoader,
         batch_size=batch_size,
-        shuffle=True,
-        num_workers=8,
+        num_workers=N_PROC,
         pin_memory=pin_memory,
+    )
+    train_set = _PDBset(pdb_dir, pdblist_train)
+    train_loader = _DataLoader(
+        train_set,
+        shuffle=True,
     )
     val_set = _PDBset(pdb_dir, pdblist_val)
     val_loader = torch_geometric.loader.DataLoader(
         val_set,
-        batch_size=batch_size,
         shuffle=False,
-        num_workers=8,
-        pin_memory=pin_memory,
     )
     test_set = _PDBset(pdb_dir, pdblist_test)
     test_loader = torch_geometric.loader.DataLoader(
         test_set,
-        batch_size=batch_size,
         shuffle=False,
-        num_workers=8,
-        pin_memory=pin_memory,
     )
     #
     config = copy.deepcopy(libmodel.CONFIG)
     config.update_from_flattened_dict(
         {
-            "globals.num_recycle": 1,
+            "globals.num_recycle": 2,
             "feature_extraction.layer_type": "SE3Transformer",
-            "feature_extraction.num_layers": 2,
-            "initialization.num_layers": 2,
-            "transition.num_layers": 2,
-            "backbone.num_layers": 2,
+            "feature_extraction.num_layers": 4,
+            "initialization.num_layers": 4,
+            "transition.num_layers": 4,
+            "backbone.num_layers": 4,
             #
             "globals.loss_weight.rigid_body": 1.0,
             "globals.loss_weight.FAPE_CA": 5.0,
