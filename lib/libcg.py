@@ -4,6 +4,7 @@
 import mdtraj
 import numpy as np
 from libpdb import PDB
+from sklearn.decomposition import PCA
 from numpy_basics import v_size, v_norm, inner_product, torsion_angle
 from residue_constants import MAX_RESIDUE_TYPE, AMINO_ACID_s
 
@@ -49,10 +50,14 @@ class ResidueBasedModel(PDB):
             traj = mdtraj.Trajectory(xyz, self.top_cg)
             traj.save(dcd_fn)
 
-    def get_local_geometry(self, r):
+    def get_geometry(self, r):
         not_defined = self.continuous == 0.0
         geom_s = {}
         #
+        # pca
+        pca = PCA(2).fit(r.reshape(-1, 3))
+        geom_s["pca"] = pca.components_
+
         # bond vectors
         geom_s["bond_length"] = {}
         geom_s["bond_vector"] = {}
@@ -108,8 +113,7 @@ class Martini(PDB):
 
 def main():
     pdb = ResidueBasedModel("pdb.processed/1HEO.pdb")
-    print(pdb.residue_index[14])
-    print(AMINO_ACID_s[pdb.residue_index[14]])
+    pdb.get_geometry(pdb.R_cg[0])
 
 
 if __name__ == "__main__":

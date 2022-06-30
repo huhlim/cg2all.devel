@@ -195,7 +195,7 @@ def main():
         pdblist_test = pdb_dir / "pdblist"
         pdblist_val = pdb_dir / "pdblist"
         pin_memory = True
-        batch_size = 2
+        batch_size = 1
     #
     cg_model = functools.partial(ResidueBasedModel, center_of_mass=True)
     _PDBset = functools.partial(
@@ -233,10 +233,10 @@ def main():
         {
             "globals.num_recycle": 2,
             "feature_extraction.layer_type": "SE3Transformer",
-            "feature_extraction.num_layers": 4,
-            "initialization.num_layers": 4,
-            "transition.num_layers": 4,
-            "backbone.num_layers": 4,
+            "feature_extraction.num_layers": 1,
+            "initialization.num_layers": 1,
+            "transition.num_layers": 1,
+            "backbone.num_layers": 1,
             #
             "globals.loss_weight.rigid_body": 1.0,
             "globals.loss_weight.FAPE_CA": 5.0,
@@ -257,12 +257,14 @@ def main():
             [
                 config.initialization.out_Irreps,
                 config.backbone.out_Irreps,
+                # "1x1o",
             ]
         )
         sidechain_in_Irreps = " + ".join(
             [
                 config.transition.out_Irreps,
                 config.backbone.out_Irreps,
+                # "1x1o",
             ]
         )
     else:
@@ -276,11 +278,11 @@ def main():
         }
     )
     #
-    model = Model(config, compute_loss=True, checkpoint=True, memcheck=True)
+    model = Model(config, compute_loss=False, checkpoint=True, memcheck=True)
     if IS_DEVELOP:
         trainer = pl.Trainer(
             max_epochs=100,
-            accelerator="gpu",
+            accelerator="auto",
             gradient_clip_val=1.0,
             check_val_every_n_epoch=10,
             #        overfit_batches=5,
@@ -289,7 +291,7 @@ def main():
     else:
         trainer = pl.Trainer(
             max_epochs=100,
-            accelerator="gpu",
+            accelerator="auto",
             gradient_clip_val=1.0,
             check_val_every_n_epoch=1,
         )

@@ -88,7 +88,7 @@ class PDBset(torch_geometric.data.Dataset):
         else:
             noise_size = 0.0
         #
-        geom_s = cg.get_local_geometry(r_cg)
+        geom_s = cg.get_geometry(r_cg)
         #
         data = torch_geometric.data.Data(
             pos=torch.as_tensor(r_cg[cg.atom_mask_cg == 1.0], dtype=DTYPE)
@@ -147,6 +147,9 @@ class PDBset(torch_geometric.data.Dataset):
             data.f_in = self.transform(f_in)
         else:
             data.f_in = f_in
+        #
+        global_frame = torch.as_tensor(geom_s["pca"], dtype=DTYPE).reshape(-1)
+        data.global_frame = global_frame.repeat(cg.n_residue, 1)
         #
         data.chain_index = torch.as_tensor(cg.chain_index, dtype=int)
         data.residue_type = torch.as_tensor(cg.residue_index, dtype=int)
@@ -255,10 +258,10 @@ def test():
         train_set, batch_size=5, shuffle=True, num_workers=1
     )
     batch = next(iter(train_loader))
-    for batch in train_loader:
-        traj_s = create_trajectory_from_batch(
-            batch, batch.output_xyz, write_native=True
-        )
+    # for batch in train_loader:
+    #     traj_s = create_trajectory_from_batch(
+    #         batch, batch.output_xyz, write_native=True
+    #     )
 
 
 if __name__ == "__main__":
