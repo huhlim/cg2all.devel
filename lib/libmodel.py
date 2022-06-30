@@ -397,7 +397,7 @@ class FeatureExtractionModule(BaseModule):
         feat = torch.cat(
             [
                 f_in,
-                ret["bb"][:, :3].mT[:, :2].reshape(n_residue, -1),
+                #ret["bb"][:, :3].mT[:, :2].reshape(n_residue, -1),
                 ret["bb"][:, -1],
             ],
             dim=1,
@@ -572,7 +572,7 @@ class SidechainModule(BaseModule):
         feat = torch.cat(
             [
                 feat,
-                bb[:, :3].mT[:, :2].reshape(n_residue, -1),
+                #bb[:, :3].mT[:, :2].reshape(n_residue, -1),
                 bb[:, -1],
             ],
             dim=1,
