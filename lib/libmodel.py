@@ -17,6 +17,7 @@ from e3nn import o3
 import liblayer
 import libnorm
 from residue_constants import (
+    MAX_RESIDUE_TYPE,
     MAX_TORSION,
     MAX_RIGID,
     rigid_transforms_tensor,
@@ -25,7 +26,6 @@ from residue_constants import (
     rigid_groups_dep,
 )
 from libloss import (
-    v_norm,
     v_norm_safe,
     inner_product,
     loss_f_rigid_body,
@@ -64,7 +64,6 @@ CONFIG["globals"]["loss_weight"].update(
 
 # the base config for using ConvLayer or SE3Transformer
 CONFIG_BASE = ConfigDict()
-CONFIG_BASE = {}
 CONFIG_BASE["layer_type"] = "ConvLayer"
 CONFIG_BASE["num_layers"] = 4
 CONFIG_BASE["in_Irreps"] = "40x0e + 10x1o"
@@ -77,6 +76,7 @@ CONFIG_BASE["activation"] = None
 CONFIG_BASE["radius"] = 0.8
 CONFIG_BASE["norm"] = [False, False, False]
 CONFIG_BASE["skip_connection"] = True
+CONFIG_BASE["preprocess"] = [False, True]  # rotation / translation
 CONFIG_BASE["loss_weight"] = ConfigDict()
 
 CONFIG["initialization"] = copy.deepcopy(CONFIG_BASE)
@@ -85,11 +85,15 @@ CONFIG["transition"] = copy.deepcopy(CONFIG_BASE)
 CONFIG["backbone"] = copy.deepcopy(CONFIG_BASE)
 CONFIG["sidechain"] = copy.deepcopy(CONFIG_BASE)
 
+CONFIG["embedding"] = ConfigDict()
+CONFIG["embedding"]["num_embeddings"] = MAX_RESIDUE_TYPE
+CONFIG["embedding"]["embedding_dim"] = 40
+
 CONFIG["initialization"].update(
     {
         "layer_type": "Linear",
         "num_layers": 4,
-        "in_Irreps": "38x0e + 4x1o",
+        "in_Irreps": "16x0e + 4x1o",
         "out_Irreps": "40x0e + 10x1o",
         "mid_Irreps": "40x0e + 10x1o",
         "activation": "relu",
@@ -163,6 +167,43 @@ def _get_gpu_mem():
     )
 
 
+def set_model_config(arg: dict) -> ConfigDict:
+    config = copy.deepcopy(CONFIG)
+    config.update_from_flattened_dict(arg)
+    #
+    initialization_in_Irreps = " + ".join(
+        [f"{config.embedding.embedding_dim:d}x0e", config.initialization.in_Irreps]
+    )
+    feature_extraction_in_Irreps = config.initialization.out_Irreps
+    sidechain_in_Irreps = config.transition.out_Irreps
+    if config.globals.num_recycle > 1:
+        for i, irreps in enumerate(["2x1o", "1x1o"]):
+            if config.feature_extraction.preprocess[i]:
+                feature_extraction_in_Irreps += f" + {irreps}"
+            if config.sidechain.preprocess[i]:
+                sidechain_in_Irreps += " + 2x1o"
+    #
+    config.update_from_flattened_dict(
+        {
+            "initialization.in_Irreps": initialization_in_Irreps,
+            "feature_extraction.in_Irreps": feature_extraction_in_Irreps,
+            "sidechain.in_Irreps": sidechain_in_Irreps,
+        }
+    )
+    #
+    return config
+
+
+class EmbeddingModule(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        #
+        self.layer = nn.Embedding(config.num_embeddings, config.embedding_dim)
+
+    def forward(self, batch):
+        return self.layer(batch.residue_type)
+
+
 class BaseModule(nn.Module):
     def __init__(self, config, compute_loss=False, checkpoint=False, num_recycle=1):
         super().__init__()
@@ -170,11 +211,12 @@ class BaseModule(nn.Module):
         self.compute_loss = compute_loss
         self.checkpoint = checkpoint
         self.loss_weight = config.loss_weight
+        self.preprocess = config.preprocess
         self.num_recycle = num_recycle
         #
-        self.in_Irreps = o3.Irreps(config.in_Irreps)
-        self.mid_Irreps = o3.Irreps(config.mid_Irreps)
-        self.out_Irreps = o3.Irreps(config.out_Irreps)
+        self.in_Irreps = o3.Irreps(config.in_Irreps).simplify()
+        self.mid_Irreps = o3.Irreps(config.mid_Irreps).simplify()
+        self.out_Irreps = o3.Irreps(config.out_Irreps).simplify()
         if config.activation is None:
             self.activation = None
         elif config.activation == "relu":
@@ -369,6 +411,45 @@ class InitializationModule(BaseModule):
             num_recycle=num_recycle,
         )
 
+    def preprocess_feat(self, f_in, embedding):
+        return torch.cat([embedding, f_in], dim=1)
+
+    def forward(self, batch, f_in, embedding):
+        feat = self.preprocess_feat(f_in, embedding)
+        output = super().forward(batch, feat)
+        return output
+
+    def test_equivariance(self, random_rotation, batch0, feat, *arg):
+        device = feat.device
+        feat = self.preprocess_feat(feat, *arg)
+        #
+        in_matrix = self.in_Irreps.D_from_matrix(random_rotation)
+        out_matrix = self.out_Irreps.D_from_matrix(random_rotation)
+        #
+        random_rotation = random_rotation.to(device)
+        in_matrix = in_matrix.to(device)
+        out_matrix = out_matrix.to(device)
+        #
+        batch = copy.deepcopy(batch0)
+        output = super().forward(batch, feat)
+        output_0 = output.clone() @ out_matrix.T
+        #
+        batch.pos = batch.pos @ random_rotation.T
+        batch.pos0 = batch.pos0 @ random_rotation.T
+        batch.global_frame = rotate_vector(
+            random_rotation, batch.global_frame.reshape(-1, 2, 3)
+        ).reshape(-1, 6)
+        feat = feat @ in_matrix.T
+        output_1 = super().forward(batch, feat)
+        #
+        status = torch.allclose(output_0, output_1, rtol=1e-3, atol=1e-3)
+        logging.debug("Equivariance test for", self.__class__.__name__, status)
+        if not status:
+            logging.debug(output_0[0])
+            logging.debug(output_1[0])
+            sys.exit("Could NOT pass equivariance test!")
+        return output
+
 
 class TransitionModule(BaseModule):
     def __init__(self, config, compute_loss=False, checkpoint=False, num_recycle=1):
@@ -394,14 +475,12 @@ class FeatureExtractionModule(BaseModule):
             return f_in
         #
         n_residue = f_in.size(0)
-        feat = torch.cat(
-            [
-                f_in,
-                #ret["bb"][:, :3].mT[:, :2].reshape(n_residue, -1),
-                ret["bb"][:, -1],
-            ],
-            dim=1,
-        )
+        feat = [f_in]
+        if self.preprocess[0]:
+            feat.append(ret["bb"][:, :3].mT[:, :2].reshape(n_residue, -1))
+        if self.preprocess[1]:
+            feat.append(ret["bb"][:, -1])
+        feat = torch.cat(feat, dim=1)
         return feat
 
     def forward(self, batch, f_in, ret):
@@ -564,19 +643,17 @@ class SidechainModule(BaseModule):
             num_recycle=num_recycle,
         )
 
-    def preprocess_feat(self, feat, bb):
+    def preprocess_feat(self, f_in, bb):
         if self.num_recycle < 2:
-            return feat
+            return f_in
         #
-        n_residue = feat.size(0)
-        feat = torch.cat(
-            [
-                feat,
-                #bb[:, :3].mT[:, :2].reshape(n_residue, -1),
-                bb[:, -1],
-            ],
-            dim=1,
-        )
+        n_residue = f_in.size(0)
+        feat = [f_in]
+        if self.preprocess[0]:
+            feat.append(bb[:, :3].mT[:, :2].reshape(n_residue, -1))
+        if self.preprocess[1]:
+            feat.append(bb[:, -1])
+        feat = torch.cat(feat, dim=1)
         return feat
 
     def forward(self, batch, feat, bb):
@@ -644,6 +721,7 @@ class Model(nn.Module):
         self.num_recycle = _config.globals.num_recycle
         self.loss_weight = _config.globals.loss_weight
         #
+        self.embedding_module = EmbeddingModule(_config.embedding)
         self.initialization_module = InitializationModule(
             _config.initialization,
             compute_loss=False,
@@ -675,60 +753,34 @@ class Model(nn.Module):
             num_recycle=self.num_recycle,
         )
 
-    def forward(self, batch, return_intermediates=False):
+    def forward(self, batch):
         n_residue = batch.pos.size(0)
         device = batch.pos.device
         #
         loss = {}
-        if return_intermediates:
-            intermediates = {}
-            intermediates["initialization_module"] = []
-            intermediates["feature_extraction_module"] = []
-            intermediates["transition_module"] = []
-            intermediates["backbone_module"] = []
-            intermediates["sidechain_module"] = []
-            intermediates["R"] = []
-            intermediates["opr_bb"] = []
-            intermediates["bb"] = []
-        #
         ret = {}
         ret["bb"] = self.backbone_module.init_value(batch).to(device)
         #
-        # 38x0e + 4x1o --> 40x0e + 10x1o
-        f_in = self.initialization_module(batch, batch.f_in)
-        if return_intermediates:
-            intermediates["initialization_module"].append(f_in.clone())
+        # residue_type --> embedding
+        embedding = self.embedding_module(batch)
+        #
+        # 16x0e + 4x1o --> 40x0e + 10x1o
+        f_in = self.initialization_module(batch, batch.f_in, embedding)
         #
         for k in range(self.num_recycle):
             # 40x0e + 10x1o --> 40x0e + 10x1o
             f_out = self.feature_extraction_module(batch, f_in, ret)
-            if return_intermediates:
-                intermediates["feature_extraction_module"].append(f_out.clone())
             #
             # 40x0e + 10x1o --> 40x0e + 10x1o
             f_out = self.transition_module(batch, f_out)
-            if return_intermediates:
-                intermediates["transition_module"].append(f_out.clone())
             #
             # 40x0e + 10x1o --> 4x0e + 1x1o
             bb = self.backbone_module(batch, f_out)
             ret["bb"] = self.backbone_module.compose(ret["bb"], bb)
-            if return_intermediates:
-                intermediates["backbone_module"].append(bb.clone())
-                intermediates["bb"].append(ret["bb"].clone())
             #
             # 40x0e + 10x1o --> 14x0e
             sc = self.sidechain_module(batch, f_out, ret["bb"])
             ret["sc"] = self.sidechain_module.compose(sc)
-            if return_intermediates:
-                intermediates["sidechain_module"].append(sc.clone())
-            #
-            if return_intermediates:
-                ret["R"], ret["opr_bb"] = build_structure(
-                    batch, ret["bb"], sc=ret["sc"]
-                )
-                intermediates["R"].append(ret["R"].clone())
-                intermediates["opr_bb"].append(ret["opr_bb"].clone())
             #
             if self.compute_loss or self.training:
                 loss["bb"] = self.backbone_module.loss_f(
@@ -752,15 +804,13 @@ class Model(nn.Module):
 
         metrics = self.calc_metrics(batch, ret)
         #
-        if return_intermediates:
-            return ret, loss, metrics, intermediates
-        else:
-            return ret, loss, metrics
+        return ret, loss, metrics
 
     def forward_for_develop(self, batch):
         device = batch.pos.device
         #
         intermediates = {}
+        intermediates["embedding_module"] = []
         intermediates["initialization_module"] = []
         intermediates["feature_extraction_module"] = []
         intermediates["transition_module"] = []
@@ -773,8 +823,12 @@ class Model(nn.Module):
         ret = {}
         ret["bb"] = self.backbone_module.init_value(batch).to(device)
         #
+        # residue_type --> embedding
+        embedding = self.embedding_module(batch)
+        intermediates["embedding_module"].append(embedding.clone())
+        #
         # 38x0e + 4x1o --> 40x0e + 10x1o
-        f_in = self.initialization_module(batch, batch.f_in)
+        f_in = self.initialization_module(batch, batch.f_in, embedding)
         intermediates["initialization_module"].append(f_in.clone())
         #
         for k in range(self.num_recycle):
@@ -864,8 +918,10 @@ class Model(nn.Module):
         ret["bb"] = self.backbone_module.init_value(batch).to(device)
         #
         # sub-modules
+        embedding = self.embedding_module(batch)
+        #
         x = self.initialization_module.test_equivariance(
-            random_rotation, batch, batch.f_in
+            random_rotation, batch, batch.f_in, embedding
         )
         x = self.feature_extraction_module.test_equivariance(
             random_rotation, batch, x, ret
@@ -880,9 +936,10 @@ class Model(nn.Module):
         )
         ret["sc"] = self.sidechain_module.compose(sc)
 
-        in_matrix = self.initialization_module.in_Irreps.D_from_matrix(
-            random_rotation
-        ).to(device)
+        # rotation matrices
+        in_matrix = (
+            o3.Irreps(batch.f_in_Irreps[0]).D_from_matrix(random_rotation).to(device)
+        )
         random_rotation = random_rotation.to(device)
         #
         # the whole model
