@@ -19,7 +19,7 @@ from libcg import ResidueBasedModel
 import libmodel
 
 
-IS_DEVELOP = False
+IS_DEVELOP = True
 N_PROC = int(os.getenv("OMP_NUM_THREADS", "8"))
 
 
@@ -228,12 +228,12 @@ def main():
         shuffle=True,
     )
     val_set = _PDBset(pdb_dir, pdblist_val)
-    val_loader = torch_geometric.loader.DataLoader(
+    val_loader = _DataLoader(
         val_set,
         shuffle=False,
     )
     test_set = _PDBset(pdb_dir, pdblist_test)
-    test_loader = torch_geometric.loader.DataLoader(
+    test_loader = _DataLoader(
         test_set,
         shuffle=False,
     )
