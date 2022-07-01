@@ -2,7 +2,7 @@
 
 import os
 import sys
-import copy
+import json
 import pathlib
 import functools
 import subprocess as sp
@@ -172,6 +172,14 @@ class Model(pl.LightningModule):
 
 
 def main():
+    if len(sys.argv) > 1:
+        json_fn = sys.argv[1]
+        with open(json_fn) as f:
+            config = json.load(f)
+    else:
+        config = {}
+    config = libmodel.set_model_config(config)
+    #
     if IS_DEVELOP:
         pl.seed_everything(25, workers=True)
     #
@@ -228,8 +236,6 @@ def main():
         shuffle=False,
     )
     #
-    config = {}
-    config = libmodel.set_model_config(config)
     model = Model(config, compute_loss=True, checkpoint=True, memcheck=True)
     #
     if IS_DEVELOP:
