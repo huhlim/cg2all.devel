@@ -16,6 +16,9 @@ from libdata import PDBset
 from libcg import ResidueBasedModel
 
 
+N_PROC = int(os.getenv("OMP_NUM_THREADS", "8"))
+
+
 def main():
     base_dir = pathlib.Path("./")
     pdb_dir = base_dir / "pdb.pisces"
@@ -29,16 +32,20 @@ def main():
         cg_model=cg_model,
         noise_level=0.0,
         get_structure_information=True,
-        cached=False,
+        normalize=False,
     )
     #
     batch_size = 16
     train_set = _PDBset(pdb_dir, pdblist_train)
     train_loader = torch_geometric.loader.DataLoader(
-        train_set, batch_size=batch_size, shuffle=True, num_workers=8
+        train_set,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=N_PROC,
     )
     f_in = []
     for data in tqdm.tqdm(train_loader):
+        print(data.f_in.shape)
         f_in.append(data.f_in)
     f_in = torch.cat(f_in, dim=0).numpy()
     mean = f_in.mean(axis=0)

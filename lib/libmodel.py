@@ -177,18 +177,22 @@ def set_model_config(arg: dict) -> ConfigDict:
         [f"{config.embedding.embedding_dim:d}x0e", config.initialization.in_Irreps]
     )
     feature_extraction_in_Irreps = config.initialization.out_Irreps
+    transition_in_Irreps = config.feature_extraction.out_Irreps
+    backbone_in_Irreps = config.transition.out_Irreps
     sidechain_in_Irreps = config.transition.out_Irreps
     if config.globals.num_recycle > 1:
         for i, irreps in enumerate(["2x1o", "1x1o"]):
             if config.feature_extraction.preprocess[i]:
                 feature_extraction_in_Irreps += f" + {irreps}"
             if config.sidechain.preprocess[i]:
-                sidechain_in_Irreps += " + 2x1o"
+                sidechain_in_Irreps += f" + {irreps}"
     #
     config.update_from_flattened_dict(
         {
             "initialization.in_Irreps": initialization_in_Irreps,
             "feature_extraction.in_Irreps": feature_extraction_in_Irreps,
+            "transition.in_Irreps": transition_in_Irreps,
+            "backbone.in_Irreps": backbone_in_Irreps,
             "sidechain.in_Irreps": sidechain_in_Irreps,
         }
     )

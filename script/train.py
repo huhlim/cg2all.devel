@@ -19,8 +19,8 @@ from libcg import ResidueBasedModel
 import libmodel
 
 
-IS_DEVELOP = True
-N_PROC = int(os.getenv("N_PROC", "8"))
+IS_DEVELOP = False
+N_PROC = int(os.getenv("OMP_NUM_THREADS", "8"))
 
 
 class Model(pl.LightningModule):
@@ -61,7 +61,7 @@ class Model(pl.LightningModule):
             optimizer,
             [
                 torch.optim.lr_scheduler.LinearLR(optimizer, 0.1, 1.0, 10),
-                torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=1.0),
+                torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.99),
             ],
             [10],  # milestone
         )
@@ -174,15 +174,16 @@ class Model(pl.LightningModule):
 
 def main():
     if len(sys.argv) > 1:
-        json_fn = sys.argv[1]
+        json_fn = pathlib.Path(sys.argv[1])
         with open(json_fn) as f:
             config = json.load(f)
+        name = json_fn.stem
     else:
         config = {}
+        name = None
     config = libmodel.set_model_config(config)
     #
-    if IS_DEVELOP:
-        pl.seed_everything(25, workers=True)
+    pl.seed_everything(25, workers=True)
     #
     hostname = os.getenv("HOSTNAME", "local")
     if (
@@ -238,14 +239,15 @@ def main():
     )
     #
     model = Model(config, compute_loss=True, checkpoint=True, memcheck=True)
+    logger = pl.loggers.TensorBoardLogger("lightning_logs", name=name)
     #
     if IS_DEVELOP:
         trainer = pl.Trainer(
             max_epochs=100,
             accelerator="auto",
             gradient_clip_val=1.0,
-            check_val_every_n_epoch=10,
-            #        overfit_batches=5,
+            check_val_every_n_epoch=5,
+            logger=logger,
         )
         trainer.fit(model, train_loader, val_loader)
     else:
@@ -253,7 +255,9 @@ def main():
             max_epochs=100,
             accelerator="auto",
             gradient_clip_val=1.0,
+            overfit_batches=10,
             check_val_every_n_epoch=1,
+            logger=logger,
         )
         trainer.fit(model, train_loader, val_loader)
     trainer.test(model, test_loader)

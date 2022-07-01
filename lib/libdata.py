@@ -19,10 +19,15 @@ from residue_constants import AMINO_ACID_s, AMINO_ACID_REV_s, residue_s
 
 
 class Normalizer(object):
-    def __init__(self, mean, std, n_scalar=16):
-        self.mean = mean[22:]
-        self.std = std[22:]
-        #
+    def __init__(self, mean, std):
+        self.mean = mean
+        self.std = std
+        self._is_valid = False
+
+    def set_n_scalar(self, n_scalar):
+        if self._is_valid:
+            return
+        self._is_valid = True
         # apply only on scalar data
         self.mean[n_scalar:] = 0.0
         self.std[n_scalar:] = 1.0
@@ -41,6 +46,7 @@ class PDBset(torch_geometric.data.Dataset):
         noise_level=0.0,
         get_structure_information=False,
         random_rotation=False,
+        normalize=True,
     ):
         super().__init__()
         #
@@ -59,7 +65,7 @@ class PDBset(torch_geometric.data.Dataset):
         self.random_rotation = random_rotation
         #
         transform_npy_fn = basedir / "transform.npy"
-        if transform_npy_fn.exists():
+        if transform_npy_fn.exists() and normalize:
             self.transform = Normalizer(*np.load(transform_npy_fn))
         else:
             self.transform = None
@@ -106,9 +112,6 @@ class PDBset(torch_geometric.data.Dataset):
         # features for each residue
         f_in = [[], []]  # 0d, 1d
         # 0d
-        # one-hot encoding of residue type
-        cg_index = cg.bead_index[cg.atom_mask_cg == 1.0]
-        # f_in[0].append(np.eye(cg.max_bead_type)[cg_index])  # 22
         f_in[0].append(n_neigh)  # 1
         #
         f_in[0].append(geom_s["bond_length"][1][0][:, None])  # 4
@@ -126,8 +129,8 @@ class PDBset(torch_geometric.data.Dataset):
         #
         f_in[0] = torch.as_tensor(
             np.concatenate(f_in[0], axis=1), dtype=DTYPE
-        )  # 38x0e = 38
-        n_scalar = f_in[0].size(1)
+        )  # 16x0e = 16
+        n_scalar = f_in[0].size(1)  # 16
         #
         # 1d: unit vectors from adjacent residues to the current residue
         f_in[1].append(geom_s["bond_vector"][1][0])
@@ -137,7 +140,7 @@ class PDBset(torch_geometric.data.Dataset):
         f_in[1] = torch.as_tensor(
             np.concatenate(f_in[1], axis=1), dtype=DTYPE
         )  # 4x1o = 12
-        n_vector = int(f_in[1].size(1) // 3)
+        n_vector = int(f_in[1].size(1) // 3)  # 4
         #
         f_in = torch.cat(
             [
@@ -145,8 +148,9 @@ class PDBset(torch_geometric.data.Dataset):
                 f_in[1].reshape(f_in[1].shape[0], -1),
             ],
             dim=1,
-        )  # 38x0e + 12x1o = 50
+        )  # 16x0e + 4x1o = 28
         if self.transform:
+            self.transform.set_n_scalar(n_scalar)
             data.f_in = self.transform(f_in)
         else:
             data.f_in = f_in

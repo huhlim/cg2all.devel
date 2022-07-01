@@ -5,3 +5,4 @@ pdb/r0.*
 pdb.pisces/targets*
 pdb.pisces/*.pdb
 lightning_logs
+logs
