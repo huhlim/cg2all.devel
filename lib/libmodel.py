@@ -53,18 +53,19 @@ CONFIG["globals"]["num_recycle"] = 1
 CONFIG["globals"]["loss_weight"] = ConfigDict()
 CONFIG["globals"]["loss_weight"].update(
     {
-        "rigid_body": 0.0,
-        "mse_R": 0.0,
-        "bonded_energy": 0.0,
+        "rigid_body": 1.0,
+        "FAPE_CA": 5.0,
+        "mse_R": 1.0,
+        "bonded_energy": 1.0,
         "distance_matrix": 0.0,
-        "rotation_matrix": 0.0,
-        "torsion_angle": 0.0,
+        "rotation_matrix": 1.0,
+        "torsion_angle": 1.0,
     }
 )
 
 # the base config for using ConvLayer or SE3Transformer
 CONFIG_BASE = ConfigDict()
-CONFIG_BASE["layer_type"] = "ConvLayer"
+CONFIG_BASE["layer_type"] = "SE3Transformer"
 CONFIG_BASE["num_layers"] = 4
 CONFIG_BASE["in_Irreps"] = "40x0e + 10x1o"
 CONFIG_BASE["out_Irreps"] = "40x0e + 10x1o"
@@ -139,6 +140,7 @@ CONFIG["backbone"].update(
         "norm": [False, True, False],
         "loss_weight": {
             "rigid_body": 0.0,
+            "FAPE_CA": 0.0,
             "bonded_energy": 0.0,
             "distance_matrix": 0.0,
             "rotation_matrix": 0.0,

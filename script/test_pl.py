@@ -228,26 +228,7 @@ def main():
         shuffle=False,
     )
     #
-    config = {
-        "globals.num_recycle": 1,
-        "feature_extraction.layer_type": "SE3Transformer",
-        "feature_extraction.num_layers": 4,
-        "initialization.num_layers": 4,
-        "transition.num_layers": 4,
-        "backbone.num_layers": 4,
-        #
-        "globals.loss_weight.rigid_body": 1.0,
-        "globals.loss_weight.FAPE_CA": 5.0,
-        "globals.loss_weight.bonded_energy": 1.0,
-        "globals.loss_weight.rotation_matrix": 1.0,
-        "globals.loss_weight.torsion_angle": 1.0,
-        #
-        # "backbone.loss_weight.rigid_body": 0.5,
-        # "backbone.loss_weight.FAPE_CA": 2.5,
-        # "backbone.loss_weight.bonded_energy": 0.5,
-        # "backbone.loss_weight.rotation_matrix": 0.5,
-        # "sidechain.loss_weight.torsion_angle": 0.5,
-    }
+    config = {}
     config = libmodel.set_model_config(config)
     model = Model(config, compute_loss=True, checkpoint=True, memcheck=True)
     #
