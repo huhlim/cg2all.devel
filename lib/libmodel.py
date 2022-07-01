@@ -793,7 +793,7 @@ class Model(nn.Module):
                     stop_grad=(k + 1 < self.num_recycle),
                 )
                 loss["sc"] = self.sidechain_module.loss_f(
-                    batch, ret["sc"], sc, loss.get("sc", {})
+                    batch, ret["sc"], None, loss.get("sc", {})
                 )
 
         ret["R"], ret["opr_bb"] = build_structure(batch, ret["bb"], sc=ret["sc"])

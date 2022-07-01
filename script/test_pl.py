@@ -137,7 +137,8 @@ class Model(pl.LightningModule):
         log_dir = pathlib.Path(self.logger.log_dir)
         #
         if self.current_epoch == 0 and batch_idx == 0:
-            self.model.test_equivariance(batch)
+            if IS_DEVELOP:
+                self.model.test_equivariance(batch)
             #
             sp.call(["cp", "lib/libmodel.py", log_dir])
             sp.call(["cp", __file__, log_dir])
