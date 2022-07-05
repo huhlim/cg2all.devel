@@ -18,6 +18,7 @@ sys.path.insert(0, "lib")
 from libdata import PDBset, create_trajectory_from_batch
 from libcg import ResidueBasedModel
 import libmodel
+from libconfig import USE_EQUIVARIANCE_TEST
 
 
 N_PROC = int(os.getenv("OMP_NUM_THREADS", "8"))
@@ -39,9 +40,6 @@ class Model(pl.LightningModule):
     def forward(self, batch: torch_geometric.data.Batch):
         return self.model.forward(batch)
 
-    def backward(self, loss, optimizer, optimizer_idx):
-        loss.backward()
-
     def on_train_batch_start(self, batch, batch_idx):
         if self.device.type == "cuda":
             torch.cuda.empty_cache()
@@ -60,7 +58,6 @@ class Model(pl.LightningModule):
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=0.01)
-        # return optimizer
         lr_scheduler = torch.optim.lr_scheduler.SequentialLR(
             optimizer,
             [
@@ -142,7 +139,8 @@ class Model(pl.LightningModule):
         #
         if self.current_epoch == 0 and batch_idx == 0:
             if IS_DEVELOP:
-                self.model.test_equivariance(batch)
+                if USE_EQUIVARIANCE_TEST:
+                    self.model.test_equivariance(batch)
                 #
                 sp.call(["cp", "lib/libmodel.py", log_dir])
                 sp.call(["cp", __file__, log_dir])

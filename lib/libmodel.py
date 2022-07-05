@@ -37,6 +37,7 @@ from libloss import (
     loss_f_bonded_energy,
 )
 from libmetric import rmsd_CA, rmsd_rigid, rmsd_all, bonded_energy
+from libconfig import EQUIVARIANT_TOLERANCE
 
 RIGID_TRANSFORMS_TENSOR = torch.tensor(rigid_transforms_tensor)
 RIGID_TRANSFORMS_DEP = torch.tensor(rigid_transforms_dep, dtype=torch.long)
@@ -77,7 +78,8 @@ CONFIG_BASE["activation"] = None
 CONFIG_BASE["radius"] = 0.8
 CONFIG_BASE["norm"] = [False, False, False]
 CONFIG_BASE["skip_connection"] = True
-CONFIG_BASE["preprocess"] = [False, True]  # rotation / translation
+CONFIG_BASE["preprocess"] = [False, False]  # rotation / translation
+# CONFIG_BASE["preprocess"] = [False, True]  # rotation / translation
 CONFIG_BASE["loss_weight"] = ConfigDict()
 
 CONFIG["initialization"] = copy.deepcopy(CONFIG_BASE)
@@ -200,6 +202,12 @@ def set_model_config(arg: dict) -> ConfigDict:
     return config
 
 
+gradient_checkpoint = functools.partial(
+    torch.utils.checkpoint.checkpoint,
+    use_reentrant=True,
+)
+
+
 class EmbeddingModule(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -295,7 +303,7 @@ class BaseModule(nn.Module):
 
     def forward_graph(self, batch, feat):
         if self.training and self.checkpoint:
-            feat, graph = torch.utils.checkpoint.checkpoint(self.layer_0, batch, feat)
+            feat, graph = gradient_checkpoint(self.layer_0, batch, feat)
         else:
             feat, graph = self.layer_0(batch, feat)
         radius_prev = self.layer_0.radius
@@ -309,14 +317,12 @@ class BaseModule(nn.Module):
             #
             if layer.radius == radius_prev:
                 if self.training and self.checkpoint:
-                    feat, graph = torch.utils.checkpoint.checkpoint(
-                        layer, batch, feat, graph
-                    )
+                    feat, graph = gradient_checkpoint(layer, batch, feat, graph)
                 else:
                     feat, graph = layer(batch, feat, graph)
             else:
                 if self.training and self.checkpoint:
-                    feat, graph = torch.utils.checkpoint.checkpoint(layerbatch, feat)
+                    feat, graph = gradient_checkpoint(layer, batch, feat)
                 else:
                     feat, graph = layer(batch, feat)
             radius_prev = layer.radius
@@ -328,16 +334,14 @@ class BaseModule(nn.Module):
             feat = self.norm_1(feat)
         #
         if self.training and self.checkpoint:
-            feat_out, graph = torch.utils.checkpoint.checkpoint(
-                self.layer_1, batch, feat
-            )
+            feat_out, graph = gradient_checkpoint(self.layer_1, batch, feat)
         else:
             feat_out, graph = self.layer_1(batch, feat)
         return feat_out
 
     def forward_linear(self, feat):
         if self.training and self.checkpoint:
-            feat = torch.utils.checkpoint.checkpoint(self.layer_0, feat)
+            feat = gradient_checkpoint(self.layer_0, feat)
         else:
             feat = self.layer_0(feat)
         if self.activation is not None:
@@ -351,7 +355,7 @@ class BaseModule(nn.Module):
                 feat = self.norm_1(feat)
             #
             if self.training and self.checkpoint:
-                feat = torch.utils.checkpoint.checkpoint(layer, feat)
+                feat = gradient_checkpoint(layer, feat)
             else:
                 feat = layer(feat)
             #
@@ -365,7 +369,7 @@ class BaseModule(nn.Module):
             feat = self.norm_1(feat)
         #
         if self.training and self.checkpoint:
-            feat_out = torch.utils.checkpoint.checkpoint(self.layer_1, feat)
+            feat_out = gradient_checkpoint(self.layer_1, feat)
         else:
             feat_out = self.layer_1(feat)
         return feat_out
@@ -399,7 +403,9 @@ class BaseModule(nn.Module):
         feat = feat @ in_matrix.T
         output_1 = self.forward(batch, feat)
         #
-        status = torch.allclose(output_0, output_1, rtol=1e-3, atol=1e-3)
+        status = torch.allclose(
+            output_0, output_1, rtol=EQUIVARIANT_TOLERANCE, atol=EQUIVARIANT_TOLERANCE
+        )
         logging.debug(f"Equivariance test for {self.__class__.__name__} {status}")
         if not status:
             logging.debug(output_0[0])
@@ -448,7 +454,9 @@ class InitializationModule(BaseModule):
         feat = feat @ in_matrix.T
         output_1 = super().forward(batch, feat)
         #
-        status = torch.allclose(output_0, output_1, rtol=1e-3, atol=1e-3)
+        status = torch.allclose(
+            output_0, output_1, rtol=EQUIVARIANT_TOLERANCE, atol=EQUIVARIANT_TOLERANCE
+        )
         logging.debug(f"Equivariance test for {self.__class__.__name__} {status}")
         if not status:
             logging.debug(output_0[0])
@@ -517,7 +525,9 @@ class FeatureExtractionModule(BaseModule):
         feat = feat @ in_matrix.T
         output_1 = super().forward(batch, feat)
         #
-        status = torch.allclose(output_0, output_1, rtol=1e-3, atol=1e-3)
+        status = torch.allclose(
+            output_0, output_1, rtol=EQUIVARIANT_TOLERANCE, atol=EQUIVARIANT_TOLERANCE
+        )
         logging.debug(f"Equivariance test for {self.__class__.__name__} {status}")
         if not status:
             logging.debug(output_0[0])
@@ -625,8 +635,10 @@ class BackboneModule(BaseModule):
         bb_1 = self.output_to_opr(output_1)
         #
         status = torch.allclose(
-            output_0, output_1, rtol=1e-3, atol=1e-3
-        ) and torch.allclose(bb_0, bb_1, rtol=1e-3, atol=1e-3)
+            output_0, output_1, rtol=EQUIVARIANT_TOLERANCE, atol=EQUIVARIANT_TOLERANCE
+        ) and torch.allclose(
+            bb_0, bb_1, rtol=EQUIVARIANT_TOLERANCE, atol=EQUIVARIANT_TOLERANCE
+        )
         logging.debug(f"Equivariance test for {self.__class__.__name__} {status}")
         if not status:
             logging.debug(random_rotation)
@@ -695,7 +707,9 @@ class SidechainModule(BaseModule):
         feat = feat @ in_matrix.T
         output_1 = super().forward(batch, feat)
         #
-        status = torch.allclose(output_0, output_1, rtol=1e-3, atol=1e-3)
+        status = torch.allclose(
+            output_0, output_1, rtol=EQUIVARIANT_TOLERANCE, atol=EQUIVARIANT_TOLERANCE
+        )
         logging.debug(f"Equivariance test for {self.__class__.__name__} {status}")
         if not status:
             logging.debug(output_0[0])
@@ -970,7 +984,9 @@ class Model(nn.Module):
         out_1, X_1 = self.forward_for_develop(batch_1)
         r_1 = out_1["R"]
         #
-        status = torch.allclose(r_0, r_1, rtol=1e-3, atol=1e-3)
+        status = torch.allclose(
+            r_0, r_1, rtol=EQUIVARIANT_TOLERANCE, atol=EQUIVARIANT_TOLERANCE
+        )
         logging.debug(f"Equivariance test for {self.__class__.__name__} {status}")
         if status:
             return
@@ -1000,7 +1016,9 @@ class Model(nn.Module):
                     continue
                 x0 = X_0[module_name][k] @ matrix.T.to(device)
                 x1 = X_1[module_name][k]
-                status = torch.allclose(x0, x1, rtol=1e-3, atol=1e-3)
+                status = torch.allclose(
+                    x0, x1, rtol=EQUIVARIANT_TOLERANCE, atol=EQUIVARIANT_TOLERANCE
+                )
                 logging.debug(
                     f"Equivariance test for model.{module_name}, iteration={k}, {status}"
                 )
@@ -1009,13 +1027,17 @@ class Model(nn.Module):
         for k, (r0, r1) in enumerate(zip(X_0["opr_bb"], X_1["opr_bb"])):
             rot0 = rotate_matrix(random_rotation, r0[:, :3])
             rot1 = r1[:, :3]
-            status = torch.allclose(rot0, rot1, rtol=1e-3, atol=1e-3)
+            status = torch.allclose(
+                rot0, rot1, rtol=EQUIVARIANT_TOLERANCE, atol=EQUIVARIANT_TOLERANCE
+            )
             logging.debug(
                 f"Equivariance test for model.opr_bb.rotation, iteration={k}, {status}"
             )
             tr0 = rotate_vector(random_rotation, r0[:, 3])
             tr1 = r1[:, 3]
-            status = torch.allclose(tr0, tr1, rtol=1e-3, atol=1e-3)
+            status = torch.allclose(
+                tr0, tr1, rtol=EQUIVARIANT_TOLERANCE, atol=EQUIVARIANT_TOLERANCE
+            )
             logging.debug(
                 f"Equivariance test for model.opr_bb.translation, iteration={k}, {status}"
             )
@@ -1023,9 +1045,20 @@ class Model(nn.Module):
         # R
         for k, (r0, r1) in enumerate(zip(X_0["R"], X_1["R"])):
             _r0 = rotate_vector(random_rotation, r0)
-            status = torch.allclose(_r0, r1, rtol=1e-3, atol=1e-3)
+            status = torch.allclose(
+                _r0, r1, rtol=EQUIVARIANT_TOLERANCE, atol=EQUIVARIANT_TOLERANCE
+            )
             logging.debug(f"Equivariance test for model.R, iteration={k}, {status}")
         #
+        torch.save(
+            {
+                "X_0": X_0,
+                "X_1": X_1,
+                "random_rotation": random_rotation,
+                "D_from_matrix": D_from_matrix,
+            },
+            "equivariance_test.pt",
+        )
         sys.exit("Could NOT pass equivariance test!")
 
 
