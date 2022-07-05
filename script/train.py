@@ -3,6 +3,7 @@
 import os
 import sys
 import json
+import logging
 import pathlib
 import functools
 import subprocess as sp
@@ -19,8 +20,11 @@ from libcg import ResidueBasedModel
 import libmodel
 
 
-IS_DEVELOP = True
 N_PROC = int(os.getenv("OMP_NUM_THREADS", "8"))
+IS_DEVELOP = True
+if IS_DEVELOP:
+    logger = logging.getLogger()
+    logger.setLevel(logging.DEBUG)
 
 
 class Model(pl.LightningModule):
@@ -139,9 +143,9 @@ class Model(pl.LightningModule):
         if self.current_epoch == 0 and batch_idx == 0:
             if IS_DEVELOP:
                 self.model.test_equivariance(batch)
-            #
-            sp.call(["cp", "lib/libmodel.py", log_dir])
-            sp.call(["cp", __file__, log_dir])
+                #
+                sp.call(["cp", "lib/libmodel.py", log_dir])
+                sp.call(["cp", __file__, log_dir])
         #
         out, loss, metric = self.forward(batch)
         loss_sum, loss_s = self.get_loss_sum(loss)
@@ -181,6 +185,8 @@ def main():
     else:
         config = {}
         name = None
+    if IS_DEVELOP:
+        name = "devel"
     config = libmodel.set_model_config(config)
     #
     pl.seed_everything(25, workers=True)

@@ -49,7 +49,7 @@ RIGID_GROUPS_DEP[RIGID_GROUPS_DEP == -1] = MAX_RIGID - 1
 CONFIG = ConfigDict()
 
 CONFIG["globals"] = ConfigDict()
-CONFIG["globals"]["num_recycle"] = 1
+CONFIG["globals"]["num_recycle"] = 2
 CONFIG["globals"]["loss_weight"] = ConfigDict()
 CONFIG["globals"]["loss_weight"].update(
     {
@@ -400,7 +400,7 @@ class BaseModule(nn.Module):
         output_1 = self.forward(batch, feat)
         #
         status = torch.allclose(output_0, output_1, rtol=1e-3, atol=1e-3)
-        logging.debug("Equivariance test for", self.__class__.__name__, status)
+        logging.debug(f"Equivariance test for {self.__class__.__name__} {status}")
         if not status:
             logging.debug(output_0[0])
             logging.debug(output_1[0])
@@ -449,7 +449,7 @@ class InitializationModule(BaseModule):
         output_1 = super().forward(batch, feat)
         #
         status = torch.allclose(output_0, output_1, rtol=1e-3, atol=1e-3)
-        logging.debug("Equivariance test for", self.__class__.__name__, status)
+        logging.debug(f"Equivariance test for {self.__class__.__name__} {status}")
         if not status:
             logging.debug(output_0[0])
             logging.debug(output_1[0])
@@ -518,7 +518,7 @@ class FeatureExtractionModule(BaseModule):
         output_1 = super().forward(batch, feat)
         #
         status = torch.allclose(output_0, output_1, rtol=1e-3, atol=1e-3)
-        logging.debug("Equivariance test for", self.__class__.__name__, status)
+        logging.debug(f"Equivariance test for {self.__class__.__name__} {status}")
         if not status:
             logging.debug(output_0[0])
             logging.debug(output_1[0])
@@ -627,7 +627,7 @@ class BackboneModule(BaseModule):
         status = torch.allclose(
             output_0, output_1, rtol=1e-3, atol=1e-3
         ) and torch.allclose(bb_0, bb_1, rtol=1e-3, atol=1e-3)
-        logging.debug("Equivariance test for", self.__class__.__name__, status)
+        logging.debug(f"Equivariance test for {self.__class__.__name__} {status}")
         if not status:
             logging.debug(random_rotation)
             logging.debug(output[0])
@@ -696,7 +696,7 @@ class SidechainModule(BaseModule):
         output_1 = super().forward(batch, feat)
         #
         status = torch.allclose(output_0, output_1, rtol=1e-3, atol=1e-3)
-        logging.debug("Equivariance test for", self.__class__.__name__, status)
+        logging.debug(f"Equivariance test for {self.__class__.__name__} {status}")
         if not status:
             logging.debug(output_0[0])
             logging.debug(output_1[0])
@@ -774,6 +774,8 @@ class Model(nn.Module):
         f_in = self.initialization_module(batch, batch.f_in, embedding)
         #
         for k in range(self.num_recycle):
+            self.update_graph(batch, ret)
+            #
             # 40x0e + 10x1o --> 40x0e + 10x1o
             f_out = self.feature_extraction_module(batch, f_in, ret)
             #
@@ -838,6 +840,8 @@ class Model(nn.Module):
         intermediates["initialization_module"].append(f_in.clone())
         #
         for k in range(self.num_recycle):
+            self.update_graph(batch, ret)
+            #
             # 40x0e + 10x1o --> 40x0e + 10x1o
             f_out = self.feature_extraction_module(batch, f_in, ret)
             intermediates["feature_extraction_module"].append(f_out.clone())
@@ -905,6 +909,9 @@ class Model(nn.Module):
             )
         return loss
 
+    def update_graph(self, batch, ret):
+        batch.pos = batch.pos0 + ret["bb"][:, 3]
+
     def calc_metrics(self, batch, ret):
         R = ret["R"]
         R_ref = batch.output_xyz
@@ -964,25 +971,25 @@ class Model(nn.Module):
         r_1 = out_1["R"]
         #
         status = torch.allclose(r_0, r_1, rtol=1e-3, atol=1e-3)
-        logging.debug("Equivariance test for", self.__class__.__name__, status)
+        logging.debug(f"Equivariance test for {self.__class__.__name__} {status}")
         if status:
             return
         #
         D_from_matrix = {
             "initialization_module": self.initialization_module.out_Irreps.D_from_matrix(
-                random_rotation
+                random_rotation.cpu()
             ),
             "feature_extraction_module": self.feature_extraction_module.out_Irreps.D_from_matrix(
-                random_rotation
+                random_rotation.cpu()
             ),
             "transition_module": self.transition_module.out_Irreps.D_from_matrix(
-                random_rotation
+                random_rotation.cpu()
             ),
             "backbone_module": self.backbone_module.out_Irreps.D_from_matrix(
-                random_rotation
+                random_rotation.cpu()
             ),
             "sidechain_module": self.sidechain_module.out_Irreps.D_from_matrix(
-                random_rotation
+                random_rotation.cpu()
             ),
         }
         #
@@ -991,7 +998,7 @@ class Model(nn.Module):
             for module_name, matrix in D_from_matrix.items():
                 if k >= len(X_0[module_name]):
                     continue
-                x0 = X_0[module_name][k] @ matrix.T
+                x0 = X_0[module_name][k] @ matrix.T.to(device)
                 x1 = X_1[module_name][k]
                 status = torch.allclose(x0, x1, rtol=1e-3, atol=1e-3)
                 logging.debug(
