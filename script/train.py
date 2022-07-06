@@ -22,7 +22,7 @@ from libconfig import USE_EQUIVARIANCE_TEST
 
 
 N_PROC = int(os.getenv("OMP_NUM_THREADS", "8"))
-IS_DEVELOP = True
+IS_DEVELOP = False
 if IS_DEVELOP:
     logger = logging.getLogger()
     logger.setLevel(logging.DEBUG)
@@ -185,7 +185,6 @@ def main():
         name = None
     if IS_DEVELOP:
         name = "devel"
-    config = libmodel.set_model_config(config)
     #
     pl.seed_everything(25, workers=True)
     #
@@ -201,6 +200,7 @@ def main():
         pdblist_test = pdb_dir / "targets.test"
         pdblist_val = pdb_dir / "targets.valid"
         pin_memory = False
+        checkpoint = True
         batch_size = 8
     else:
         base_dir = pathlib.Path("./")
@@ -209,6 +209,7 @@ def main():
         pdblist_test = pdb_dir / "pdblist"
         pdblist_val = pdb_dir / "pdblist"
         pin_memory = True
+        checkpoint = False
         batch_size = 2
     #
     cg_model = functools.partial(ResidueBasedModel, center_of_mass=True)
@@ -242,7 +243,10 @@ def main():
         shuffle=False,
     )
     #
-    model = Model(config, compute_loss=True, checkpoint=True, memcheck=True)
+    in_Irreps = train_set[0].f_in_Irreps
+    config["initialization.in_Irreps"] = str(in_Irreps)
+    config = libmodel.set_model_config(config)
+    model = Model(config, compute_loss=True, checkpoint=checkpoint, memcheck=True)
     logger = pl.loggers.TensorBoardLogger("lightning_logs", name=name)
     #
     if IS_DEVELOP:
@@ -259,7 +263,7 @@ def main():
             max_epochs=100,
             accelerator="auto",
             gradient_clip_val=1.0,
-            overfit_batches=10,
+            #overfit_batches=10,
             check_val_every_n_epoch=1,
             logger=logger,
         )

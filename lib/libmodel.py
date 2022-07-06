@@ -50,7 +50,7 @@ RIGID_GROUPS_DEP[RIGID_GROUPS_DEP == -1] = MAX_RIGID - 1
 CONFIG = ConfigDict()
 
 CONFIG["globals"] = ConfigDict()
-CONFIG["globals"]["num_recycle"] = 2
+CONFIG["globals"]["num_recycle"] = 1
 CONFIG["globals"]["loss_weight"] = ConfigDict()
 CONFIG["globals"]["loss_weight"].update(
     {
@@ -78,8 +78,7 @@ CONFIG_BASE["activation"] = None
 CONFIG_BASE["radius"] = 0.8
 CONFIG_BASE["norm"] = [False, False, False]
 CONFIG_BASE["skip_connection"] = True
-CONFIG_BASE["preprocess"] = [False, False]  # rotation / translation
-# CONFIG_BASE["preprocess"] = [False, True]  # rotation / translation
+CONFIG_BASE["preprocess"] = [False, True]  # rotation / translation
 CONFIG_BASE["loss_weight"] = ConfigDict()
 
 CONFIG["initialization"] = copy.deepcopy(CONFIG_BASE)
@@ -788,7 +787,7 @@ class Model(nn.Module):
         f_in = self.initialization_module(batch, batch.f_in, embedding)
         #
         for k in range(self.num_recycle):
-            self.update_graph(batch, ret)
+            # self.update_graph(batch, ret)
             #
             # 40x0e + 10x1o --> 40x0e + 10x1o
             f_out = self.feature_extraction_module(batch, f_in, ret)
@@ -854,7 +853,7 @@ class Model(nn.Module):
         intermediates["initialization_module"].append(f_in.clone())
         #
         for k in range(self.num_recycle):
-            self.update_graph(batch, ret)
+            # self.update_graph(batch, ret)
             #
             # 40x0e + 10x1o --> 40x0e + 10x1o
             f_out = self.feature_extraction_module(batch, f_in, ret)
@@ -924,7 +923,7 @@ class Model(nn.Module):
         return loss
 
     def update_graph(self, batch, ret):
-        batch.pos = batch.pos0 + ret["bb"][:, 3]
+        batch.pos = batch.pos0 + ret["bb"][:, 3].clone().detach() * 0.1
 
     def calc_metrics(self, batch, ret):
         R = ret["R"]
