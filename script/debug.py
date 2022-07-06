@@ -15,7 +15,7 @@ sys.path.insert(0, "lib")
 from libconfig import BASE, DTYPE
 from libdata import PDBset, create_trajectory_from_batch
 from libcg import ResidueBasedModel
-from libmodel import CONFIG, Model
+from libmodel import CONFIG, Model, set_model_config
 
 torch.autograd.set_detect_anomaly(True)
 
@@ -26,7 +26,10 @@ def main():
     cg_model = functools.partial(ResidueBasedModel, center_of_mass=True)
     #
     train_set = PDBset(
-        base_dir, pdblist, cg_model, get_structure_information=True, cached=True
+        base_dir,
+        pdblist,
+        cg_model,
+        get_structure_information=True,
     )
     train_loader = torch_geometric.loader.DataLoader(
         train_set,
@@ -37,43 +40,13 @@ def main():
     )
     batch = next(iter(train_loader))
     #
-    config = copy.deepcopy(CONFIG)
-    config.update_from_flattened_dict(
-        {
-            "globals.num_recycle": 2,
-            "feature_extraction.layer_type": "SE3Transformer",
-            "globals.loss_weight.rigid_body": 1.0,
-            "globals.loss_weight.FAPE_CA": 5.0,
-            "backbone.loss_weight.rigid_body": 1.0,
-            "backbone.loss_weight.FAPE_CA": 5.0,
-        }
-    )
-    feature_extraction_in_Irreps = " + ".join(
-        [
-            config.initialization.out_Irreps,
-            config.backbone.out_Irreps,
-            config.sidechain.out_Irreps,
-        ]
-    )
-    sidechain_in_Irreps = " + ".join(
-        [
-            config.transition.out_Irreps,
-            config.backbone.out_Irreps,
-        ]
-    )
-    config.update_from_flattened_dict(
-        {
-            "feature_extraction.in_Irreps": feature_extraction_in_Irreps,
-            "sidechain.in_Irreps": sidechain_in_Irreps,
-        }
-    )
-    #
-    model = Model(config, compute_loss=True)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    config = set_model_config({})
+    model = Model(config, compute_loss=True, checkpoint=True)
+    # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     device = torch.device("cpu")
     model = model.to(device)
     model.eval()
-    model.test_equivariant(batch)
+    # model.test_equivariant(batch)
     #
     optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
     model.train()
