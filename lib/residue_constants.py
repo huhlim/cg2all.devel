@@ -3,6 +3,7 @@
 import os
 import json
 import numpy as np
+import torch
 from collections import namedtuple
 
 from libconfig import DATA_HOME
@@ -32,6 +33,8 @@ AMINO_ACID_s = (
     "TYR",
     "UNK",
 )
+PROLINE_INDEX = AMINO_ACID_s.index("PRO")
+
 BACKBONE_ATOM_s = ("N", "CA", "C", "O")
 ATOM_INDEX_N = BACKBONE_ATOM_s.index("N")
 ATOM_INDEX_CA = BACKBONE_ATOM_s.index("CA")
@@ -159,6 +162,7 @@ class Residue(object):
         self.residue_index = AMINO_ACID_s.index(residue_name)
 
         self.atom_s = [atom for atom in BACKBONE_ATOM_s]
+        self.atom_type_s = [None for atom in BACKBONE_ATOM_s]
         self.ic_s = [{}, {}, {}]  # bond, angle, torsion
         self.build_ic = []
 
@@ -170,6 +174,10 @@ class Residue(object):
         self.torsion_chi_periodic = np.zeros((MAX_TORSION_CHI, 3), dtype=np.float16)
         self.torsion_xi_periodic = np.zeros((MAX_TORSION_XI, 3), dtype=np.float16)
 
+        self.atomic_radius = np.zeros(
+            (MAX_ATOM, 2, 2), dtype=np.float16
+        )  # (normal/1-4, epsilon/r_min)
+
     def __str__(self):
         return self.residue_name
 
@@ -179,9 +187,13 @@ class Residue(object):
         else:
             return self.residue_name == other
 
-    def append_atom(self, atom_name):
+    def append_atom(self, atom_name, atom_type):
         if atom_name not in BACKBONE_ATOM_s:
             self.atom_s.append(atom_name)
+            self.atom_type_s.append(atom_type)
+        else:
+            i = BACKBONE_ATOM_s.index(atom_name)
+            self.atom_type_s[i] = atom_type
 
     def append_ic(self, atom_s, param_s):
         is_improper = atom_s[2][0] == "*"
@@ -251,6 +263,10 @@ class Residue(object):
                 info[:-1] + [(np.array(info[-1][0]), np.array(info[-1][1]))]
             )
 
+    def add_radius_info(self, radius_s):
+        for i, atom_type in enumerate(self.atom_type_s):
+            self.atomic_radius[i] = radius_s[atom_type]
+
 
 # %%
 # read CHARMM topology file
@@ -273,7 +289,8 @@ def read_CHARMM_rtf(fn):
             elif line.startswith("ATOM"):
                 x = line.strip().split()
                 atom_name = x[1]
-                residue.append_atom(atom_name)
+                atom_type = x[2]
+                residue.append_atom(atom_name, atom_type)
             elif line.startswith("IC"):
                 x = line.strip().split()
                 atom_s = x[1:5]
@@ -282,10 +299,44 @@ def read_CHARMM_rtf(fn):
     return residue_s
 
 
+# read CHARMM parameter file
+def read_CHARMM_prm(fn):
+    with open(fn) as fp:
+        content_s = []
+        for line in fp:
+            line = line.strip()
+            if line.startswith("!"):
+                continue
+            if len(content_s) > 0 and content_s[-1].endswith("-"):
+                content_s[-1] += line
+            else:
+                content_s.append(line)
+    #
+    radius_s = {}
+    read = False
+    for line in content_s:
+        if line.startswith("NONBONDED"):
+            read = True
+            continue
+        if line.strip() == "" or line.startswith("END") or line.startswith("NBFIX"):
+            read = False
+        if not read:
+            continue
+        x = line.strip().split()
+        epsilon = float(x[2])
+        r_min = float(x[3]) * 0.1
+        epsilon_14 = float(x[2])
+        r_min_14 = float(x[3]) * 0.1
+        radius_s[x[0]] = np.array([[epsilon, r_min], [epsilon_14, r_min_14]])
+    return radius_s
+
+
 residue_s = read_CHARMM_rtf(DATA_HOME / "toppar/top_all36_prot.rtf")
+radius_s = read_CHARMM_prm(DATA_HOME / "toppar/par_all36m_prot.prm")
+#
 for residue_name, residue in residue_s.items():
-    torsion = torsion_s[residue_name]
-    residue.add_torsion_info(torsion)
+    residue.add_torsion_info(torsion_s[residue_name])
+    residue.add_radius_info(radius_s)
 
 # %%
 if os.path.exists(DATA_HOME / "rigid_groups.json") and os.path.exists(
@@ -384,4 +435,14 @@ for i, residue_name in enumerate(AMINO_ACID_s):
         index = tuple([residue_atom_s.index(x) for x in atom_names])
         rigid_groups_tensor[i, index] = coords
         rigid_groups_dep[i, index] = tor.i
+#     print(residue_name, i)
+#     print(residue_atom_s)
+#     print(rigid_groups_dep[i, : len(residue_atom_s)])
 # %%
+
+RIGID_TRANSFORMS_TENSOR = torch.as_tensor(rigid_transforms_tensor)
+RIGID_TRANSFORMS_DEP = torch.as_tensor(rigid_transforms_dep, dtype=torch.long)
+RIGID_TRANSFORMS_DEP[RIGID_TRANSFORMS_DEP == -1] = MAX_RIGID - 1
+RIGID_GROUPS_TENSOR = torch.as_tensor(rigid_groups_tensor)
+RIGID_GROUPS_DEP = torch.as_tensor(rigid_groups_dep, dtype=torch.long)
+RIGID_GROUPS_DEP[RIGID_GROUPS_DEP == -1] = MAX_RIGID - 1

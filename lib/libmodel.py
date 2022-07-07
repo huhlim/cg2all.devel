@@ -20,10 +20,10 @@ from residue_constants import (
     MAX_RESIDUE_TYPE,
     MAX_TORSION,
     MAX_RIGID,
-    rigid_transforms_tensor,
-    rigid_transforms_dep,
-    rigid_groups_tensor,
-    rigid_groups_dep,
+    RIGID_TRANSFORMS_TENSOR,
+    RIGID_TRANSFORMS_DEP,
+    RIGID_GROUPS_TENSOR,
+    RIGID_GROUPS_DEP,
 )
 from libloss import (
     v_norm_safe,
@@ -35,16 +35,10 @@ from libloss import (
     loss_f_distance_matrix,
     loss_f_torsion_angle,
     loss_f_bonded_energy,
+    loss_f_atomic_clash,
 )
 from libmetric import rmsd_CA, rmsd_rigid, rmsd_all, rmse_bonded
 from libconfig import EQUIVARIANT_TOLERANCE
-
-RIGID_TRANSFORMS_TENSOR = torch.tensor(rigid_transforms_tensor)
-RIGID_TRANSFORMS_DEP = torch.tensor(rigid_transforms_dep, dtype=torch.long)
-RIGID_TRANSFORMS_DEP[RIGID_TRANSFORMS_DEP == -1] = MAX_RIGID - 1
-RIGID_GROUPS_TENSOR = torch.tensor(rigid_groups_tensor)
-RIGID_GROUPS_DEP = torch.tensor(rigid_groups_dep, dtype=torch.long)
-RIGID_GROUPS_DEP[RIGID_GROUPS_DEP == -1] = MAX_RIGID - 1
 
 
 CONFIG = ConfigDict()
@@ -61,6 +55,7 @@ CONFIG["globals"]["loss_weight"].update(
         "distance_matrix": 0.0,
         "rotation_matrix": 1.0,
         "torsion_angle": 1.0,
+        "atomic_clash": 1.0,
     }
 )
 
@@ -158,7 +153,7 @@ CONFIG["sidechain"].update(
         "mid_Irreps": "20x0e + 4x1o",
         "skip_connection": True,
         "norm": [False, True, False],
-        "loss_weight": {"torsion_angle": 0.0},
+        "loss_weight": {"torsion_angle": 0.0, "atomic_clash": 0.0},
     }
 )
 
@@ -723,6 +718,8 @@ class SidechainModule(BaseModule):
                 loss_f_torsion_angle(sc, sc1, batch.correct_torsion, batch.torsion_mask)
                 * self.loss_weight.torsion_angle
             )
+        if self.loss_weight.get("atomic_clash", 0.0) > 0.0:
+            loss["atomic_clash"] = loss_f_atomic_clash(R, batch)
         for k, v in loss_prev.items():
             if k in loss:
                 loss[k] += v
@@ -920,6 +917,8 @@ class Model(nn.Module):
                 )
                 * self.loss_weight.torsion_angle
             )
+        if self.loss_weight.get("atomic_clash", 0.0) > 0.0:
+            loss["atomic_clash"] = loss_f_atomic_clash(R, batch)
         return loss
 
     def update_graph(self, batch, ret):

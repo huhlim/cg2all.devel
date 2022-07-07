@@ -5,12 +5,14 @@ import torch_cluster
 import torch_geometric
 
 from residue_constants import (
+    PROLINE_INDEX,
     ATOM_INDEX_N,
     ATOM_INDEX_CA,
     ATOM_INDEX_C,
     BOND_LENGTH0,
     BOND_ANGLE0,
     TORSION_ANGLE0,
+    RIGID_GROUPS_DEP,
 )
 
 from libconfig import DTYPE, EPS
@@ -183,3 +185,78 @@ def loss_f_distance_matrix(R, batch, radius=1.0):
     #
     loss = torch.nn.functional.mse_loss(d, d_ref)
     return loss
+
+
+def loss_f_atomic_clash(R, batch, lj=False):
+    n_residue = R.size(0)
+    residue_index = torch.arange(0, n_residue, dtype=int)
+
+    energy = 0.0
+    for i in range(n_residue):
+        batch_index = batch.batch[i]
+        selected = (batch.batch == batch_index) & (residue_index < i)
+        if not torch.any(selected):
+            continue
+        #
+        curr_residue_type = batch.residue_type[i]
+        prev_residue_type = batch.residue_type[i - 1]
+        mask_i = batch.output_atom_mask[i] > 0.0
+        mask_j = batch.output_atom_mask[selected] > 0.0
+        mask = mask_j[..., None] & mask_i[None, None, :]
+        #
+        # excluding BB(prev) - BB(curr)
+        curr_bb = RIGID_GROUPS_DEP[curr_residue_type] < 3
+        if curr_residue_type != PROLINE_INDEX:
+            curr_bb[:7] = True  # BB + CD, HD1, HD2
+        prev_bb = RIGID_GROUPS_DEP[prev_residue_type] < 3
+        bb_pair = prev_bb[:, None] & curr_bb[None, :]
+        mask[-1][bb_pair] = False
+        #
+        dr = R[selected][..., None, :] - R[i][None, None, :]
+        dist = v_size(dr)[mask]
+        #
+        radius_i = batch.atomic_radius[i, :, 0, 1]
+        radius_j = batch.atomic_radius[selected][..., 0, 1]
+        radius_sum = (radius_j[..., None] + radius_i[None, None, :])[mask]
+        #
+        if lj:
+            epsilon_i = batch.atomic_radius[i, :, 0, 0]
+            epsilon_j = batch.atomic_radius[selected][..., 0, 0]
+            epsilon = torch.sqrt(epsilon_j[..., None] * epsilon_i[None, None, :])[mask]
+            #
+            x = torch.pow(radius_sum / dist, 6)
+            energy_i = epsilon * (x**2 - 2 * x)
+        else:
+            radius_sum = radius_sum * 2 ** (-1 / 6)
+            energy_i = torch.pow(-torch.clamp(dist - radius_sum, max=0.0), 2)
+        energy = energy + energy_i.sum()
+    energy = energy / n_residue
+    return energy
+
+
+def test():
+    from libconfig import BASE
+    import libcg
+    import functools
+    from libdata import PDBset
+
+    base_dir = BASE / "pdb.processed"
+    pdblist = BASE / "pdb/pdblist"
+    cg_model = functools.partial(libcg.ResidueBasedModel, center_of_mass=True)
+    #
+    train_set = PDBset(
+        base_dir,
+        pdblist,
+        cg_model,
+        get_structure_information=True,
+    )
+    train_loader = torch_geometric.loader.DataLoader(
+        train_set, batch_size=2, shuffle=True, num_workers=1
+    )
+    batch = next(iter(train_loader))
+    #
+    loss_f_atomic_clash(batch.output_xyz, batch)
+
+
+if __name__ == "__main__":
+    test()

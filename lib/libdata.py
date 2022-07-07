@@ -162,6 +162,8 @@ class PDBset(torch_geometric.data.Dataset):
         data.chain_index = torch.as_tensor(cg.chain_index, dtype=int)
         data.residue_type = torch.as_tensor(cg.residue_index, dtype=torch.long)
         data.continuous = torch.as_tensor(cg.continuous, dtype=DTYPE)
+        #
+        data.atomic_radius = torch.as_tensor(cg.atomic_radius, dtype=DTYPE)
         data.output_atom_mask = torch.as_tensor(cg.atom_mask, dtype=DTYPE)
         data.output_xyz = torch.as_tensor(cg.R[frame_index], dtype=DTYPE)
         #
