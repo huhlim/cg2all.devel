@@ -12,10 +12,10 @@ import torch
 import torch_geometric
 
 sys.path.insert(0, "lib")
-from libconfig import BASE, DTYPE
+from libconfig import BASE
 from libdata import PDBset, create_trajectory_from_batch
 from libcg import ResidueBasedModel
-from libmodel import CONFIG, Model, set_model_config
+from libmodel import Model, set_model_config
 
 torch.autograd.set_detect_anomaly(True)
 

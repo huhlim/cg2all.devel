@@ -36,7 +36,7 @@ from libloss import (
     loss_f_torsion_angle,
     loss_f_bonded_energy,
 )
-from libmetric import rmsd_CA, rmsd_rigid, rmsd_all, bonded_energy
+from libmetric import rmsd_CA, rmsd_rigid, rmsd_all, rmse_bonded
 from libconfig import EQUIVARIANT_TOLERANCE
 
 RIGID_TRANSFORMS_TENSOR = torch.tensor(rigid_transforms_tensor)
@@ -110,7 +110,7 @@ CONFIG["feature_extraction"].update(
         "num_layers": 4,
         "in_Irreps": "40x0e + 10x1o",
         "out_Irreps": "40x0e + 10x1o",
-        "mid_Irreps": "80x0e + 20x1o",
+        "mid_Irreps": "80x0e + 20x1o + 4x2e",
         "attn_Irreps": "80x0e + 20x1o",
         "activation": "relu",
         "skip_connection": True,
@@ -923,7 +923,8 @@ class Model(nn.Module):
         return loss
 
     def update_graph(self, batch, ret):
-        batch.pos = batch.pos0 + ret["bb"][:, 3].clone().detach() * 0.1
+        # batch.pos = batch.pos0 + ret["bb"][:, 3].clone().detach() * 0.1
+        return batch
 
     def calc_metrics(self, batch, ret):
         R = ret["R"]
@@ -933,7 +934,11 @@ class Model(nn.Module):
         metric_s["rmsd_CA"] = rmsd_CA(R, R_ref)
         metric_s["rmsd_rigid"] = rmsd_rigid(R, R_ref)
         metric_s["rmsd_all"] = rmsd_all(R, R_ref, batch.output_atom_mask)
-        metric_s["bond_energy"] = bonded_energy(R, batch.continuous)
+        #
+        bonded = rmse_bonded(R, batch.continuous)
+        metric_s["bond_length"] = bonded[0]
+        metric_s["bond_angle"] = bonded[1]
+        metric_s["omega_angle"] = bonded[2]
         return metric_s
 
     def test_equivariance(self, batch):
