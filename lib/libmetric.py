@@ -53,9 +53,9 @@ def rmse_bonded(R, is_continuous):
     a01 = bond_angle(-v0, v1)
     a12 = bond_angle(-v1, v2)
 
-    rmse_bond_angle = torch.pow(torch.rad2deg(a01 - BOND_ANGLE0[0]), 2)
-    rmse_bond_angle += torch.pow(torch.rad2deg(a12 - BOND_ANGLE0[1]), 2)
-    rmse_bond_angle = torch.sqrt(torch.sum(rmse_bond_angle * bonded) / n_bonded)
+    rmse_bond_angle = torch.pow(a01 - BOND_ANGLE0[0], 2)
+    rmse_bond_angle += torch.pow(a12 - BOND_ANGLE0[1], 2)
+    rmse_bond_angle = torch.sqrt(torch.sum(rmse_bond_angle * bonded) / n_bonded / 2)
 
     # torsion angles without their signs
     def torsion_angle_without_sign(v0, v1, v2):
@@ -66,8 +66,11 @@ def rmse_bonded(R, is_continuous):
 
     omg_angle = torsion_angle_without_sign(v0, v1, v2)
     d_omg = torch.minimum(omg_angle - TORSION_ANGLE0[0], TORSION_ANGLE0[1] - omg_angle)
-    rmse_omg_angle = torch.sqrt(
-        torch.sum(torch.pow(torch.rad2deg(d_omg), 2) * bonded) / n_bonded
-    )
+    rmse_omg_angle = torch.sqrt(torch.sum(torch.pow(d_omg, 2) * bonded) / n_bonded)
 
     return rmse_bond_length, rmse_bond_angle, rmse_omg_angle
+
+
+# TODO
+def molprobity_like(batch, R, torsion_s):
+    pass
