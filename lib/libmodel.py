@@ -550,24 +550,34 @@ class BackboneModule(BaseModule):
             loss["rigid_body"] = (
                 loss_f_rigid_body(R, batch.output_xyz) * self.loss_weight.rigid_body
             )
+        else:
+            loss["rigid_body"] = 0.0
         if self.loss_weight.get("FAPE_CA", 0.0) > 0.0:
             loss["FAPE_CA"] = (
                 loss_f_FAPE_CA(batch, R, opr_bb) * self.loss_weight.FAPE_CA
             )
+        else:
+            loss["FAPE_CA"] = 0.0
         if self.loss_weight.get("rotation_matrix", 0.0) > 0.0:
             loss["rotation_matrix"] = (
                 loss_f_rotation_matrix(bb, bb1, batch.correct_bb)
                 * self.loss_weight.rotation_matrix
             )
+        else:
+            loss["rotation_matrix"] = 0.0
         if self.loss_weight.get("bonded_energy", 0.0) > 0.0:
             loss["bonded_energy"] = (
                 loss_f_bonded_energy(R, batch.continuous)
                 * self.loss_weight.bonded_energy
             )
+        else:
+            loss["bonded_energy"] = 0.0
         if self.loss_weight.get("distance_matrix", 0.0) > 0.0:
             loss["distance_matrix"] = (
                 loss_f_distance_matrix(R, batch) * self.loss_weight.distance_matrix
             )
+        else:
+            loss["distance_matrix"] = 0.0
         #
         for k, v in loss_prev.items():
             if k in loss:
@@ -721,8 +731,12 @@ class SidechainModule(BaseModule):
                 loss_f_torsion_angle(sc, sc1, batch.correct_torsion, batch.torsion_mask)
                 * self.loss_weight.torsion_angle
             )
+        else:
+            loss["torsion_angle"] = 0.0
         if self.loss_weight.get("atomic_clash", 0.0) > 0.0:
             loss["atomic_clash"] = loss_f_atomic_clash(R, batch)
+        else:
+            loss["atomic_clash"] = 0.0
         for k, v in loss_prev.items():
             if k in loss:
                 loss[k] += v
@@ -896,29 +910,41 @@ class Model(nn.Module):
             loss["rigid_body"] = (
                 loss_f_rigid_body(R, batch.output_xyz) * self.loss_weight.rigid_body
             )
+        else:
+            loss["rigid_body"] = 0.0
         if self.loss_weight.get("FAPE_CA", 0.0) > 0.0:
             loss["FAPE_CA"] = (
                 loss_f_FAPE_CA(batch, R, ret["opr_bb"]) * self.loss_weight.FAPE_CA
             )
+        else:
+            loss["FAPE_CA"] = 0.0
         if self.loss_weight.get("rotation_matrix", 0.0) > 0.0:
             loss["rotation_matrix"] = (
                 loss_f_rotation_matrix(ret["bb"], None, batch.correct_bb)
                 * self.loss_weight.rotation_matrix
             )
+        else:
+            loss["rotation_matrix"] = 0.0
         if self.loss_weight.get("mse_R", 0.0) > 0.0:
             loss["mse_R"] = (
                 loss_f_mse_R(R, batch.output_xyz, batch.output_atom_mask)
                 * self.loss_weight.mse_R
             )
+        else:
+            loss["mse_R"] = 0.0
         if self.loss_weight.get("bonded_energy", 0.0) > 0.0:
             loss["bonded_energy"] = (
                 loss_f_bonded_energy(R, batch.continuous)
                 * self.loss_weight.bonded_energy
             )
+        else:
+            loss["bonded_energy"] = 0.0
         if self.loss_weight.get("distance_matrix", 0.0) > 0.0:
             loss["distance_matrix"] = (
                 loss_f_distance_matrix(R, batch) * self.loss_weight.distance_matrix
             )
+        else:
+            loss["distance_matrix"] = 0.0
         if self.loss_weight.get("torsion_angle", 0.0) > 0.0:
             loss["torsion_angle"] = (
                 loss_f_torsion_angle(
@@ -926,8 +952,12 @@ class Model(nn.Module):
                 )
                 * self.loss_weight.torsion_angle
             )
+        else:
+            loss["torsion_angle"] = 0.0
         if self.loss_weight.get("atomic_clash", 0.0) > 0.0:
             loss["atomic_clash"] = loss_f_atomic_clash(R, batch)
+        else:
+            loss["atomic_clash"] = 0.0
         return loss
 
     def update_graph(self, batch, ret):

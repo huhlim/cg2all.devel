@@ -77,7 +77,10 @@ class Model(pl.LightningModule):
         for module_name, loss_per_module in loss.items():
             for loss_name, loss_value in loss_per_module.items():
                 loss_sum += loss_value
-                loss_s[f"{module_name}-{loss_name}"] = loss_value.item()
+                if isinstance(loss_value, torch.Tensor):
+                    loss_s[f"{module_name}-{loss_name}"] = loss_value.item()
+                else:
+                    loss_s[f"{module_name}-{loss_name}"] = loss_value
         if isinstance(loss_sum, torch.Tensor):
             loss_s["sum"] = loss_sum.item()
         else:
@@ -262,14 +265,13 @@ def main():
     checkpointing = pl.callbacks.ModelCheckpoint(
         dirpath=logger.log_dir,
         monitor="val_loss_sum",
-        save_weights_only=False,
     )
     early_stopping = pl.callbacks.EarlyStopping(
         monitor="val_loss_sum",
         min_delta=1e-3,
     )
     trainer = pl.Trainer(
-        max_epochs=5,
+        max_epochs=2,
         accelerator="auto",
         gradient_clip_val=1.0,
         check_val_every_n_epoch=1,
@@ -285,8 +287,17 @@ def main():
     #
     # fine-tune
     logger = pl.loggers.TensorBoardLogger("lightning_logs", name=f"{name}_ft")
+    checkpointing = pl.callbacks.ModelCheckpoint(
+        dirpath=logger.log_dir,
+        monitor="val_loss_sum",
+        save_weights_only=False,
+    )
+    early_stopping = pl.callbacks.EarlyStopping(
+        monitor="val_loss_sum",
+        min_delta=1e-3,
+    )
     trainer_ft = pl.Trainer(
-        max_epochs=20,
+        max_epochs=4,
         accelerator="auto",
         gradient_clip_val=1.0,
         check_val_every_n_epoch=1,
