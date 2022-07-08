@@ -3,8 +3,6 @@
 import copy
 import numpy as np
 import pathlib
-import functools
-import itertools
 import mdtraj
 from typing import List
 
@@ -20,8 +18,8 @@ from residue_constants import AMINO_ACID_s, AMINO_ACID_REV_s, residue_s
 
 class Normalizer(object):
     def __init__(self, mean, std):
-        self.mean = mean
-        self.std = std
+        self.mean = torch.as_tensor(mean, dtype=DTYPE)
+        self.std = torch.as_tensor(std, dtype=DTYPE)
         self._is_valid = False
 
     def set_n_scalar(self, n_scalar):
@@ -82,26 +80,24 @@ class PDBset(torch_geometric.data.Dataset):
             cg = self.rotate_randomly(cg)
         frame_index = np.random.randint(cg.n_frame)
         #
-        r_cg = cg.R_cg[frame_index]
+        r_cg = torch.as_tensor(cg.R_cg[frame_index], dtype=DTYPE)
         if self.noise_level > 0.0:
-            noise_size = np.random.normal(
-                loc=self.noise_level, scale=self.noise_level / 2.0
+            noise_size = (
+                torch.randn(1).item() * (self.noise_level / 2.0) + self.noise_level
             )
             if noise_size >= 0.0:
-                r_cg += np.random.normal(scale=noise_size, size=r_cg.shape)
+                r_cg += torch.randn(r_cg.size()) * noise_size
             else:
                 noise_size = 0.0
         else:
             noise_size = 0.0
         #
-        geom_s = cg.get_geometry(r_cg)
+        geom_s = cg.get_geometry(r_cg, cg.continuous)
         #
-        data = torch_geometric.data.Data(
-            pos=torch.as_tensor(r_cg[cg.atom_mask_cg == 1.0], dtype=DTYPE)
-        )
+        data = torch_geometric.data.Data(pos=r_cg[cg.atom_mask_cg == 1.0])
         data.pos0 = data.pos.clone()
         #
-        n_neigh = np.zeros((r_cg.shape[0], 1), dtype=float)
+        n_neigh = torch.zeros((r_cg.shape[0], 1), dtype=DTYPE)
         edge_src, edge_dst = torch_cluster.radius_graph(
             data.pos,
             1.0,
@@ -125,11 +121,9 @@ class PDBset(torch_geometric.data.Dataset):
         f_in[0].append(geom_s["dihedral_angle"].reshape(-1, 8))  # 8
         #
         # noise-level
-        f_in[0].append(np.full((r_cg.shape[0], 1), noise_size))  # 1
+        f_in[0].append(torch.full((r_cg.shape[0], 1), noise_size))  # 1
         #
-        f_in[0] = torch.as_tensor(
-            np.concatenate(f_in[0], axis=1), dtype=DTYPE
-        )  # 16x0e = 16
+        f_in[0] = torch.cat(f_in[0], dim=1)  # 16x0e = 16
         n_scalar = f_in[0].size(1)  # 16
         #
         # 1d: unit vectors from adjacent residues to the current residue
@@ -137,9 +131,7 @@ class PDBset(torch_geometric.data.Dataset):
         f_in[1].append(geom_s["bond_vector"][1][1])
         f_in[1].append(geom_s["bond_vector"][2][0])
         f_in[1].append(geom_s["bond_vector"][2][1])
-        f_in[1] = torch.as_tensor(
-            np.concatenate(f_in[1], axis=1), dtype=DTYPE
-        )  # 4x1o = 12
+        f_in[1] = torch.cat(f_in[1], dim=1)  # 4x1o = 12
         n_vector = int(f_in[1].size(1) // 3)  # 4
         #
         f_in = torch.cat(
@@ -156,7 +148,7 @@ class PDBset(torch_geometric.data.Dataset):
             data.f_in = f_in
         data.f_in_Irreps = f"{n_scalar}x0e + {n_vector}x1o"
         #
-        global_frame = torch.as_tensor(geom_s["pca"], dtype=DTYPE).reshape(-1)
+        global_frame = geom_s["pca"].reshape(-1)
         data.global_frame = global_frame.repeat(cg.n_residue, 1)
         #
         data.chain_index = torch.as_tensor(cg.chain_index, dtype=int)
@@ -164,6 +156,7 @@ class PDBset(torch_geometric.data.Dataset):
         data.continuous = torch.as_tensor(cg.continuous, dtype=DTYPE)
         #
         data.atomic_radius = torch.as_tensor(cg.atomic_radius, dtype=DTYPE)
+        data.atomic_mass = torch.as_tensor(cg.atomic_mass, dtype=DTYPE)
         data.output_atom_mask = torch.as_tensor(cg.atom_mask, dtype=DTYPE)
         data.output_xyz = torch.as_tensor(cg.R[frame_index], dtype=DTYPE)
         #
@@ -255,13 +248,14 @@ def create_trajectory_from_batch(
 def test():
     base_dir = BASE / "pdb.processed"
     pdblist = BASE / "pdb/pdblist"
-    cg_model = functools.partial(libcg.ResidueBasedModel, center_of_mass=True)
+    cg_model = libcg.ResidueBasedModel
     #
     train_set = PDBset(
         base_dir,
         pdblist,
         cg_model,
         noise_level=0.5,
+        random_rotation=True,
         get_structure_information=True,
     )
     train_loader = torch_geometric.loader.DataLoader(
@@ -272,6 +266,9 @@ def test():
     #     traj_s = create_trajectory_from_batch(
     #         batch, batch.output_xyz, write_native=True
     #     )
+    r = batch.output_xyz
+    mass = batch.atomic_mass
+    print(train_set.cg_model.convert_to_cg_tensor(r, mass).shape)
 
 
 if __name__ == "__main__":

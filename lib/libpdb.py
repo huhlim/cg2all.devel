@@ -43,7 +43,10 @@ class PDB(object):
 
         self.R = np.zeros((self.n_frame, self.n_residue, MAX_ATOM, 3))
         self.atom_mask = np.zeros((self.n_residue, MAX_ATOM), dtype=np.float16)
-        self.atomic_radius = np.zeros((self.n_residue, MAX_ATOM, 2, 2), dtype=np.float16)
+        self.atomic_radius = np.zeros(
+            (self.n_residue, MAX_ATOM, 2, 2), dtype=np.float16
+        )
+        self.atomic_mass = np.zeros((self.n_residue, MAX_ATOM), dtype=np.float16)
         #
         for residue in self.top.residues:
             i_res = residue.index
@@ -77,6 +80,7 @@ class PDB(object):
                 self.R[:, i_res, i_atm, :] = self.traj.xyz[:, atom.index, :]
                 self.atom_mask[i_res, i_atm] = 1.0
                 self.atomic_radius[i_res, i_atm] = ref_res.atomic_radius[i_atm]
+                self.atomic_mass[i_res, i_atm] = atom.element.mass
 
     # get continuity information, whether it has a previous residue
     def get_continuity(self):
