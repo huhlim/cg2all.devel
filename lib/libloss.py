@@ -16,21 +16,7 @@ from residue_constants import (
 )
 
 from libconfig import DTYPE, EPS
-
-
-# some basic functions
-v_size = lambda v: torch.linalg.norm(v, dim=-1)
-v_norm = lambda v: v / v_size(v)[..., None]
-
-
-def v_norm_safe(v, index=0):
-    u = v.clone()
-    u[..., index] = u[..., index] + EPS
-    return v_norm(u)
-
-
-def inner_product(v1, v2):
-    return torch.sum(v1 * v2, dim=-1)
+from torch_basics import v_size, v_norm, v_norm_safe, inner_product
 
 
 # MSE loss for comparing coordinates
