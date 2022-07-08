@@ -189,7 +189,7 @@ def loss_f_distance_matrix(R, batch, radius=1.0):
 
 def loss_f_atomic_clash(R, batch, lj=False):
     n_residue = R.size(0)
-    residue_index = torch.arange(0, n_residue, dtype=int)
+    residue_index = torch.arange(0, n_residue, dtype=int, device=R.device)
 
     energy = 0.0
     for i in range(n_residue):

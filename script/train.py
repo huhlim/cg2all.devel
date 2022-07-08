@@ -268,10 +268,10 @@ def main():
     )
     early_stopping = pl.callbacks.EarlyStopping(
         monitor="val_loss_sum",
-        min_delta=1e-3,
+        min_delta=1e-4,
     )
     trainer = pl.Trainer(
-        max_epochs=2,
+        max_epochs=50,
         accelerator="auto",
         gradient_clip_val=1.0,
         check_val_every_n_epoch=1,
@@ -294,10 +294,10 @@ def main():
     )
     early_stopping = pl.callbacks.EarlyStopping(
         monitor="val_loss_sum",
-        min_delta=1e-3,
+        min_delta=1e-4,
     )
     trainer_ft = pl.Trainer(
-        max_epochs=4,
+        max_epochs=100,
         accelerator="auto",
         gradient_clip_val=1.0,
         check_val_every_n_epoch=1,
@@ -308,7 +308,7 @@ def main():
     trainer_ft.fit(
         model, train_loader, val_loader, ckpt_path=checkpointing.best_model_path
     )
-    trainer.test(model, test_loader)
+    trainer_ft.test(model, test_loader)
 
 
 if __name__ == "__main__":
