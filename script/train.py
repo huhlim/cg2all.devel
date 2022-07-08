@@ -22,7 +22,7 @@ from libconfig import USE_EQUIVARIANCE_TEST
 
 
 N_PROC = int(os.getenv("OMP_NUM_THREADS", "8"))
-IS_DEVELOP = False
+IS_DEVELOP = True
 if IS_DEVELOP:
     logger = logging.getLogger()
     logger.setLevel(logging.DEBUG)
@@ -39,6 +39,9 @@ class Model(pl.LightningModule):
 
     def forward(self, batch: torch_geometric.data.Batch):
         return self.model.forward(batch)
+
+    def update_loss_weight(self, _config):
+        self.model.update_loss_weight(_config)
 
     def on_train_batch_start(self, batch, batch_idx):
         if self.device.type == "cuda":
@@ -157,6 +160,13 @@ class Model(pl.LightningModule):
                 except:
                     sys.stderr.write(f"Failed to write {out_f}\n")
         self.log(
+            "val_loss_sum",
+            loss_sum,
+            batch_size=batch.num_graphs,
+            on_epoch=True,
+            on_step=False,
+        )
+        self.log(
             "val_loss",
             loss_s,
             batch_size=batch.num_graphs,
@@ -247,27 +257,46 @@ def main():
     config["initialization.in_Irreps"] = str(in_Irreps)
     config = libmodel.set_model_config(config)
     model = Model(config, compute_loss=True, checkpoint=checkpoint, memcheck=True)
-    logger = pl.loggers.TensorBoardLogger("lightning_logs", name=name)
     #
-    if IS_DEVELOP:
-        trainer = pl.Trainer(
-            max_epochs=100,
-            accelerator="auto",
-            gradient_clip_val=1.0,
-            check_val_every_n_epoch=5,
-            logger=logger,
-        )
-        trainer.fit(model, train_loader, val_loader)
-    else:
-        trainer = pl.Trainer(
-            max_epochs=100,
-            accelerator="auto",
-            gradient_clip_val=1.0,
-            #overfit_batches=10,
-            check_val_every_n_epoch=1,
-            logger=logger,
-        )
-        trainer.fit(model, train_loader, val_loader)
+    logger = pl.loggers.TensorBoardLogger("lightning_logs", name=name)
+    checkpointing = pl.callbacks.ModelCheckpoint(
+        dirpath=logger.log_dir,
+        monitor="val_loss_sum",
+        save_weights_only=False,
+    )
+    early_stopping = pl.callbacks.EarlyStopping(
+        monitor="val_loss_sum",
+        min_delta=1e-3,
+    )
+    trainer = pl.Trainer(
+        max_epochs=5,
+        accelerator="auto",
+        gradient_clip_val=1.0,
+        check_val_every_n_epoch=1,
+        logger=logger,
+        callbacks=[checkpointing, early_stopping],
+    )
+    trainer.fit(model, train_loader, val_loader)
+    trainer.test(model, test_loader)
+    #
+    # update loss weights
+    config.globals.loss_weight.atomic_clash = 1.0
+    model.update_loss_weight(config)
+    #
+    # fine-tune
+    logger = pl.loggers.TensorBoardLogger("lightning_logs", name=f"{name}_ft")
+    trainer_ft = pl.Trainer(
+        max_epochs=20,
+        accelerator="auto",
+        gradient_clip_val=1.0,
+        check_val_every_n_epoch=1,
+        enable_model_summary=False,
+        logger=logger,
+        callbacks=[checkpointing, early_stopping],
+    )
+    trainer_ft.fit(
+        model, train_loader, val_loader, ckpt_path=checkpointing.best_model_path
+    )
     trainer.test(model, test_loader)
 
 

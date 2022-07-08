@@ -55,7 +55,7 @@ CONFIG["globals"]["loss_weight"].update(
         "distance_matrix": 0.0,
         "rotation_matrix": 1.0,
         "torsion_angle": 1.0,
-        "atomic_clash": 1.0,
+        "atomic_clash": 0.0,
     }
 )
 
@@ -105,8 +105,8 @@ CONFIG["feature_extraction"].update(
         "num_layers": 4,
         "in_Irreps": "40x0e + 10x1o",
         "out_Irreps": "40x0e + 10x1o",
-        "mid_Irreps": "80x0e + 20x1o + 4x2e",
-        "attn_Irreps": "80x0e + 20x1o",
+        "mid_Irreps": "80x0e + 20x1o + 4x2o",
+        "attn_Irreps": "80x0e + 20x1o + 4x2o",
         "activation": "relu",
         "skip_connection": True,
         "norm": [False, True, True],
@@ -281,6 +281,9 @@ class BaseModule(nn.Module):
         layer = layer_partial(self.mid_Irreps, self.mid_Irreps)
         self.layer_s = nn.ModuleList([layer for _ in range(config.num_layers)])
         self.layer_1 = layer_partial(self.mid_Irreps, self.out_Irreps)
+
+    def update_loss_weight(self, config):
+        self.loss_weight.update(config.loss_weight)
 
     def forward(self, batch, feat):
         if self.norm_0:
@@ -768,6 +771,12 @@ class Model(nn.Module):
             checkpoint=checkpoint,
             num_recycle=self.num_recycle,
         )
+
+    def update_loss_weight(self, _config):
+        self.loss_weight.update(_config.globals.loss_weight)
+        #
+        self.backbone_module.update_loss_weight(_config.backbone)
+        self.sidechain_module.update_loss_weight(_config.sidechain)
 
     def forward(self, batch):
         n_residue = batch.pos.size(0)
