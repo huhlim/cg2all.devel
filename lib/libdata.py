@@ -47,9 +47,11 @@ class PDBset(torch_geometric.data.Dataset):
         get_structure_information=False,
         random_rotation=False,
         normalize=True,
+        dtype=DTYPE,
     ):
         super().__init__()
         #
+        self.dtype = dtype
         self.basedir = pathlib.Path(basedir)
         self.pdb_s = []
         with open(pdblist) as fp:
@@ -97,7 +99,7 @@ class PDBset(torch_geometric.data.Dataset):
         geom_s = cg.get_geometry(r_cg)
         #
         data = torch_geometric.data.Data(
-            pos=torch.as_tensor(r_cg[cg.atom_mask_cg == 1.0], dtype=DTYPE)
+            pos=torch.as_tensor(r_cg[cg.atom_mask_cg == 1.0], dtype=self.dtype)
         )
         data.pos0 = data.pos.clone()
         #
@@ -128,7 +130,7 @@ class PDBset(torch_geometric.data.Dataset):
         f_in[0].append(np.full((r_cg.shape[0], 1), noise_size))  # 1
         #
         f_in[0] = torch.as_tensor(
-            np.concatenate(f_in[0], axis=1), dtype=DTYPE
+            np.concatenate(f_in[0], axis=1), dtype=self.dtype
         )  # 16x0e = 16
         n_scalar = f_in[0].size(1)  # 16
         #
@@ -138,7 +140,7 @@ class PDBset(torch_geometric.data.Dataset):
         f_in[1].append(geom_s["bond_vector"][2][0])
         f_in[1].append(geom_s["bond_vector"][2][1])
         f_in[1] = torch.as_tensor(
-            np.concatenate(f_in[1], axis=1), dtype=DTYPE
+            np.concatenate(f_in[1], axis=1), dtype=self.dtype
         )  # 4x1o = 12
         n_vector = int(f_in[1].size(1) // 3)  # 4
         #
@@ -156,22 +158,22 @@ class PDBset(torch_geometric.data.Dataset):
             data.f_in = f_in
         data.f_in_Irreps = f"{n_scalar}x0e + {n_vector}x1o"
         #
-        global_frame = torch.as_tensor(geom_s["pca"], dtype=DTYPE).reshape(-1)
+        global_frame = torch.as_tensor(geom_s["pca"], dtype=self.dtype).reshape(-1)
         data.global_frame = global_frame.repeat(cg.n_residue, 1)
         #
         data.chain_index = torch.as_tensor(cg.chain_index, dtype=int)
         data.residue_type = torch.as_tensor(cg.residue_index, dtype=torch.long)
-        data.continuous = torch.as_tensor(cg.continuous, dtype=DTYPE)
+        data.continuous = torch.as_tensor(cg.continuous, dtype=self.dtype)
         #
-        data.atomic_radius = torch.as_tensor(cg.atomic_radius, dtype=DTYPE)
-        data.output_atom_mask = torch.as_tensor(cg.atom_mask, dtype=DTYPE)
-        data.output_xyz = torch.as_tensor(cg.R[frame_index], dtype=DTYPE)
+        data.atomic_radius = torch.as_tensor(cg.atomic_radius, dtype=self.dtype)
+        data.output_atom_mask = torch.as_tensor(cg.atom_mask, dtype=self.dtype)
+        data.output_xyz = torch.as_tensor(cg.R[frame_index], dtype=self.dtype)
         #
         if self.get_structure_information:
             cg.get_structure_information()
-            data.correct_bb = torch.as_tensor(cg.bb[frame_index], dtype=DTYPE)
-            data.correct_torsion = torch.as_tensor(cg.torsion[frame_index], dtype=DTYPE)
-            data.torsion_mask = torch.as_tensor(cg.torsion_mask, dtype=DTYPE)
+            data.correct_bb = torch.as_tensor(cg.bb[frame_index], dtype=self.dtype)
+            data.correct_torsion = torch.as_tensor(cg.torsion[frame_index], dtype=self.dtype)
+            data.torsion_mask = torch.as_tensor(cg.torsion_mask, dtype=self.dtype)
         #
         return data
 
