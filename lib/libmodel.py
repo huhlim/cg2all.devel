@@ -26,8 +26,6 @@ from residue_constants import (
     RIGID_GROUPS_DEP,
 )
 from libloss import (
-    v_norm_safe,
-    inner_product,
     loss_f_rigid_body,
     loss_f_FAPE_CA,
     loss_f_rotation_matrix,
@@ -37,6 +35,7 @@ from libloss import (
     loss_f_bonded_energy,
     loss_f_atomic_clash,
 )
+from torch_basics import v_norm_safe, inner_product
 from libmetric import rmsd_CA, rmsd_rigid, rmsd_all, rmse_bonded
 from libconfig import EQUIVARIANT_TOLERANCE
 
