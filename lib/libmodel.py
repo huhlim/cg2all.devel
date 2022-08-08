@@ -824,7 +824,6 @@ class Model(nn.Module):
                     ret,
                     bb,
                     loss.get("bb", {}),
-                    stop_grad=(k + 1 < self.num_recycle),
                 )
                 loss["sc"] = self.sidechain_module.loss_f(batch, ret, sc, loss.get("sc", {}))
             #
@@ -950,7 +949,25 @@ class Model(nn.Module):
         return loss
 
     def update_graph(self, batch, ret):
-        # batch.pos = batch.pos0 + ret["bb"][:, 3].clone().detach() * 0.1
+        device = batch.f_in.device
+        #
+        pos = self.cg_model.convert_to_cg_tensor(ret["R"].detach(), batch.atomic_mass)
+        err = ret.get("err", batch.f_in[:, 15])
+        #
+        f_in = []
+        for k in range(batch.num_graphs):
+            selected = batch.batch == k
+            r = pos[selected]
+            #
+            geom_s = self.cg_model.get_geometry(
+                r, batch.continuous[selected], batch.input_atom_mask[selected]
+            )
+            f_in.append(
+                self.cg_model.geom_to_feature(geom_s, err[selected], dtype=batch.f_in.dtype)[0]
+            )
+        #
+        batch.pos = pos[batch.input_atom_mask > 0.0]
+        batch.f_in = torch.cat(f_in, axis=0).to(device)
         return batch
 
     def calc_metrics(self, batch, ret):

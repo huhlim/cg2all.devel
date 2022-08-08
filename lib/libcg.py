@@ -62,7 +62,7 @@ class ResidueBasedModel(PDB):
         # n_neigh
         n_neigh = torch.zeros((r.shape[0], 1), dtype=DTYPE)
         edge_src, edge_dst = torch_cluster.radius_graph(
-            r[mask == 1.0],
+            r[mask > 0.0],
             1.0,
         )
         n_neigh.index_add_(0, edge_src, torch.ones_like(edge_src, dtype=DTYPE))

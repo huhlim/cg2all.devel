@@ -73,7 +73,7 @@ class PDBset(torch_geometric.data.Dataset):
         )
         #
         data = torch_geometric.data.Data(
-            pos=torch.as_tensor(r_cg[cg.atom_mask_cg == 1.0], dtype=self.dtype)
+            pos=torch.as_tensor(r_cg[cg.atom_mask_cg > 0.0], dtype=self.dtype)
         )
         data.pos0 = data.pos.clone()
         #
