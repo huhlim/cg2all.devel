@@ -37,7 +37,7 @@ from libloss import (
 )
 from torch_basics import v_norm_safe, inner_product
 from libmetric import rmsd_CA, rmsd_rigid, rmsd_all, rmse_bonded
-from libconfig import EQUIVARIANT_TOLERANCE
+from libconfig import DTYPE, EQUIVARIANT_TOLERANCE
 
 
 CONFIG = ConfigDict()
@@ -64,8 +64,8 @@ CONFIG_BASE["layer_type"] = "SE3Transformer"
 CONFIG_BASE["num_layers"] = 4
 CONFIG_BASE["in_Irreps"] = "40x0e + 10x1o"
 CONFIG_BASE["out_Irreps"] = "40x0e + 10x1o"
-CONFIG_BASE["mid_Irreps"] = "80x0e + 20x1o"
-CONFIG_BASE["attn_Irreps"] = "80x0e + 20x1o"
+CONFIG_BASE["mid_Irreps"] = "40x0e + 10x1o"
+CONFIG_BASE["attn_Irreps"] = "40x0e + 10x1o"
 CONFIG_BASE["l_max"] = 2
 CONFIG_BASE["mlp_num_neurons"] = [20, 20]
 CONFIG_BASE["activation"] = None
@@ -104,7 +104,7 @@ CONFIG["feature_extraction"].update(
         "num_layers": 4,
         "in_Irreps": "40x0e + 10x1o",
         "out_Irreps": "40x0e + 10x1o",
-        "mid_Irreps": "80x0e + 20x1o + 4x2o",
+        "mid_Irreps": "40x0e + 10x1o",
         "attn_Irreps": "80x0e + 20x1o + 4x2o",
         "activation": "relu",
         "skip_connection": True,
@@ -175,12 +175,10 @@ def set_model_config(arg: dict) -> ConfigDict:
     transition_in_Irreps = config.feature_extraction.out_Irreps
     backbone_in_Irreps = config.transition.out_Irreps
     sidechain_in_Irreps = config.transition.out_Irreps
-    if config.globals.num_recycle > 1:
-        for i, irreps in enumerate(["2x1o", "1x1o"]):
-            if config.feature_extraction.preprocess[i]:
-                feature_extraction_in_Irreps += f" + {irreps}"
-            if config.sidechain.preprocess[i]:
-                sidechain_in_Irreps += f" + {irreps}"
+    #
+    for i, irreps in enumerate(["2x1o", "1x1o"]):  # rotation/translation
+        if config.sidechain.preprocess[i]:
+            sidechain_in_Irreps += f" + {irreps}"
     #
     config.update_from_flattened_dict(
         {
@@ -191,6 +189,14 @@ def set_model_config(arg: dict) -> ConfigDict:
             "sidechain.in_Irreps": sidechain_in_Irreps,
         }
     )
+    #
+    # to make it stable for equivariance
+    assert config.feature_extraction.skip_connection
+    assert config.feature_extraction.in_Irreps == config.feature_extraction.mid_Irreps
+    assert config.feature_extraction.out_Irreps == config.feature_extraction.mid_Irreps
+    assert config.transition.skip_connection
+    assert config.transition.in_Irreps == config.transition.mid_Irreps
+    assert config.transition.out_Irreps == config.transition.mid_Irreps
     #
     return config
 
@@ -212,14 +218,13 @@ class EmbeddingModule(nn.Module):
 
 
 class BaseModule(nn.Module):
-    def __init__(self, config, compute_loss=False, checkpoint=False, num_recycle=1):
+    def __init__(self, config, compute_loss=False, checkpoint=False):
         super().__init__()
         #
         self.compute_loss = compute_loss
         self.checkpoint = checkpoint
         self.loss_weight = config.loss_weight
         self.preprocess = config.preprocess
-        self.num_recycle = num_recycle
         #
         self.in_Irreps = o3.Irreps(config.in_Irreps).simplify()
         self.mid_Irreps = o3.Irreps(config.mid_Irreps).simplify()
@@ -239,7 +244,14 @@ class BaseModule(nn.Module):
                 self.mid_Irreps,
                 [self.activation if irrep.is_scalar() else None for (n, irrep) in self.mid_Irreps],
             )
-        self.skip_connection = config.skip_connection
+        if config.skip_connection:
+            self.skip_connection = [
+                (self.in_Irreps == self.mid_Irreps),
+                True,
+                (self.mid_Irreps == self.out_Irreps),
+            ]
+        else:
+            self.skip_connection = [False, False, False]
         for i, (norm, irreps) in enumerate(
             zip(config.norm, [self.in_Irreps, self.mid_Irreps, self.out_Irreps])
         ):
@@ -295,14 +307,18 @@ class BaseModule(nn.Module):
         return out
 
     def forward_graph(self, batch, feat):
+        if self.skip_connection[0]:
+            feat0 = feat.clone()
         if self.training and self.checkpoint:
             feat, graph = gradient_checkpoint(self.layer_0, batch, feat)
         else:
             feat, graph = self.layer_0(batch, feat)
         radius_prev = self.layer_0.radius
+        if self.skip_connection[0]:
+            feat = feat + feat0
         #
         for i, layer in enumerate(self.layer_s):
-            if self.skip_connection:
+            if self.skip_connection[1]:
                 feat0 = feat.clone()
             #
             if self.norm_1:
@@ -320,28 +336,36 @@ class BaseModule(nn.Module):
                     feat, graph = layer(batch, feat)
             radius_prev = layer.radius
             #
-            if self.skip_connection:
+            if self.skip_connection[1]:
                 feat = feat + feat0
         #
         if self.norm_1:
             feat = self.norm_1(feat)
         #
+        if self.skip_connection[2]:
+            feat0 = feat.clone()
         if self.training and self.checkpoint:
-            feat_out, graph = gradient_checkpoint(self.layer_1, batch, feat)
+            feat, graph = gradient_checkpoint(self.layer_1, batch, feat)
         else:
-            feat_out, graph = self.layer_1(batch, feat)
-        return feat_out
+            feat, graph = self.layer_1(batch, feat)
+        if self.skip_connection[2]:
+            feat = feat + feat0
+        return feat
 
     def forward_linear(self, feat):
+        if self.skip_connection[0]:
+            feat0 = feat.clone()
         if self.training and self.checkpoint:
             feat = gradient_checkpoint(self.layer_0, feat)
         else:
             feat = self.layer_0(feat)
         if self.activation is not None:
             feat = self.activation(feat)
+        if self.skip_connection[0]:
+            feat = feat + feat0
 
         for i, layer in enumerate(self.layer_s):
-            if self.skip_connection:
+            if self.skip_connection[1]:
                 feat0 = feat.clone()
             #
             if self.norm_1:
@@ -355,17 +379,21 @@ class BaseModule(nn.Module):
             if self.activation is not None:
                 feat = self.activation(feat)
             #
-            if self.skip_connection:
+            if self.skip_connection[1]:
                 feat = feat + feat0
         #
         if self.norm_1:
             feat = self.norm_1(feat)
         #
+        if self.skip_connection[2]:
+            feat0 = feat.clone()
         if self.training and self.checkpoint:
-            feat_out = gradient_checkpoint(self.layer_1, feat)
+            feat = gradient_checkpoint(self.layer_1, feat)
         else:
-            feat_out = self.layer_1(feat)
-        return feat_out
+            feat = self.layer_1(feat)
+        if self.skip_connection[2]:
+            feat = feat + feat0
+        return feat
 
     def loss_f(self, batch, f_out):
         raise NotImplementedError
@@ -408,12 +436,11 @@ class BaseModule(nn.Module):
 
 
 class InitializationModule(BaseModule):
-    def __init__(self, config, compute_loss=False, checkpoint=False, num_recycle=1):
+    def __init__(self, config, compute_loss=False, checkpoint=False):
         super().__init__(
             config,
             compute_loss=compute_loss,
             checkpoint=checkpoint,
-            num_recycle=num_recycle,
         )
 
     def preprocess_feat(self, f_in, embedding):
@@ -459,83 +486,29 @@ class InitializationModule(BaseModule):
 
 
 class TransitionModule(BaseModule):
-    def __init__(self, config, compute_loss=False, checkpoint=False, num_recycle=1):
+    def __init__(self, config, compute_loss=False, checkpoint=False):
         super().__init__(
             config,
             compute_loss=compute_loss,
             checkpoint=checkpoint,
-            num_recycle=num_recycle,
         )
 
 
 class FeatureExtractionModule(BaseModule):
-    def __init__(self, config, compute_loss=False, checkpoint=False, num_recycle=1):
+    def __init__(self, config, compute_loss=False, checkpoint=False):
         super().__init__(
             config,
             compute_loss=compute_loss,
             checkpoint=checkpoint,
-            num_recycle=num_recycle,
         )
-
-    def preprocess_feat(self, f_in, ret):
-        if self.num_recycle < 2:
-            return f_in
-        #
-        n_residue = f_in.size(0)
-        feat = [f_in]
-        if self.preprocess[0]:
-            feat.append(ret["bb"][:, :3].mT[:, :2].reshape(n_residue, -1))
-        if self.preprocess[1]:
-            feat.append(ret["bb"][:, -1])
-        feat = torch.cat(feat, dim=1)
-        return feat
-
-    def forward(self, batch, f_in, ret):
-        feat = self.preprocess_feat(f_in, ret)
-        output = super().forward(batch, feat)
-        return output
-
-    def test_equivariance(self, random_rotation, batch0, f_in, ret):
-        device = f_in.device
-        feat = self.preprocess_feat(f_in, ret)
-        #
-        in_matrix = self.in_Irreps.D_from_matrix(random_rotation)
-        out_matrix = self.out_Irreps.D_from_matrix(random_rotation)
-        #
-        random_rotation = random_rotation.to(device)
-        in_matrix = in_matrix.to(device)
-        out_matrix = out_matrix.to(device)
-        #
-        batch = copy.deepcopy(batch0)
-        output = super().forward(batch, feat)
-        output_0 = output.clone() @ out_matrix.T
-        #
-        batch.pos = batch.pos @ random_rotation.T
-        batch.pos0 = batch.pos0 @ random_rotation.T
-        batch.global_frame = rotate_vector(
-            random_rotation, batch.global_frame.reshape(-1, 2, 3)
-        ).reshape(-1, 6)
-        feat = feat @ in_matrix.T
-        output_1 = super().forward(batch, feat)
-        #
-        status = torch.allclose(
-            output_0, output_1, rtol=EQUIVARIANT_TOLERANCE, atol=EQUIVARIANT_TOLERANCE
-        )
-        logging.debug(f"Equivariance test for {self.__class__.__name__} {status}")
-        if not status:
-            logging.debug(output_0[0])
-            logging.debug(output_1[0])
-            sys.exit("Could NOT pass equivariance test!")
-        return output
 
 
 class BackboneModule(BaseModule):
-    def __init__(self, config, compute_loss=False, checkpoint=False, num_recycle=1):
+    def __init__(self, config, compute_loss=False, checkpoint=False):
         super().__init__(
             config,
             compute_loss=compute_loss,
             checkpoint=checkpoint,
-            num_recycle=num_recycle,
         )
 
     def loss_f(self, batch, ret, bb1, loss_prev):
@@ -636,33 +609,31 @@ class BackboneModule(BaseModule):
         #
         status = torch.allclose(
             output_0, output_1, rtol=EQUIVARIANT_TOLERANCE, atol=EQUIVARIANT_TOLERANCE
-        ) and torch.allclose(bb_0, bb_1, rtol=EQUIVARIANT_TOLERANCE, atol=EQUIVARIANT_TOLERANCE)
+        )
         logging.debug(f"Equivariance test for {self.__class__.__name__} {status}")
         if not status:
             logging.debug(random_rotation)
             logging.debug(output[0])
             logging.debug(output_0[0])
             logging.debug(output_1[0])
+            logging.debug(torch.abs(output_0 - output_1).max())
             logging.debug(bb[0])
             logging.debug(bb_0[0])
             logging.debug(bb_1[0])
+            logging.debug(torch.abs(bb_0 - bb_1).max())
             sys.exit("Could NOT pass equivariance test!")
         return output
 
 
 class SidechainModule(BaseModule):
-    def __init__(self, config, compute_loss=False, checkpoint=False, num_recycle=1):
+    def __init__(self, config, compute_loss=False, checkpoint=False):
         super().__init__(
             config,
             compute_loss=compute_loss,
             checkpoint=checkpoint,
-            num_recycle=num_recycle,
         )
 
     def preprocess_feat(self, f_in, bb):
-        if self.num_recycle < 2:
-            return f_in
-        #
         n_residue = f_in.size(0)
         feat = [f_in]
         if self.preprocess[0]:
@@ -751,31 +722,26 @@ class Model(nn.Module):
             _config.initialization,
             compute_loss=False,
             checkpoint=checkpoint,
-            num_recycle=self.num_recycle,
         )
         self.feature_extraction_module = FeatureExtractionModule(
             _config.feature_extraction,
             compute_loss=False,
             checkpoint=checkpoint,
-            num_recycle=self.num_recycle,
         )
         self.transition_module = TransitionModule(
             _config.transition,
             compute_loss=False,
             checkpoint=checkpoint,
-            num_recycle=self.num_recycle,
         )
         self.backbone_module = BackboneModule(
             _config.backbone,
             compute_loss=compute_loss,
             checkpoint=checkpoint,
-            num_recycle=self.num_recycle,
         )
         self.sidechain_module = SidechainModule(
             _config.sidechain,
             compute_loss=compute_loss,
             checkpoint=checkpoint,
-            num_recycle=self.num_recycle,
         )
 
     def update_loss_weight(self, _config):
@@ -800,14 +766,14 @@ class Model(nn.Module):
             f_in = self.initialization_module(batch, batch.f_in, embedding)
             #
             # 40x0e + 10x1o --> 40x0e + 10x1o
-            f_out = self.feature_extraction_module(batch, f_in, ret)
+            f_out = self.feature_extraction_module(batch, f_in)
             #
             # 40x0e + 10x1o --> 40x0e + 10x1o
             f_out = self.transition_module(batch, f_out)
             #
             # 40x0e + 10x1o --> 4x0e + 1x1o
             bb = self.backbone_module(batch, f_out)
-            ret["bb"] = self.backbone_module.compose(ret["bb"], bb)
+            ret["bb"] = self.backbone_module.output_to_opr(bb)
             #
             # 40x0e + 10x1o --> 14x0e
             sc = self.sidechain_module(batch, f_out, ret["bb"])
@@ -862,15 +828,13 @@ class Model(nn.Module):
         embedding = self.embedding_module(batch)
         intermediates["embedding_module"].append(embedding.clone())
         #
-        # 38x0e + 4x1o --> 40x0e + 10x1o
-        f_in = self.initialization_module(batch, batch.f_in, embedding)
-        intermediates["initialization_module"].append(f_in.clone())
-        #
         for k in range(self.num_recycle):
-            # self.update_graph(batch, ret)
-            #
+            # 38x0e + 4x1o --> 40x0e + 10x1o
+            f_in = self.initialization_module(batch, batch.f_in, embedding)
+            intermediates["initialization_module"].append(f_in.clone())
+
             # 40x0e + 10x1o --> 40x0e + 10x1o
-            f_out = self.feature_extraction_module(batch, f_in, ret)
+            f_out = self.feature_extraction_module(batch, f_in)
             intermediates["feature_extraction_module"].append(f_out.clone())
             #
             # 40x0e + 10x1o --> 40x0e + 10x1o
@@ -879,7 +843,7 @@ class Model(nn.Module):
             #
             # 40x0e + 10x1o --> 4x0e + 1x1o
             bb = self.backbone_module(batch, f_out)
-            ret["bb"] = self.backbone_module.compose(ret["bb"], bb)
+            ret["bb"] = self.backbone_module.output_to_opr(bb)
             intermediates["backbone_module"].append(bb.clone())
             intermediates["bb"].append(ret["bb"].clone())
             #
@@ -888,11 +852,14 @@ class Model(nn.Module):
             ret["sc"] = self.sidechain_module.compose(sc)
             intermediates["sidechain_module"].append(sc.clone())
             #
-            ret["R"], ret["opr_bb"] = build_structure(batch, ret["bb"], sc=ret["sc"])
+            ret["R"], ret["opr_bb"] = build_structure(
+                batch, ret["bb"], sc=ret["sc"], stop_grad=(k + 1 < self.num_recycle)
+            )
             intermediates["R"].append(ret["R"].clone())
             intermediates["opr_bb"].append(ret["opr_bb"].clone())
 
-        ret["R"], ret["opr_bb"] = build_structure(batch, ret["bb"], sc=ret["sc"])
+            if k < self.num_recycle - 1:
+                self.update_graph(batch, ret)
         #
         return ret, intermediates
 
@@ -967,7 +934,7 @@ class Model(nn.Module):
             )
         #
         batch.pos = pos[batch.input_atom_mask > 0.0]
-        batch.f_in = torch.cat(f_in, axis=0).to(device)
+        batch.f_in = torch.cat(f_in, axis=0)
         return batch
 
     def calc_metrics(self, batch, ret):
@@ -990,7 +957,6 @@ class Model(nn.Module):
         random_rotation = o3.rand_matrix()
         #
         ret = {}
-        ret["bb"] = self.backbone_module.init_value(batch).to(device)
         #
         # sub-modules
         embedding = self.embedding_module(batch)
@@ -998,11 +964,11 @@ class Model(nn.Module):
         x = self.initialization_module.test_equivariance(
             random_rotation, batch, batch.f_in, embedding
         )
-        x = self.feature_extraction_module.test_equivariance(random_rotation, batch, x, ret)
+        x = self.feature_extraction_module.test_equivariance(random_rotation, batch, x)
         x = self.transition_module.test_equivariance(random_rotation, batch, x)
         #
         bb = self.backbone_module.test_equivariance(random_rotation, batch, x)
-        ret["bb"] = self.backbone_module.compose(ret["bb"], bb)
+        ret["bb"] = self.backbone_module.output_to_opr(bb)
         #
         sc = self.sidechain_module.test_equivariance(random_rotation, batch, x, ret["bb"])
         ret["sc"] = self.sidechain_module.compose(sc)
@@ -1015,6 +981,7 @@ class Model(nn.Module):
         batch_0 = copy.deepcopy(batch)
         out_0, X_0 = self.forward_for_develop(batch_0)
         r_0 = rotate_vector(random_rotation, out_0["R"])
+        r_0 = r_0[batch.output_atom_mask > 0.0]
         #
         batch_1 = copy.deepcopy(batch)
         batch_1.pos = batch_1.pos @ random_rotation.T
@@ -1025,6 +992,7 @@ class Model(nn.Module):
         batch_1.f_in = batch_1.f_in @ in_matrix.T
         out_1, X_1 = self.forward_for_develop(batch_1)
         r_1 = out_1["R"]
+        r_1 = r_1[batch.output_atom_mask > 0.0]
         #
         status = torch.allclose(r_0, r_1, rtol=EQUIVARIANT_TOLERANCE, atol=EQUIVARIANT_TOLERANCE)
         logging.debug(f"Equivariance test for {self.__class__.__name__} {status}")
@@ -1054,33 +1022,41 @@ class Model(nn.Module):
                     continue
                 x0 = X_0[module_name][k] @ matrix.T.to(device)
                 x1 = X_1[module_name][k]
+                delta = torch.abs(x0 - x1).max()
                 status = torch.allclose(
                     x0, x1, rtol=EQUIVARIANT_TOLERANCE, atol=EQUIVARIANT_TOLERANCE
                 )
-                logging.debug(f"Equivariance test for model.{module_name}, iteration={k}, {status}")
+                logging.debug(
+                    f"Equivariance test for model.{module_name}, iteration={k}, {status} {delta}"
+                )
         #
         # opr_bb
         for k, (r0, r1) in enumerate(zip(X_0["opr_bb"], X_1["opr_bb"])):
             rot0 = rotate_matrix(random_rotation, r0[:, :3])
             rot1 = r1[:, :3]
+            delta = torch.abs(rot0 - rot1).max()
             status = torch.allclose(
                 rot0, rot1, rtol=EQUIVARIANT_TOLERANCE, atol=EQUIVARIANT_TOLERANCE
             )
-            logging.debug(f"Equivariance test for model.opr_bb.rotation, iteration={k}, {status}")
+            logging.debug(
+                f"Equivariance test for model.opr_bb.rotation, iteration={k}, {status} {delta}"
+            )
             tr0 = rotate_vector(random_rotation, r0[:, 3])
             tr1 = r1[:, 3]
+            delta = torch.abs(tr0 - tr1).max()
             status = torch.allclose(
                 tr0, tr1, rtol=EQUIVARIANT_TOLERANCE, atol=EQUIVARIANT_TOLERANCE
             )
             logging.debug(
-                f"Equivariance test for model.opr_bb.translation, iteration={k}, {status}"
+                f"Equivariance test for model.opr_bb.translation, iteration={k}, {status} {delta}"
             )
 
         # R
         for k, (r0, r1) in enumerate(zip(X_0["R"], X_1["R"])):
             _r0 = rotate_vector(random_rotation, r0)
+            delta = torch.abs(_r0 - r1).max()
             status = torch.allclose(_r0, r1, rtol=EQUIVARIANT_TOLERANCE, atol=EQUIVARIANT_TOLERANCE)
-            logging.debug(f"Equivariance test for model.R, iteration={k}, {status}")
+            logging.debug(f"Equivariance test for model.R, iteration={k}, {status} {delta}")
         #
         torch.save(
             {
@@ -1110,13 +1086,17 @@ def combine_operations(X, Y):
 
 
 def build_structure(batch, bb, sc=None, stop_grad=False):
+    dtype = bb.dtype
     device = bb.device
     residue_type = batch.residue_type
     #
-    transforms = RIGID_TRANSFORMS_TENSOR[residue_type].to(device)
+    if dtype != DTYPE:
+        transforms = RIGID_TRANSFORMS_TENSOR[residue_type].to(device).type(dtype)
+        rigids = RIGID_GROUPS_TENSOR[residue_type].to(device).type(dtype)
+    else:
+        transforms = RIGID_TRANSFORMS_TENSOR[residue_type].to(device)
+        rigids = RIGID_GROUPS_TENSOR[residue_type].to(device)
     transforms_dep = RIGID_TRANSFORMS_DEP[residue_type].to(device)
-    #
-    rigids = RIGID_GROUPS_TENSOR[residue_type].to(device)
     rigids_dep = RIGID_GROUPS_DEP[residue_type].to(device)
     #
     opr = torch.zeros_like(transforms, device=device)

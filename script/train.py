@@ -29,11 +29,17 @@ if IS_DEVELOP:
 
 
 class Model(pl.LightningModule):
-    def __init__(self, _config, compute_loss=False, checkpoint=False, memcheck=False):
+    def __init__(self, _config, cg_model, compute_loss=False, checkpoint=False, memcheck=False):
         super().__init__()
         self.save_hyperparameters(_config.to_dict())
-        self.model = libmodel.Model(_config, compute_loss=compute_loss, checkpoint=checkpoint)
+        self.model = libmodel.Model(
+            _config, cg_model, compute_loss=compute_loss, checkpoint=checkpoint
+        )
         self.memcheck = memcheck
+
+    @property
+    def cg_model(self):
+        return self.model.cg_model
 
     def forward(self, batch: torch_geometric.data.Batch):
         return self.model.forward(batch)
@@ -271,7 +277,7 @@ def main():
         gradient_clip_val=1.0,
         check_val_every_n_epoch=1,
         logger=logger,
-        callbacks=[checkpointing, early_stopping],
+        callbacks=[checkpointing],  # , early_stopping],
     )
     trainer.fit(model, train_loader, val_loader)
     trainer.test(model, test_loader)
@@ -298,7 +304,7 @@ def main():
         check_val_every_n_epoch=1,
         enable_model_summary=False,
         logger=logger,
-        callbacks=[checkpointing, early_stopping],
+        callbacks=[checkpointing],  # , early_stopping],
     )
     trainer_ft.fit(model, train_loader, val_loader, ckpt_path=checkpointing.best_model_path)
     trainer_ft.test(model, test_loader)

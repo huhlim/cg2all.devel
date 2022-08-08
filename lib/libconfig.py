@@ -1,4 +1,5 @@
-# %%
+#!/usr/bin/env python
+
 import os
 import sys
 import pathlib
@@ -10,8 +11,5 @@ DATA_HOME = BASE / "data"
 
 DTYPE = torch.get_default_dtype()
 EPS = 1e-6
-EQUIVARIANT_TOLERANCE = 1e-3
-USE_EQUIVARIANCE_TEST = False
-# EPS = torch.finfo(DTYPE).eps
-
-# %%
+EQUIVARIANT_TOLERANCE = 1e-2
+USE_EQUIVARIANCE_TEST = True

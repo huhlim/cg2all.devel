@@ -53,6 +53,8 @@ class ResidueBasedModel(PDB):
 
     @staticmethod
     def get_geometry(r: torch.Tensor, continuous: torch.Tensor, mask: torch.Tensor):
+        device = r.device
+        #
         not_defined = continuous == 0.0
         geom_s = {}
         #
@@ -60,22 +62,22 @@ class ResidueBasedModel(PDB):
         geom_s["pca"] = torch.pca_lowrank(r.view(-1, 3))[-1].T[:2]
 
         # n_neigh
-        n_neigh = torch.zeros((r.shape[0], 1), dtype=DTYPE)
+        n_neigh = torch.zeros(r.shape[0], dtype=DTYPE, device=device)
         edge_src, edge_dst = torch_cluster.radius_graph(
             r[mask > 0.0],
             1.0,
         )
-        n_neigh.index_add_(0, edge_src, torch.ones_like(edge_src, dtype=DTYPE))
-        n_neigh.index_add_(0, edge_dst, torch.ones_like(edge_dst, dtype=DTYPE))
+        n_neigh.index_add_(0, edge_src, torch.ones_like(edge_src, dtype=DTYPE, device=device))
+        n_neigh.index_add_(0, edge_dst, torch.ones_like(edge_dst, dtype=DTYPE, device=device))
         n_neigh = n_neigh / 2.0
-        geom_s["n_neigh"] = n_neigh
+        geom_s["n_neigh"] = n_neigh[:, None]
 
         # bond vectors
         geom_s["bond_length"] = {}
         geom_s["bond_vector"] = {}
         for shift in [1, 2]:
-            b_len = torch.zeros(r.shape[0] + shift, dtype=DTYPE)
-            dr = torch.zeros((r.shape[0] + shift, 3), dtype=DTYPE)
+            b_len = torch.zeros(r.shape[0] + shift, dtype=DTYPE, device=device)
+            dr = torch.zeros((r.shape[0] + shift, 3), dtype=DTYPE, device=device)
             #
             dr[shift:-shift] = r[:-shift, 0, :] - r[shift:, 0, :]
             b_len[shift:-shift] = v_size(dr[shift:-shift])
@@ -107,7 +109,7 @@ class ResidueBasedModel(PDB):
         for i in range(3):
             cosine[: -(i + 1)][not_defined[i + 1 : -3]] = 0.0
             sine[: -(i + 1)][not_defined[i + 1 : -3]] = 0.0
-        sc = torch.zeros((r.shape[0], 4, 2))
+        sc = torch.zeros((r.shape[0], 4, 2), device=device)
         for i in range(4):
             sc[i : i + cosine.shape[0], i, 0] = cosine
             sc[i : i + sine.shape[0], i, 1] = sine
@@ -134,7 +136,7 @@ class ResidueBasedModel(PDB):
         # noise-level
         f_in[0].append(noise_size[:, None])  # 1
         #
-        f_in[0] = torch.as_tensor(np.concatenate(f_in[0], axis=1), dtype=dtype)  # 16x0e = 16
+        f_in[0] = torch.as_tensor(torch.cat(f_in[0], axis=1), dtype=dtype)  # 16x0e = 16
         n_scalar = f_in[0].size(1)  # 16
         #
         # 1d: unit vectors from adjacent residues to the current residue
@@ -142,7 +144,7 @@ class ResidueBasedModel(PDB):
         f_in[1].append(geom_s["bond_vector"][1][1])
         f_in[1].append(geom_s["bond_vector"][2][0])
         f_in[1].append(geom_s["bond_vector"][2][1])
-        f_in[1] = torch.as_tensor(np.concatenate(f_in[1], axis=1), dtype=dtype)  # 4x1o = 12
+        f_in[1] = torch.as_tensor(torch.cat(f_in[1], axis=1), dtype=dtype)  # 4x1o = 12
         n_vector = int(f_in[1].size(1) // 3)  # 4
         #
         f_in = torch.cat(
@@ -160,6 +162,8 @@ class CalphaBasedModel(ResidueBasedModel):
         super().__init__(pdb_fn, dcd_fn)
 
     def convert_to_cg(self):
+        # r: (n_frame, n_residue, MAX_ATOM, 3)
+        # mass: (n_frame, n_residue, MAX_ATOM)
         self.top_cg = self.top.subset(self.top.select("name CA"))
         self.bead_index = self.residue_index[:, None]
         #
@@ -168,7 +172,9 @@ class CalphaBasedModel(ResidueBasedModel):
 
     @staticmethod
     def convert_to_cg_tensor(r: torch.Tensor, mass: torch.Tensor) -> torch.Tensor:
-        R_cg = r[:, :, (ATOM_INDEX_CA,), :]
+        # r: (n_residue, MAX_ATOM, 3)
+        # mass: (n_residue, MAX_ATOM)
+        R_cg = r[:, (ATOM_INDEX_CA,), :]
         return R_cg
 
 

@@ -56,7 +56,7 @@ class PDBset(torch_geometric.data.Dataset):
             cg = self.rotate_randomly(cg)
         frame_index = np.random.randint(cg.n_frame)
         #
-        r_cg = torch.as_tensor(cg.R_cg[frame_index], dtype=DTYPE)
+        r_cg = torch.as_tensor(cg.R_cg[frame_index], dtype=self.dtype)
         if self.noise_level > 0.0:
             noise_size = torch.randn(1).item() * (self.noise_level / 2.0) + self.noise_level
             if noise_size >= 0.0:
