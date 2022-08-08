@@ -12,27 +12,8 @@ import torch_cluster
 import e3nn
 
 import libcg
-from libconfig import BASE, DTYPE
+from libconfig import BASE, DTYPE, EQUIVARIANT_TOLERANCE
 from residue_constants import AMINO_ACID_s, AMINO_ACID_REV_s, residue_s
-
-
-class Normalizer(object):
-    def __init__(self, mean, std):
-        self.mean = torch.as_tensor(mean, dtype=DTYPE)
-        self.std = torch.as_tensor(std, dtype=DTYPE)
-        self._is_valid = False
-
-    def set_n_scalar(self, n_scalar):
-        if self._is_valid:
-            return
-        self._is_valid = True
-        # apply only on scalar data
-        self.mean[n_scalar:] = 0.0
-        self.std[n_scalar:] = 1.0
-        self.std[self.std == 0.0] = 1.0
-
-    def __call__(self, X):
-        return (X - self.mean) / self.std
 
 
 class PDBset(torch_geometric.data.Dataset):
@@ -44,7 +25,6 @@ class PDBset(torch_geometric.data.Dataset):
         noise_level=0.0,
         get_structure_information=False,
         random_rotation=False,
-        normalize=True,
         dtype=DTYPE,
     ):
         super().__init__()
@@ -63,12 +43,6 @@ class PDBset(torch_geometric.data.Dataset):
         self.noise_level = noise_level
         self.get_structure_information = get_structure_information
         self.random_rotation = random_rotation
-        #
-        transform_npy_fn = basedir / "transform.npy"
-        if transform_npy_fn.exists() and normalize:
-            self.transform = Normalizer(*np.load(transform_npy_fn))
-        else:
-            self.transform = None
 
     def __len__(self):
         return self.n_pdb
@@ -84,76 +58,26 @@ class PDBset(torch_geometric.data.Dataset):
         #
         r_cg = torch.as_tensor(cg.R_cg[frame_index], dtype=DTYPE)
         if self.noise_level > 0.0:
-            noise_size = (
-                torch.randn(1).item() * (self.noise_level / 2.0) + self.noise_level
-            )
+            noise_size = torch.randn(1).item() * (self.noise_level / 2.0) + self.noise_level
             if noise_size >= 0.0:
                 r_cg += torch.randn(r_cg.size()) * noise_size
             else:
                 noise_size = 0.0
         else:
             noise_size = 0.0
+        noise_size = torch.full((cg.n_residue,), noise_size)
         #
-        geom_s = cg.get_geometry(r_cg, cg.continuous)
+        geom_s = cg.get_geometry(r_cg, cg.continuous, cg.atom_mask_cg)
+        f_in, n_scalar, n_vector = cg.geom_to_feature(
+            geom_s, noise_size=noise_size, dtype=self.dtype
+        )
         #
         data = torch_geometric.data.Data(
             pos=torch.as_tensor(r_cg[cg.atom_mask_cg == 1.0], dtype=self.dtype)
         )
         data.pos0 = data.pos.clone()
         #
-        n_neigh = torch.zeros((r_cg.shape[0], 1), dtype=DTYPE)
-        edge_src, edge_dst = torch_cluster.radius_graph(
-            data.pos,
-            1.0,
-        )
-        n_neigh[edge_src] += 1.0
-        n_neigh[edge_dst] += 1.0
-        #
-        # features for each residue
-        f_in = [[], []]  # 0d, 1d
-        # 0d
-        f_in[0].append(n_neigh)  # 1
-        #
-        f_in[0].append(geom_s["bond_length"][1][0][:, None])  # 4
-        f_in[0].append(geom_s["bond_length"][1][1][:, None])
-        f_in[0].append(geom_s["bond_length"][2][0][:, None])
-        f_in[0].append(geom_s["bond_length"][2][1][:, None])
-        #
-        f_in[0].append(geom_s["bond_angle"][0][:, None])  # 2
-        f_in[0].append(geom_s["bond_angle"][1][:, None])
-        #
-        f_in[0].append(geom_s["dihedral_angle"].reshape(-1, 8))  # 8
-        #
-        # noise-level
-        f_in[0].append(torch.full((r_cg.shape[0], 1), noise_size))  # 1
-        #
-        f_in[0] = torch.as_tensor(
-            np.concatenate(f_in[0], axis=1), dtype=self.dtype
-        )  # 16x0e = 16
-        n_scalar = f_in[0].size(1)  # 16
-        #
-        # 1d: unit vectors from adjacent residues to the current residue
-        f_in[1].append(geom_s["bond_vector"][1][0])
-        f_in[1].append(geom_s["bond_vector"][1][1])
-        f_in[1].append(geom_s["bond_vector"][2][0])
-        f_in[1].append(geom_s["bond_vector"][2][1])
-        f_in[1] = torch.as_tensor(
-            np.concatenate(f_in[1], axis=1), dtype=self.dtype
-        )  # 4x1o = 12
-        n_vector = int(f_in[1].size(1) // 3)  # 4
-        #
-        f_in = torch.cat(
-            [
-                f_in[0],
-                f_in[1].reshape(f_in[1].shape[0], -1),
-            ],
-            dim=1,
-        )  # 16x0e + 4x1o = 28
-        if self.transform:
-            self.transform.set_n_scalar(n_scalar)
-            data.f_in = self.transform(f_in)
-        else:
-            data.f_in = f_in
+        data.f_in = f_in
         data.f_in_Irreps = f"{n_scalar}x0e + {n_vector}x1o"
         #
         global_frame = torch.as_tensor(geom_s["pca"], dtype=self.dtype).reshape(-1)
@@ -165,6 +89,7 @@ class PDBset(torch_geometric.data.Dataset):
         #
         data.atomic_radius = torch.as_tensor(cg.atomic_radius, dtype=self.dtype)
         data.atomic_mass = torch.as_tensor(cg.atomic_mass, dtype=self.dtype)
+        data.input_atom_mask = torch.as_tensor(cg.atom_mask_cg, dtype=self.dtype)
         data.output_atom_mask = torch.as_tensor(cg.atom_mask, dtype=self.dtype)
         data.output_xyz = torch.as_tensor(cg.R[frame_index], dtype=self.dtype)
         #
@@ -262,7 +187,7 @@ def test():
         base_dir,
         pdblist,
         cg_model,
-        noise_level=0.5,
+        noise_level=0.0,
         random_rotation=True,
         get_structure_information=True,
     )
@@ -276,7 +201,39 @@ def test():
     #     )
     r = batch.output_xyz
     mass = batch.atomic_mass
-    print(train_set.cg_model.convert_to_cg_tensor(r, mass).shape)
+    _pos_new = cg_model.convert_to_cg_tensor(r, mass)
+    print(
+        torch.allclose(
+            batch.pos,
+            _pos_new[batch.input_atom_mask == 1.0],
+            rtol=EQUIVARIANT_TOLERANCE,
+            atol=EQUIVARIANT_TOLERANCE,
+        )
+    )
+    #
+    for k in range(batch.num_graphs):
+        selected = batch.batch == k
+        pos_new = _pos_new[selected]
+        #
+        geom_s = cg_model.get_geometry(
+            pos_new, batch.continuous[selected], batch.input_atom_mask[selected]
+        )
+        f_in, _, _ = cg_model.geom_to_feature(
+            geom_s, batch.f_in[selected, 15], dtype=batch.f_in.dtype
+        )
+        f_in = f_in.to(f_in.device)
+        #
+        print(
+            torch.allclose(
+                f_in[:, 1:],
+                batch.f_in[selected, 1:],
+                rtol=0.005,
+                atol=0.005,
+            )
+        )
+        delta = torch.abs(f_in[:, 1:] - batch.f_in[selected, 1:])
+        print(delta.max())
+        print(delta.max(axis=0))
 
 
 if __name__ == "__main__":

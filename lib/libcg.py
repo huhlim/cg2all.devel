@@ -4,6 +4,8 @@
 import mdtraj
 import numpy as np
 import torch
+import torch_cluster
+
 from libconfig import DTYPE
 from libpdb import PDB
 from sklearn.decomposition import PCA
@@ -25,10 +27,7 @@ class ResidueBasedModel(PDB):
         self.atom_mask_cg = np.zeros((self.n_residue, 1), dtype=np.float16)
         #
         mass_weighted_R = self.R * self.atomic_mass[None, ..., None]
-        R_cg = (
-            mass_weighted_R.sum(axis=-2)
-            / self.atomic_mass.sum(axis=-1)[None, ..., None]
-        )
+        R_cg = mass_weighted_R.sum(axis=-2) / self.atomic_mass.sum(axis=-1)[None, ..., None]
         #
         self.R_cg = R_cg[..., None, :]
         self.atom_mask_cg = self.atom_mask[:, (ATOM_INDEX_CA,)]
@@ -53,12 +52,23 @@ class ResidueBasedModel(PDB):
             traj.save(dcd_fn)
 
     @staticmethod
-    def get_geometry(r: torch.Tensor, continuous: torch.Tensor):
+    def get_geometry(r: torch.Tensor, continuous: torch.Tensor, mask: torch.Tensor):
         not_defined = continuous == 0.0
         geom_s = {}
         #
         # pca
         geom_s["pca"] = torch.pca_lowrank(r.view(-1, 3))[-1].T[:2]
+
+        # n_neigh
+        n_neigh = torch.zeros((r.shape[0], 1), dtype=DTYPE)
+        edge_src, edge_dst = torch_cluster.radius_graph(
+            r[mask == 1.0],
+            1.0,
+        )
+        n_neigh.index_add_(0, edge_src, torch.ones_like(edge_src, dtype=DTYPE))
+        n_neigh.index_add_(0, edge_dst, torch.ones_like(edge_dst, dtype=DTYPE))
+        n_neigh = n_neigh / 2.0
+        geom_s["n_neigh"] = n_neigh
 
         # bond vectors
         geom_s["bond_length"] = {}
@@ -104,6 +114,46 @@ class ResidueBasedModel(PDB):
         geom_s["dihedral_angle"] = sc
         return geom_s
 
+    @staticmethod
+    def geom_to_feature(geom_s, noise_size: torch.Tensor, dtype=DTYPE) -> torch.Tensor:
+        # features for each residue
+        f_in = [[], []]  # 0d, 1d
+        # 0d
+        f_in[0].append(geom_s["n_neigh"])  # 1
+        #
+        f_in[0].append(geom_s["bond_length"][1][0][:, None])  # 4
+        f_in[0].append(geom_s["bond_length"][1][1][:, None])
+        f_in[0].append(geom_s["bond_length"][2][0][:, None])
+        f_in[0].append(geom_s["bond_length"][2][1][:, None])
+        #
+        f_in[0].append(geom_s["bond_angle"][0][:, None])  # 2
+        f_in[0].append(geom_s["bond_angle"][1][:, None])
+        #
+        f_in[0].append(geom_s["dihedral_angle"].reshape(-1, 8))  # 8
+        #
+        # noise-level
+        f_in[0].append(noise_size[:, None])  # 1
+        #
+        f_in[0] = torch.as_tensor(np.concatenate(f_in[0], axis=1), dtype=dtype)  # 16x0e = 16
+        n_scalar = f_in[0].size(1)  # 16
+        #
+        # 1d: unit vectors from adjacent residues to the current residue
+        f_in[1].append(geom_s["bond_vector"][1][0])
+        f_in[1].append(geom_s["bond_vector"][1][1])
+        f_in[1].append(geom_s["bond_vector"][2][0])
+        f_in[1].append(geom_s["bond_vector"][2][1])
+        f_in[1] = torch.as_tensor(np.concatenate(f_in[1], axis=1), dtype=dtype)  # 4x1o = 12
+        n_vector = int(f_in[1].size(1) // 3)  # 4
+        #
+        f_in = torch.cat(
+            [
+                f_in[0],
+                f_in[1].reshape(f_in[1].shape[0], -1),
+            ],
+            dim=1,
+        )  # 16x0e + 4x1o = 28
+        return f_in, n_scalar, n_vector
+
 
 class CalphaBasedModel(ResidueBasedModel):
     def __init__(self, pdb_fn, dcd_fn=None):
@@ -135,8 +185,6 @@ class Martini(PDB):
 
 def main():
     pdb = ResidueBasedModel("pdb.processed/1HEO.pdb")
-    pdb.to_tensor()
-    pdb.get_geometry(pdb.R_cg[0], pdb.continuous)
 
 
 if __name__ == "__main__":

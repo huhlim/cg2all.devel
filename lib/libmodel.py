@@ -43,7 +43,7 @@ from libconfig import EQUIVARIANT_TOLERANCE
 CONFIG = ConfigDict()
 
 CONFIG["globals"] = ConfigDict()
-CONFIG["globals"]["num_recycle"] = 1
+CONFIG["globals"]["num_recycle"] = 2
 CONFIG["globals"]["loss_weight"] = ConfigDict()
 CONFIG["globals"]["loss_weight"].update(
     {
@@ -237,10 +237,7 @@ class BaseModule(nn.Module):
         if config.layer_type not in ["ConvLayer", "SE3Transformer"] and self.activation:
             self.activation = e3nn.nn.Activation(
                 self.mid_Irreps,
-                [
-                    self.activation if irrep.is_scalar() else None
-                    for (n, irrep) in self.mid_Irreps
-                ],
+                [self.activation if irrep.is_scalar() else None for (n, irrep) in self.mid_Irreps],
             )
         self.skip_connection = config.skip_connection
         for i, (norm, irreps) in enumerate(
@@ -541,39 +538,36 @@ class BackboneModule(BaseModule):
             num_recycle=num_recycle,
         )
 
-    def loss_f(self, batch, bb, bb1, loss_prev, stop_grad=False):
-        R, opr_bb = build_structure(batch, bb, sc=None, stop_grad=stop_grad)
-        #
+    def loss_f(self, batch, ret, bb1, loss_prev):
         loss = {}
         if self.loss_weight.get("rigid_body", 0.0) > 0.0:
             loss["rigid_body"] = (
-                loss_f_rigid_body(R, batch.output_xyz) * self.loss_weight.rigid_body
+                loss_f_rigid_body(ret["R"], batch.output_xyz) * self.loss_weight.rigid_body
             )
         else:
             loss["rigid_body"] = 0.0
         if self.loss_weight.get("FAPE_CA", 0.0) > 0.0:
             loss["FAPE_CA"] = (
-                loss_f_FAPE_CA(batch, R, opr_bb) * self.loss_weight.FAPE_CA
+                loss_f_FAPE_CA(batch, ret["R"], ret["opr_bb"]) * self.loss_weight.FAPE_CA
             )
         else:
             loss["FAPE_CA"] = 0.0
         if self.loss_weight.get("rotation_matrix", 0.0) > 0.0:
             loss["rotation_matrix"] = (
-                loss_f_rotation_matrix(bb, bb1, batch.correct_bb)
+                loss_f_rotation_matrix(ret["bb"], bb1, batch.correct_bb)
                 * self.loss_weight.rotation_matrix
             )
         else:
             loss["rotation_matrix"] = 0.0
         if self.loss_weight.get("bonded_energy", 0.0) > 0.0:
             loss["bonded_energy"] = (
-                loss_f_bonded_energy(R, batch.continuous)
-                * self.loss_weight.bonded_energy
+                loss_f_bonded_energy(ret["R"], batch.continuous) * self.loss_weight.bonded_energy
             )
         else:
             loss["bonded_energy"] = 0.0
         if self.loss_weight.get("distance_matrix", 0.0) > 0.0:
             loss["distance_matrix"] = (
-                loss_f_distance_matrix(R, batch) * self.loss_weight.distance_matrix
+                loss_f_distance_matrix(ret["R"], batch) * self.loss_weight.distance_matrix
             )
         else:
             loss["distance_matrix"] = 0.0
@@ -642,9 +636,7 @@ class BackboneModule(BaseModule):
         #
         status = torch.allclose(
             output_0, output_1, rtol=EQUIVARIANT_TOLERANCE, atol=EQUIVARIANT_TOLERANCE
-        ) and torch.allclose(
-            bb_0, bb_1, rtol=EQUIVARIANT_TOLERANCE, atol=EQUIVARIANT_TOLERANCE
-        )
+        ) and torch.allclose(bb_0, bb_1, rtol=EQUIVARIANT_TOLERANCE, atol=EQUIVARIANT_TOLERANCE)
         logging.debug(f"Equivariance test for {self.__class__.__name__} {status}")
         if not status:
             logging.debug(random_rotation)
@@ -723,17 +715,17 @@ class SidechainModule(BaseModule):
             sys.exit("Could NOT pass equivariance test!")
         return output
 
-    def loss_f(self, batch, sc, sc1, loss_prev):
+    def loss_f(self, batch, ret, sc1, loss_prev):
         loss = {}
         if self.loss_weight.get("torsion_angle", 0.0) > 0.0:
             loss["torsion_angle"] = (
-                loss_f_torsion_angle(sc, sc1, batch.correct_torsion, batch.torsion_mask)
+                loss_f_torsion_angle(ret["sc"], sc1, batch.correct_torsion, batch.torsion_mask)
                 * self.loss_weight.torsion_angle
             )
         else:
             loss["torsion_angle"] = 0.0
         if self.loss_weight.get("atomic_clash", 0.0) > 0.0:
-            loss["atomic_clash"] = loss_f_atomic_clash(R, batch)
+            loss["atomic_clash"] = loss_f_atomic_clash(ret["R"], batch)
         else:
             loss["atomic_clash"] = 0.0
         for k, v in loss_prev.items():
@@ -745,9 +737,10 @@ class SidechainModule(BaseModule):
 
 
 class Model(nn.Module):
-    def __init__(self, _config, compute_loss=False, checkpoint=False):
+    def __init__(self, _config, cg_model, compute_loss=False, checkpoint=False):
         super().__init__()
         #
+        self.cg_model = cg_model
         self.compute_loss = compute_loss
         self.checkpoint = checkpoint
         self.num_recycle = _config.globals.num_recycle
@@ -802,11 +795,9 @@ class Model(nn.Module):
         # residue_type --> embedding
         embedding = self.embedding_module(batch)
         #
-        # 16x0e + 4x1o --> 40x0e + 10x1o
-        f_in = self.initialization_module(batch, batch.f_in, embedding)
-        #
         for k in range(self.num_recycle):
-            # self.update_graph(batch, ret)
+            # 16x0e + 4x1o --> 40x0e + 10x1o
+            f_in = self.initialization_module(batch, batch.f_in, embedding)
             #
             # 40x0e + 10x1o --> 40x0e + 10x1o
             f_out = self.feature_extraction_module(batch, f_in, ret)
@@ -822,19 +813,24 @@ class Model(nn.Module):
             sc = self.sidechain_module(batch, f_out, ret["bb"])
             ret["sc"] = self.sidechain_module.compose(sc)
             #
+            # build structure
+            ret["R"], ret["opr_bb"] = build_structure(
+                batch, ret["bb"], sc=ret["sc"], stop_grad=(k + 1 < self.num_recycle)
+            )
+            #
             if self.compute_loss or self.training:
                 loss["bb"] = self.backbone_module.loss_f(
                     batch,
-                    ret["bb"],
+                    ret,
                     bb,
                     loss.get("bb", {}),
                     stop_grad=(k + 1 < self.num_recycle),
                 )
-                loss["sc"] = self.sidechain_module.loss_f(
-                    batch, ret["sc"], None, loss.get("sc", {})
-                )
+                loss["sc"] = self.sidechain_module.loss_f(batch, ret, sc, loss.get("sc", {}))
+            #
+            if k < self.num_recycle - 1:
+                self.update_graph(batch, ret)
 
-        ret["R"], ret["opr_bb"] = build_structure(batch, ret["bb"], sc=ret["sc"])
         if self.compute_loss or self.training:
             loss["R"] = self.loss_f(batch, ret)
             for k, v in loss["bb"].items():
@@ -912,9 +908,7 @@ class Model(nn.Module):
         else:
             loss["rigid_body"] = 0.0
         if self.loss_weight.get("FAPE_CA", 0.0) > 0.0:
-            loss["FAPE_CA"] = (
-                loss_f_FAPE_CA(batch, R, ret["opr_bb"]) * self.loss_weight.FAPE_CA
-            )
+            loss["FAPE_CA"] = loss_f_FAPE_CA(batch, R, ret["opr_bb"]) * self.loss_weight.FAPE_CA
         else:
             loss["FAPE_CA"] = 0.0
         if self.loss_weight.get("rotation_matrix", 0.0) > 0.0:
@@ -926,15 +920,13 @@ class Model(nn.Module):
             loss["rotation_matrix"] = 0.0
         if self.loss_weight.get("mse_R", 0.0) > 0.0:
             loss["mse_R"] = (
-                loss_f_mse_R(R, batch.output_xyz, batch.output_atom_mask)
-                * self.loss_weight.mse_R
+                loss_f_mse_R(R, batch.output_xyz, batch.output_atom_mask) * self.loss_weight.mse_R
             )
         else:
             loss["mse_R"] = 0.0
         if self.loss_weight.get("bonded_energy", 0.0) > 0.0:
             loss["bonded_energy"] = (
-                loss_f_bonded_energy(R, batch.continuous)
-                * self.loss_weight.bonded_energy
+                loss_f_bonded_energy(R, batch.continuous) * self.loss_weight.bonded_energy
             )
         else:
             loss["bonded_energy"] = 0.0
@@ -946,9 +938,7 @@ class Model(nn.Module):
             loss["distance_matrix"] = 0.0
         if self.loss_weight.get("torsion_angle", 0.0) > 0.0:
             loss["torsion_angle"] = (
-                loss_f_torsion_angle(
-                    ret["sc"], None, batch.correct_torsion, batch.torsion_mask
-                )
+                loss_f_torsion_angle(ret["sc"], None, batch.correct_torsion, batch.torsion_mask)
                 * self.loss_weight.torsion_angle
             )
         else:
@@ -991,23 +981,17 @@ class Model(nn.Module):
         x = self.initialization_module.test_equivariance(
             random_rotation, batch, batch.f_in, embedding
         )
-        x = self.feature_extraction_module.test_equivariance(
-            random_rotation, batch, x, ret
-        )
+        x = self.feature_extraction_module.test_equivariance(random_rotation, batch, x, ret)
         x = self.transition_module.test_equivariance(random_rotation, batch, x)
         #
         bb = self.backbone_module.test_equivariance(random_rotation, batch, x)
         ret["bb"] = self.backbone_module.compose(ret["bb"], bb)
         #
-        sc = self.sidechain_module.test_equivariance(
-            random_rotation, batch, x, ret["bb"]
-        )
+        sc = self.sidechain_module.test_equivariance(random_rotation, batch, x, ret["bb"])
         ret["sc"] = self.sidechain_module.compose(sc)
 
         # rotation matrices
-        in_matrix = (
-            o3.Irreps(batch.f_in_Irreps[0]).D_from_matrix(random_rotation).to(device)
-        )
+        in_matrix = o3.Irreps(batch.f_in_Irreps[0]).D_from_matrix(random_rotation).to(device)
         random_rotation = random_rotation.to(device)
         #
         # the whole model
@@ -1025,9 +1009,7 @@ class Model(nn.Module):
         out_1, X_1 = self.forward_for_develop(batch_1)
         r_1 = out_1["R"]
         #
-        status = torch.allclose(
-            r_0, r_1, rtol=EQUIVARIANT_TOLERANCE, atol=EQUIVARIANT_TOLERANCE
-        )
+        status = torch.allclose(r_0, r_1, rtol=EQUIVARIANT_TOLERANCE, atol=EQUIVARIANT_TOLERANCE)
         logging.debug(f"Equivariance test for {self.__class__.__name__} {status}")
         if status:
             return
@@ -1042,9 +1024,7 @@ class Model(nn.Module):
             "transition_module": self.transition_module.out_Irreps.D_from_matrix(
                 random_rotation.cpu()
             ),
-            "backbone_module": self.backbone_module.out_Irreps.D_from_matrix(
-                random_rotation.cpu()
-            ),
+            "backbone_module": self.backbone_module.out_Irreps.D_from_matrix(random_rotation.cpu()),
             "sidechain_module": self.sidechain_module.out_Irreps.D_from_matrix(
                 random_rotation.cpu()
             ),
@@ -1060,9 +1040,7 @@ class Model(nn.Module):
                 status = torch.allclose(
                     x0, x1, rtol=EQUIVARIANT_TOLERANCE, atol=EQUIVARIANT_TOLERANCE
                 )
-                logging.debug(
-                    f"Equivariance test for model.{module_name}, iteration={k}, {status}"
-                )
+                logging.debug(f"Equivariance test for model.{module_name}, iteration={k}, {status}")
         #
         # opr_bb
         for k, (r0, r1) in enumerate(zip(X_0["opr_bb"], X_1["opr_bb"])):
@@ -1071,9 +1049,7 @@ class Model(nn.Module):
             status = torch.allclose(
                 rot0, rot1, rtol=EQUIVARIANT_TOLERANCE, atol=EQUIVARIANT_TOLERANCE
             )
-            logging.debug(
-                f"Equivariance test for model.opr_bb.rotation, iteration={k}, {status}"
-            )
+            logging.debug(f"Equivariance test for model.opr_bb.rotation, iteration={k}, {status}")
             tr0 = rotate_vector(random_rotation, r0[:, 3])
             tr1 = r1[:, 3]
             status = torch.allclose(
@@ -1086,9 +1062,7 @@ class Model(nn.Module):
         # R
         for k, (r0, r1) in enumerate(zip(X_0["R"], X_1["R"])):
             _r0 = rotate_vector(random_rotation, r0)
-            status = torch.allclose(
-                _r0, r1, rtol=EQUIVARIANT_TOLERANCE, atol=EQUIVARIANT_TOLERANCE
-            )
+            status = torch.allclose(_r0, r1, rtol=EQUIVARIANT_TOLERANCE, atol=EQUIVARIANT_TOLERANCE)
             logging.debug(f"Equivariance test for model.R, iteration={k}, {status}")
         #
         torch.save(

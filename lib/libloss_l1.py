@@ -88,9 +88,7 @@ def loss_f_FAPE_CA(
         r = rotate_vector_inv(bb[i, :3], R[selected, ATOM_INDEX_CA] - bb[i, 3])
         r_ref = rotate_vector_inv(bb_ref[i, :3], R_ref[selected] - bb_ref[i, 3])
         dr = r - r_ref
-        d = torch.clamp(
-            torch.sqrt(torch.pow(dr, 2).sum(dim=-1) + EPS**2), max=d_clamp
-        )
+        d = torch.clamp(torch.sqrt(torch.pow(dr, 2).sum(dim=-1) + EPS**2), max=d_clamp)
         loss[batch_index] = loss[batch_index] + torch.mean(d)
         n_residue[batch_index] = n_residue[batch_index] + 1.0
     return torch.mean(loss / n_residue)
@@ -147,11 +145,7 @@ def loss_f_bonded_energy(R, is_continuous, weight_s=(1.0, 0.0, 0.0)):
     t_ang = torsion_angle_without_sign(v0, v1, v2)
     d_ang = torch.minimum(t_ang - TORSION_ANGLE0[0], TORSION_ANGLE0[1] - t_ang)
     torsion_energy = torch.sum(torch.abs(d_ang) * bonded) / n_bonded
-    return (
-        bond_energy * weight_s[0]
-        + angle_energy * weight_s[1]
-        + torsion_energy * weight_s[2]
-    )
+    return bond_energy * weight_s[0] + angle_energy * weight_s[1] + torsion_energy * weight_s[2]
 
 
 def loss_f_torsion_angle(sc, sc1, sc_ref, mask, norm_weight=0.01):

@@ -87,9 +87,7 @@ def get_rigid_groups(residue_s, tor_s):
             tor_type = tor.name
             atom_s = tor.atom_s
 
-            R = np.array(
-                [residue.R.get(atom_name) for atom_name in atom_s], dtype=float
-            )
+            R = np.array([residue.R.get(atom_name) for atom_name in atom_s], dtype=float)
             t_ang = torsion_angle(R[:4])
 
             # move the second atom to the origin
@@ -231,9 +229,7 @@ def get_rigid_body_transformation_between_frames(rigid_group_s):
                     (translation.tolist(), rotation.tolist()),
                 ]
             )
-    with open(
-        DATA_HOME / "rigid_body_transformation_between_frames.json", "wt"
-    ) as fout:
+    with open(DATA_HOME / "rigid_body_transformation_between_frames.json", "wt") as fout:
         fout.write(json.dumps(to_json, indent=2))
 
 

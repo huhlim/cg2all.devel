@@ -49,9 +49,7 @@ class ConvLayer(nn.Module):
         batch_size = batch_index.max().item() + 1
         n_neigh = torch.zeros(batch_size, device=edge_src.device, dtype=DTYPE)
         n_residue = torch.zeros(batch_size, device=edge_src.device, dtype=DTYPE)
-        n_neigh.index_add_(
-            0, batch_index[edge_src], torch.ones_like(edge_src, dtype=DTYPE)
-        )
+        n_neigh.index_add_(0, batch_index[edge_src], torch.ones_like(edge_src, dtype=DTYPE))
         n_residue.index_add_(0, batch_index, torch.ones_like(batch_index, dtype=DTYPE))
         n_neigh = n_neigh / n_residue
         return n_neigh
@@ -91,9 +89,7 @@ class ConvLayer(nn.Module):
         weight = self.mlp(edge_length_embedding)
         #
         f_out = self.tensor_product(f_in[edge_src], sh, weight)
-        f_out = torch_scatter.scatter(
-            f_out, edge_dst, dim=0, dim_size=n_node, reduce="sum"
-        )
+        f_out = torch_scatter.scatter(f_out, edge_dst, dim=0, dim_size=n_node, reduce="sum")
         f_out = f_out.div(n_neigh[data.batch][:, None] ** 0.5)
         return f_out, (edge_src, edge_dst, n_neigh)
 
@@ -138,9 +134,7 @@ class SE3Transformer(nn.Module):
         neurons_v = mlp_num_neurons + [self.tensor_product_v.weight_numel]
         self.mlp_v = e3nn.nn.FullyConnectedNet(neurons_v, act=activation)
         #
-        self.dot_product = o3.FullyConnectedTensorProduct(
-            self.attn_Irreps, self.attn_Irreps, "0e"
-        )
+        self.dot_product = o3.FullyConnectedTensorProduct(self.attn_Irreps, self.attn_Irreps, "0e")
         self.return_attn = return_attn
 
     def forward(
@@ -171,9 +165,7 @@ class SE3Transformer(nn.Module):
             cutoff=True,
         )
         edge_length_embedding = edge_length_embedding.mul(self.mlp_num_basis**0.5)
-        edge_weight_cutoff = e3nn.math.soft_unit_step(
-            10.0 * (1.0 - edge_length / self.radius)
-        )
+        edge_weight_cutoff = e3nn.math.soft_unit_step(10.0 * (1.0 - edge_length / self.radius))
         #
         # compute the queries (per node), keys (per edge), and values (per edge)
         sh = o3.spherical_harmonics(

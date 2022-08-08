@@ -60,9 +60,7 @@ def loss_f_rotation_matrix(
     #
     if bb1 is not None:
         loss_bb_norm = torch.mean(torch.pow(v_size(bb1[:, 0:3]) - 1.0, 2))
-        loss_bb_norm = loss_bb_norm + torch.mean(
-            torch.pow(v_size(bb1[:, 3:6]) - 1.0, 2)
-        )
+        loss_bb_norm = loss_bb_norm + torch.mean(torch.pow(v_size(bb1[:, 3:6]) - 1.0, 2))
     else:
         loss_bb_norm = 0.0
     return loss_bb + loss_bb_norm * norm_weight
@@ -90,9 +88,7 @@ def loss_f_FAPE_CA(
         r = rotate_vector_inv(bb[i, :3], R[selected, ATOM_INDEX_CA] - bb[i, 3])
         r_ref = rotate_vector_inv(bb_ref[i, :3], R_ref[selected] - bb_ref[i, 3])
         dr = r - r_ref
-        d = torch.clamp(
-            torch.sqrt(torch.pow(dr, 2).sum(dim=-1) + EPS**2), max=d_clamp
-        )
+        d = torch.clamp(torch.sqrt(torch.pow(dr, 2).sum(dim=-1) + EPS**2), max=d_clamp)
         loss[batch_index] = loss[batch_index] + torch.mean(d)
         n_residue[batch_index] = n_residue[batch_index] + 1.0
     return torch.mean(loss / n_residue)
@@ -133,9 +129,7 @@ def loss_f_bonded_energy(R, is_continuous, weight_s=(1.0, 0.0, 0.0)):
     v2 = v2 / d2[..., None]
     a01 = bond_angle(-v0, v1)
     a12 = bond_angle(-v1, v2)
-    angle_energy = torch.pow(a01 - BOND_ANGLE0[0], 2) + torch.pow(
-        a12 - BOND_ANGLE0[1], 2
-    )
+    angle_energy = torch.pow(a01 - BOND_ANGLE0[0], 2) + torch.pow(a12 - BOND_ANGLE0[1], 2)
     angle_energy = torch.sum(angle_energy * bonded) / n_bonded
 
     if weight_s[2] == 0.0:
@@ -151,11 +145,7 @@ def loss_f_bonded_energy(R, is_continuous, weight_s=(1.0, 0.0, 0.0)):
     t_ang = torsion_angle_without_sign(v0, v1, v2)
     d_ang = torch.minimum(t_ang - TORSION_ANGLE0[0], TORSION_ANGLE0[1] - t_ang)
     torsion_energy = torch.sum(torch.pow(d_ang, 2) * bonded) / n_bonded
-    return (
-        bond_energy * weight_s[0]
-        + angle_energy * weight_s[1]
-        + torsion_energy * weight_s[2]
-    )
+    return bond_energy * weight_s[0] + angle_energy * weight_s[1] + torsion_energy * weight_s[2]
 
 
 def loss_f_torsion_angle(sc, sc1, sc_ref, mask, norm_weight=0.01):

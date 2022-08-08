@@ -39,9 +39,7 @@ class ProcessPDB(PDB):
             opr_s[("BB", 0)] = opr_bb
             #
             # place BB atoms
-            t_ang0, atom_s, rigid = get_rigid_group_by_torsion(
-                self.residue_name[i_res], "BB"
-            )
+            t_ang0, atom_s, rigid = get_rigid_group_by_torsion(self.residue_name[i_res], "BB")
             rigid_s = translate_and_rotate(rigid, opr_bb[0], opr_bb[1])
             for atom in atom_s:
                 self.R_ideal[:, i_res, ref_res.atom_s.index(atom), :] = rigid_s[
@@ -50,9 +48,7 @@ class ProcessPDB(PDB):
             #
             amb = get_ambiguous_atom_list(residue_name, "BB")
             if residue_name == "GLY":
-                update_by_glycine_backbone_method(
-                    self.R, i_res, ref_res, amb, atom_s, rigid_s
-                )
+                update_by_glycine_backbone_method(self.R, i_res, ref_res, amb, atom_s, rigid_s)
             #
             # update side chain atom names
             for tor in tor_s:
@@ -101,12 +97,8 @@ def main():
         help="input PDB file/topology file",
         required=True,
     )
-    arg.add_argument(
-        "-o", "--output", dest="output_fn", help="output file", required=True
-    )
-    arg.add_argument(
-        "-d", "--dcd", dest="dcd_fn", help="input trajectory file", default=None
-    )
+    arg.add_argument("-o", "--output", dest="output_fn", help="output file", required=True)
+    arg.add_argument("-d", "--dcd", dest="dcd_fn", help="input trajectory file", default=None)
     if len(sys.argv) == 1:
         arg.print_help()
         return

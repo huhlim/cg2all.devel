@@ -108,9 +108,7 @@ def apply_swapping_rule(ref_res, amb, R):
     group_s = []
     for i, group_number in enumerate(group_number_s):
         prefix = f"H{greek}{group_number}"
-        group = [amb.atom_s[i]] + [
-            atom for atom in ref_res.atom_s if atom.startswith(prefix)
-        ]
+        group = [amb.atom_s[i]] + [atom for atom in ref_res.atom_s if atom.startswith(prefix)]
         group_s.append([ref_res.atom_s.index(atom) for atom in group])
     before = group_s[0] + group_s[1]
     after = group_s[1] + group_s[0]
@@ -122,9 +120,7 @@ def apply_closest_rule(ref_res, amb, periodic_s, atom_s, rigid, R):
     index_tgt = []
     for periodic in periodic_s:
         index_s.append([ref_res.atom_s.index(atom) for atom in periodic])  # index for R
-        index_tgt += [
-            atom_s.index(atom) for atom in periodic
-        ]  # rigid is properly oriented
+        index_tgt += [atom_s.index(atom) for atom in periodic]  # rigid is properly oriented
     #
     R_tgt = rigid[index_tgt, :]
     #
@@ -148,12 +144,8 @@ def apply_closest_rule(ref_res, amb, periodic_s, atom_s, rigid, R):
 # %%
 def update_by_closest_method(R, atom_mask, i_res, ref_res, tor, amb, opr_dict):
     # get rigid-body transformation
-    prev, rigid_tR = get_rigid_transform_by_torsion(
-        ref_res.residue_name, tor.name, tor.index
-    )
-    t_ang0, atom_s, rigid = get_rigid_group_by_torsion(
-        ref_res.residue_name, tor.name, tor.index
-    )
+    prev, rigid_tR = get_rigid_transform_by_torsion(ref_res.residue_name, tor.name, tor.index)
+    t_ang0, atom_s, rigid = get_rigid_group_by_torsion(ref_res.residue_name, tor.name, tor.index)
     #
     # calculate the torsion angle
     torsion_angle_atom_s = tor.atom_s[:4]
@@ -182,21 +174,15 @@ def update_by_closest_method(R, atom_mask, i_res, ref_res, tor, amb, opr_dict):
     if amb is not None:
         periodic_s = [[atom] for atom in amb.atom_s]
         for k in range(R.shape[0]):
-            apply_closest_rule(
-                ref_res, amb, periodic_s, atom_s, rigid_s[k], R[k, i_res, :, :]
-            )
+            apply_closest_rule(ref_res, amb, periodic_s, atom_s, rigid_s[k], R[k, i_res, :, :])
     opr_s = [np.array(opr_s[0]), np.array(opr_s[1])]
     return opr_s, atom_s, np.array(rigid_s)
 
 
 def update_by_permute_method(R, atom_mask, i_res, ref_res, tor, amb, opr_dict):
     # get rigid-body transformation
-    prev, rigid_tR = get_rigid_transform_by_torsion(
-        ref_res.residue_name, tor.name, tor.index
-    )
-    t_ang0, atom_s, rigid = get_rigid_group_by_torsion(
-        ref_res.residue_name, tor.name, tor.index
-    )
+    prev, rigid_tR = get_rigid_transform_by_torsion(ref_res.residue_name, tor.name, tor.index)
+    t_ang0, atom_s, rigid = get_rigid_group_by_torsion(ref_res.residue_name, tor.name, tor.index)
     #
     index_amb0 = [ref_res.atom_s.index(atom) for atom in amb.atom_s]
     index_amb1 = [atom_s.index(atom) for atom in amb.atom_s]
@@ -255,9 +241,7 @@ def update_by_periodic_method(R, atom_mask, i_res, ref_res, tor, amb, opr_dict):
             ref_res.residue_name, tor.name, tor.index, tor.sub_index
         )
     else:
-        prev, rigid_tR = get_rigid_transform_by_torsion(
-            ref_res.residue_name, tor.name, tor.index
-        )
+        prev, rigid_tR = get_rigid_transform_by_torsion(ref_res.residue_name, tor.name, tor.index)
         t_ang0, atom_s, rigid = get_rigid_group_by_torsion(
             ref_res.residue_name, tor.name, tor.index
         )
@@ -290,9 +274,7 @@ def update_by_periodic_method(R, atom_mask, i_res, ref_res, tor, amb, opr_dict):
     opr_s = [np.array(opr_s[0]), np.array(opr_s[1])]
     rigid_s = translate_and_rotate(rigid, opr_s[0], opr_s[1])
     for k in range(R.shape[0]):
-        apply_closest_rule(
-            ref_res, amb, periodic_s, atom_s, rigid_s[k], R[k, i_res, :, :]
-        )
+        apply_closest_rule(ref_res, amb, periodic_s, atom_s, rigid_s[k], R[k, i_res, :, :])
         #
     return opr_s, atom_s, np.array(rigid_s)
 
@@ -300,9 +282,7 @@ def update_by_periodic_method(R, atom_mask, i_res, ref_res, tor, amb, opr_dict):
 def update_by_glycine_backbone_method(R, i_res, ref_res, amb, atom_s, rigid_s):
     periodic_s = [[atom] for atom in amb.atom_s]
     for k in range(R.shape[0]):
-        apply_closest_rule(
-            ref_res, amb, periodic_s, atom_s, rigid_s[k], R[k, i_res, :, :]
-        )
+        apply_closest_rule(ref_res, amb, periodic_s, atom_s, rigid_s[k], R[k, i_res, :, :])
 
 
 def update_by_special_method(R, atom_mask, i_res, ref_res):

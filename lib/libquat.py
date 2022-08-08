@@ -48,13 +48,9 @@ class Quaternion:
     @property
     def euler(self):
         q = self.q
-        phi = np.arctan2(
-            2.0 * (q[0] * q[1] + q[2] * q[3]), 1.0 - 2.0 * (q[1] ** 2 + q[2] ** 2)
-        )
+        phi = np.arctan2(2.0 * (q[0] * q[1] + q[2] * q[3]), 1.0 - 2.0 * (q[1] ** 2 + q[2] ** 2))
         theta = np.arcsin(2.0 * (q[0] * q[2] - q[3] * q[1]))
-        psi = np.arctan2(
-            2.0 * (q[0] * q[3] + q[1] + q[2]), 1.0 - 2.0 * (q[2] ** 2 + q[3] ** 2)
-        )
+        psi = np.arctan2(2.0 * (q[0] * q[3] + q[1] + q[2]), 1.0 - 2.0 * (q[2] ** 2 + q[3] ** 2))
         return np.array([phi, theta, psi], dtype=float)
 
     @classmethod

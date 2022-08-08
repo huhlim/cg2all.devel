@@ -16,7 +16,7 @@ import pytorch_lightning as pl
 
 sys.path.insert(0, "lib")
 from libdata import PDBset, create_trajectory_from_batch
-from libcg import ResidueBasedModel
+from libcg import ResidueBasedModel, CalphaBasedModel, Martini
 import libmodel
 from libconfig import USE_EQUIVARIANCE_TEST
 
@@ -32,9 +32,7 @@ class Model(pl.LightningModule):
     def __init__(self, _config, compute_loss=False, checkpoint=False, memcheck=False):
         super().__init__()
         self.save_hyperparameters(_config.to_dict())
-        self.model = libmodel.Model(
-            _config, compute_loss=compute_loss, checkpoint=checkpoint
-        )
+        self.model = libmodel.Model(_config, compute_loss=compute_loss, checkpoint=checkpoint)
         self.memcheck = memcheck
 
     def forward(self, batch: torch_geometric.data.Batch):
@@ -202,11 +200,7 @@ def main():
     pl.seed_everything(25, workers=True)
     #
     hostname = os.getenv("HOSTNAME", "local")
-    if (
-        hostname == "markov.bch.msu.edu"
-        or hostname.startswith("gpu")
-        and (not IS_DEVELOP)
-    ):
+    if hostname == "markov.bch.msu.edu" or hostname.startswith("gpu") and (not IS_DEVELOP):
         base_dir = pathlib.Path("./")
         pdb_dir = base_dir / "pdb.pisces"
         pdblist_train = pdb_dir / "targets.train"
@@ -225,7 +219,8 @@ def main():
         checkpoint = False
         batch_size = 2
     #
-    cg_model = functools.partial(ResidueBasedModel, center_of_mass=True)
+    # cg_model = functools.partial(ResidueBasedModel)
+    cg_model = CalphaBasedModel
     _PDBset = functools.partial(
         PDBset,
         cg_model=cg_model,
@@ -259,7 +254,7 @@ def main():
     in_Irreps = train_set[0].f_in_Irreps
     config["initialization.in_Irreps"] = str(in_Irreps)
     config = libmodel.set_model_config(config)
-    model = Model(config, compute_loss=True, checkpoint=checkpoint, memcheck=True)
+    model = Model(config, cg_model, compute_loss=True, checkpoint=checkpoint, memcheck=True)
     #
     logger = pl.loggers.TensorBoardLogger("lightning_logs", name=name)
     checkpointing = pl.callbacks.ModelCheckpoint(
@@ -305,9 +300,7 @@ def main():
         logger=logger,
         callbacks=[checkpointing, early_stopping],
     )
-    trainer_ft.fit(
-        model, train_loader, val_loader, ckpt_path=checkpointing.best_model_path
-    )
+    trainer_ft.fit(model, train_loader, val_loader, ckpt_path=checkpointing.best_model_path)
     trainer_ft.test(model, test_loader)
 
 

@@ -54,9 +54,7 @@ class LayerNorm(nn.Module):
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         batch_size, *size, dim_total = input.shape
         assert dim_total == self.dim
-        input = input.reshape(
-            batch_size, -1, dim_total
-        )  # [batch, sample, stacked features]
+        input = input.reshape(batch_size, -1, dim_total)  # [batch, sample, stacked features]
 
         ix = 0
         i_w = 0

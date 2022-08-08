@@ -25,9 +25,7 @@ class PDB(object):
         self.n_frame = self.traj.n_frames
         self.n_chain = self.top.n_chains
         self.n_residue = self.top.n_residues
-        self.chain_index = np.array(
-            [r.chain.index for r in self.top.residues], dtype=np.int16
-        )
+        self.chain_index = np.array([r.chain.index for r in self.top.residues], dtype=np.int16)
         self.residue_name = []
         self.residue_index = np.zeros(self.n_residue, dtype=np.int16)
         #
@@ -43,9 +41,7 @@ class PDB(object):
 
         self.R = np.zeros((self.n_frame, self.n_residue, MAX_ATOM, 3))
         self.atom_mask = np.zeros((self.n_residue, MAX_ATOM), dtype=np.float16)
-        self.atomic_radius = np.zeros(
-            (self.n_residue, MAX_ATOM, 2, 2), dtype=np.float16
-        )
+        self.atomic_radius = np.zeros((self.n_residue, MAX_ATOM, 2, 2), dtype=np.float16)
         self.atomic_mass = np.zeros((self.n_residue, MAX_ATOM), dtype=np.float16)
         #
         for residue in self.top.residues:
@@ -72,9 +68,7 @@ class PDB(object):
                     continue
                 if atom_name not in ref_res.atom_s:
                     if verbose:
-                        sys.stderr.write(
-                            f"Unrecognized atom_name: {residue_name} {atom_name}\n"
-                        )
+                        sys.stderr.write(f"Unrecognized atom_name: {residue_name} {atom_name}\n")
                     continue
                 i_atm = ref_res.atom_s.index(atom_name)
                 self.R[:, i_res, i_atm, :] = self.traj.xyz[:, atom.index, :]
@@ -145,9 +139,7 @@ class PDB(object):
             if tor is None or tor.name in ["BB"]:
                 continue
             #
-            t_ang0, atom_s, rigid = get_rigid_group_by_torsion(
-                residue_name, tor.name, tor.index
-            )
+            t_ang0, atom_s, rigid = get_rigid_group_by_torsion(residue_name, tor.name, tor.index)
             index = [ref_res.atom_s.index(atom) for atom in tor.atom_s[:4]]
             mask = self.atom_mask[i_res, index]
             if not np.all(mask):  # if any of the atoms are missing, skip this torsion
@@ -163,9 +155,7 @@ class PDB(object):
         self.bb_mask = np.zeros(self.n_residue, dtype=float)
         self.bb = np.zeros((self.n_frame, self.n_residue, 4, 3), dtype=float)
         self.torsion_mask = np.zeros((self.n_residue, MAX_TORSION), dtype=float)
-        self.torsion = np.zeros(
-            (self.n_frame, self.n_residue, MAX_TORSION), dtype=float
-        )
+        self.torsion = np.zeros((self.n_frame, self.n_residue, MAX_TORSION), dtype=float)
         for i_res in range(self.n_residue):
             mask, opr_s = self.get_backbone_orientation(i_res)
             self.bb_mask[i_res] = mask
@@ -228,9 +218,7 @@ def generate_structure_from_bb_and_torsion(residue_index, bb, torsion):
         opr = combine_operations(transforms, opr)
         #
         for i_tor in range(1, MAX_RIGID):
-            prev = np.take_along_axis(
-                opr, transforms_dep[:, i_tor][:, None, None, None], axis=1
-            )
+            prev = np.take_along_axis(opr, transforms_dep[:, i_tor][:, None, None, None], axis=1)
             opr[:, i_tor] = combine_operations(prev[:, 0], opr[:, i_tor])
 
         # np.take_along_axis -> torch.gather
