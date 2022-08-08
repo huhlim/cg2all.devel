@@ -67,7 +67,7 @@ class PDBset(torch_geometric.data.Dataset):
             noise_size = 0.0
         noise_size = torch.full((cg.n_residue,), noise_size)
         #
-        geom_s = cg.get_geometry(r_cg, cg.continuous, cg.atom_mask_cg)
+        geom_s = cg.get_geometry(r_cg, cg.continuous, cg.atom_mask_cg, pca=True)
         f_in, n_scalar, n_vector = cg.geom_to_feature(
             geom_s, noise_size=noise_size, dtype=self.dtype
         )

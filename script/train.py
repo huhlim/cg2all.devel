@@ -22,7 +22,7 @@ from libconfig import USE_EQUIVARIANCE_TEST
 
 
 N_PROC = int(os.getenv("OMP_NUM_THREADS", "8"))
-IS_DEVELOP = True
+IS_DEVELOP = False
 if IS_DEVELOP:
     logger = logging.getLogger()
     logger.setLevel(logging.DEBUG)
@@ -272,7 +272,7 @@ def main():
         min_delta=1e-4,
     )
     trainer = pl.Trainer(
-        max_epochs=50,
+        max_epochs=100,
         accelerator="auto",
         gradient_clip_val=1.0,
         check_val_every_n_epoch=1,
@@ -282,32 +282,32 @@ def main():
     trainer.fit(model, train_loader, val_loader)
     trainer.test(model, test_loader)
     #
-    # update loss weights
-    config.globals.loss_weight.atomic_clash = 1.0
-    model.update_loss_weight(config)
-    #
-    # fine-tune
-    logger = pl.loggers.TensorBoardLogger("lightning_logs", name=f"{name}_ft")
-    checkpointing = pl.callbacks.ModelCheckpoint(
-        dirpath=logger.log_dir,
-        monitor="val_loss_sum",
-        save_weights_only=False,
-    )
-    early_stopping = pl.callbacks.EarlyStopping(
-        monitor="val_loss_sum",
-        min_delta=1e-4,
-    )
-    trainer_ft = pl.Trainer(
-        max_epochs=100,
-        accelerator="auto",
-        gradient_clip_val=1.0,
-        check_val_every_n_epoch=1,
-        enable_model_summary=False,
-        logger=logger,
-        callbacks=[checkpointing],  # , early_stopping],
-    )
-    trainer_ft.fit(model, train_loader, val_loader, ckpt_path=checkpointing.best_model_path)
-    trainer_ft.test(model, test_loader)
+    ## update loss weights
+    # config.globals.loss_weight.atomic_clash = 1.0
+    # model.update_loss_weight(config)
+    ##
+    ## fine-tune
+    # logger = pl.loggers.TensorBoardLogger("lightning_logs", name=f"{name}_ft")
+    # checkpointing = pl.callbacks.ModelCheckpoint(
+    #    dirpath=logger.log_dir,
+    #    monitor="val_loss_sum",
+    #    save_weights_only=False,
+    # )
+    # early_stopping = pl.callbacks.EarlyStopping(
+    #    monitor="val_loss_sum",
+    #    min_delta=1e-4,
+    # )
+    # trainer_ft = pl.Trainer(
+    #    max_epochs=100,
+    #    accelerator="auto",
+    #    gradient_clip_val=1.0,
+    #    check_val_every_n_epoch=1,
+    #    enable_model_summary=False,
+    #    logger=logger,
+    #    callbacks=[checkpointing],  # , early_stopping],
+    # )
+    # trainer_ft.fit(model, train_loader, val_loader, ckpt_path=checkpointing.best_model_path)
+    # trainer_ft.test(model, test_loader)
 
 
 if __name__ == "__main__":

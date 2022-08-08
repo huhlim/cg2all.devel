@@ -12,4 +12,4 @@ DATA_HOME = BASE / "data"
 DTYPE = torch.get_default_dtype()
 EPS = 1e-6
 EQUIVARIANT_TOLERANCE = 1e-2
-USE_EQUIVARIANCE_TEST = True
+USE_EQUIVARIANCE_TEST = False

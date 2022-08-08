@@ -43,7 +43,7 @@ from libconfig import DTYPE, EQUIVARIANT_TOLERANCE
 CONFIG = ConfigDict()
 
 CONFIG["globals"] = ConfigDict()
-CONFIG["globals"]["num_recycle"] = 2
+CONFIG["globals"]["num_recycle"] = 1
 CONFIG["globals"]["loss_weight"] = ConfigDict()
 CONFIG["globals"]["loss_weight"].update(
     {
@@ -54,7 +54,7 @@ CONFIG["globals"]["loss_weight"].update(
         "distance_matrix": 0.0,
         "rotation_matrix": 1.0,
         "torsion_angle": 1.0,
-        "atomic_clash": 0.0,
+        "atomic_clash": 1.0,
     }
 )
 
@@ -756,7 +756,6 @@ class Model(nn.Module):
         #
         loss = {}
         ret = {}
-        ret["bb"] = self.backbone_module.init_value(batch).to(device)
         #
         # residue_type --> embedding
         embedding = self.embedding_module(batch)
@@ -822,7 +821,6 @@ class Model(nn.Module):
         intermediates["bb"] = []
         #
         ret = {}
-        ret["bb"] = self.backbone_module.init_value(batch).to(device)
         #
         # residue_type --> embedding
         embedding = self.embedding_module(batch)

@@ -52,7 +52,7 @@ class ResidueBasedModel(PDB):
             traj.save(dcd_fn)
 
     @staticmethod
-    def get_geometry(r: torch.Tensor, continuous: torch.Tensor, mask: torch.Tensor):
+    def get_geometry(r: torch.Tensor, continuous: torch.Tensor, mask: torch.Tensor, pca=False):
         device = r.device
         #
         not_defined = continuous == 0.0
