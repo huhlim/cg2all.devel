@@ -22,7 +22,7 @@ from libconfig import USE_EQUIVARIANCE_TEST
 
 
 N_PROC = int(os.getenv("OMP_NUM_THREADS", "8"))
-IS_DEVELOP = False
+IS_DEVELOP = True | USE_EQUIVARIANCE_TEST
 if IS_DEVELOP:
     logger = logging.getLogger()
     logger.setLevel(logging.DEBUG)
@@ -95,6 +95,17 @@ class Model(pl.LightningModule):
         out, loss, metric = self.forward(batch)
         loss_sum, loss_s = self.get_loss_sum(loss)
         if torch.isnan(loss_sum):
+            log_dir = pathlib.Path(self.logger.log_dir)
+            torch.save(
+                {
+                    "model": self.model,
+                    "batch": batch,
+                    "out": out,
+                    "loss_s": loss_s,
+                    "metric": metric,
+                },
+                log_dir / "error.pt",
+            )
             raise ValueError(out, loss_s, metric)
         #
         self.log(

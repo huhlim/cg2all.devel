@@ -61,7 +61,7 @@ CONFIG["globals"]["loss_weight"].update(
 # the base config for using ConvLayer or SE3Transformer
 CONFIG_BASE = ConfigDict()
 CONFIG_BASE["layer_type"] = "SE3Transformer"
-CONFIG_BASE["num_layers"] = 4
+CONFIG_BASE["num_layers"] = 2
 CONFIG_BASE["in_Irreps"] = "40x0e + 10x1o"
 CONFIG_BASE["out_Irreps"] = "40x0e + 10x1o"
 CONFIG_BASE["mid_Irreps"] = "40x0e + 10x1o"
@@ -88,11 +88,11 @@ CONFIG["embedding"]["embedding_dim"] = 40
 CONFIG["initialization"].update(
     {
         "layer_type": "Linear",
-        "num_layers": 4,
+        "num_layers": 2,
         "in_Irreps": "16x0e + 4x1o",
         "out_Irreps": "40x0e + 10x1o",
         "mid_Irreps": "40x0e + 10x1o",
-        "activation": "relu",
+        "activation": "elu",
         "skip_connection": True,
         "norm": [False, True, True],
     }
@@ -101,12 +101,12 @@ CONFIG["initialization"].update(
 CONFIG["feature_extraction"].update(
     {
         "layer_type": "SE3Transformer",
-        "num_layers": 4,
+        "num_layers": 2,
         "in_Irreps": "40x0e + 10x1o",
         "out_Irreps": "40x0e + 10x1o",
         "mid_Irreps": "40x0e + 10x1o",
         "attn_Irreps": "80x0e + 20x1o + 4x2o",
-        "activation": "relu",
+        "activation": "elu",
         "skip_connection": True,
         "norm": [False, True, True],
     }
@@ -115,7 +115,7 @@ CONFIG["feature_extraction"].update(
 CONFIG["transition"].update(
     {
         "layer_type": "Linear",
-        "num_layers": 4,
+        "num_layers": 2,
         "in_Irreps": "40x0e + 10x1o",
         "out_Irreps": "40x0e + 10x1o",
         "mid_Irreps": "40x0e + 10x1o",
@@ -127,7 +127,7 @@ CONFIG["transition"].update(
 CONFIG["backbone"].update(
     {
         "layer_type": "Linear",
-        "num_layers": 4,
+        "num_layers": 2,
         "in_Irreps": "40x0e + 10x1o",
         "out_Irreps": "3x1o",  # two for rotation, one for translation
         "mid_Irreps": "20x0e + 4x1o",
@@ -146,7 +146,7 @@ CONFIG["backbone"].update(
 CONFIG["sidechain"].update(
     {
         "layer_type": "Linear",
-        "num_layers": 4,
+        "num_layers": 2,
         "in_Irreps": "40x0e + 10x1o",
         "out_Irreps": f"{MAX_TORSION*2:d}x0e",
         "mid_Irreps": "20x0e + 4x1o",
@@ -190,14 +190,6 @@ def set_model_config(arg: dict) -> ConfigDict:
         }
     )
     #
-    # to make it stable for equivariance
-    assert config.feature_extraction.skip_connection
-    assert config.feature_extraction.in_Irreps == config.feature_extraction.mid_Irreps
-    assert config.feature_extraction.out_Irreps == config.feature_extraction.mid_Irreps
-    assert config.transition.skip_connection
-    assert config.transition.in_Irreps == config.transition.mid_Irreps
-    assert config.transition.out_Irreps == config.transition.mid_Irreps
-    #
     return config
 
 
@@ -232,11 +224,11 @@ class BaseModule(nn.Module):
         if config.activation is None:
             self.activation = None
         elif config.activation == "relu":
-            self.activation = torch.relu
+            self.activation = torch.nn.functional.relu
         elif config.activation == "elu":
-            self.activation = torch.elu
+            self.activation = torch.nn.functional.elu
         elif config.activation == "sigmoid":
-            self.activation = torch.sigmoid
+            self.activation = torch.nn.functional.sigmoid
         else:
             raise NotImplementedError
         if config.layer_type not in ["ConvLayer", "SE3Transformer"] and self.activation:
@@ -244,14 +236,7 @@ class BaseModule(nn.Module):
                 self.mid_Irreps,
                 [self.activation if irrep.is_scalar() else None for (n, irrep) in self.mid_Irreps],
             )
-        if config.skip_connection:
-            self.skip_connection = [
-                (self.in_Irreps == self.mid_Irreps),
-                True,
-                (self.mid_Irreps == self.out_Irreps),
-            ]
-        else:
-            self.skip_connection = [False, False, False]
+        self.skip_connection = skip_connection
         for i, (norm, irreps) in enumerate(
             zip(config.norm, [self.in_Irreps, self.mid_Irreps, self.out_Irreps])
         ):
@@ -286,8 +271,9 @@ class BaseModule(nn.Module):
             layer_partial = functools.partial(o3.Linear, biases=True)
         #
         self.layer_0 = layer_partial(self.in_Irreps, self.mid_Irreps)
-        layer = layer_partial(self.mid_Irreps, self.mid_Irreps)
-        self.layer_s = nn.ModuleList([layer for _ in range(config.num_layers)])
+        self.layer_s = nn.ModuleList(
+            [layer_partial(self.mid_Irreps, self.mid_Irreps) for _ in range(config.num_layers)]
+        )
         self.layer_1 = layer_partial(self.mid_Irreps, self.out_Irreps)
 
     def update_loss_weight(self, config):
@@ -307,18 +293,14 @@ class BaseModule(nn.Module):
         return out
 
     def forward_graph(self, batch, feat):
-        if self.skip_connection[0]:
-            feat0 = feat.clone()
         if self.training and self.checkpoint:
             feat, graph = gradient_checkpoint(self.layer_0, batch, feat)
         else:
             feat, graph = self.layer_0(batch, feat)
         radius_prev = self.layer_0.radius
-        if self.skip_connection[0]:
-            feat = feat + feat0
         #
         for i, layer in enumerate(self.layer_s):
-            if self.skip_connection[1]:
+            if self.skip_connection:
                 feat0 = feat.clone()
             #
             if self.norm_1:
@@ -336,36 +318,28 @@ class BaseModule(nn.Module):
                     feat, graph = layer(batch, feat)
             radius_prev = layer.radius
             #
-            if self.skip_connection[1]:
+            if self.skip_connection:
                 feat = feat + feat0
         #
         if self.norm_1:
             feat = self.norm_1(feat)
         #
-        if self.skip_connection[2]:
-            feat0 = feat.clone()
         if self.training and self.checkpoint:
             feat, graph = gradient_checkpoint(self.layer_1, batch, feat)
         else:
             feat, graph = self.layer_1(batch, feat)
-        if self.skip_connection[2]:
-            feat = feat + feat0
         return feat
 
     def forward_linear(self, feat):
-        if self.skip_connection[0]:
-            feat0 = feat.clone()
         if self.training and self.checkpoint:
             feat = gradient_checkpoint(self.layer_0, feat)
         else:
             feat = self.layer_0(feat)
         if self.activation is not None:
             feat = self.activation(feat)
-        if self.skip_connection[0]:
-            feat = feat + feat0
 
         for i, layer in enumerate(self.layer_s):
-            if self.skip_connection[1]:
+            if self.skip_connection:
                 feat0 = feat.clone()
             #
             if self.norm_1:
@@ -379,20 +353,16 @@ class BaseModule(nn.Module):
             if self.activation is not None:
                 feat = self.activation(feat)
             #
-            if self.skip_connection[1]:
+            if self.skip_connection:
                 feat = feat + feat0
         #
         if self.norm_1:
             feat = self.norm_1(feat)
         #
-        if self.skip_connection[2]:
-            feat0 = feat.clone()
         if self.training and self.checkpoint:
             feat = gradient_checkpoint(self.layer_1, feat)
         else:
             feat = self.layer_1(feat)
-        if self.skip_connection[2]:
-            feat = feat + feat0
         return feat
 
     def loss_f(self, batch, f_out):
@@ -925,7 +895,7 @@ class Model(nn.Module):
             r = pos[selected]
             #
             geom_s = self.cg_model.get_geometry(
-                r, batch.continuous[selected], batch.input_atom_mask[selected]
+                r, batch.continuous[selected], batch.input_atom_mask[selected], pca=False
             )
             f_in.append(
                 self.cg_model.geom_to_feature(geom_s, err[selected], dtype=batch.f_in.dtype)[0]

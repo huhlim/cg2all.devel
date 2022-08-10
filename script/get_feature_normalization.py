@@ -13,7 +13,7 @@ import tqdm
 
 sys.path.insert(0, "lib")
 from libdata import PDBset
-from libcg import ResidueBasedModel
+from libcg import CalphaBasedModel
 
 
 N_PROC = int(os.getenv("OMP_NUM_THREADS", "8"))
@@ -26,13 +26,12 @@ def main():
     pdblist_test = pdb_dir / "targets.test"
     pdblist_val = pdb_dir / "targets.valid"
     #
-    cg_model = functools.partial(ResidueBasedModel, center_of_mass=True)
+    cg_model = CalphaBasedModel
     _PDBset = functools.partial(
         PDBset,
         cg_model=cg_model,
         noise_level=0.0,
         get_structure_information=True,
-        normalize=False,
     )
     #
     batch_size = 16
@@ -45,13 +44,14 @@ def main():
     )
     f_in = []
     for data in tqdm.tqdm(train_loader):
-        print(data.f_in.shape)
+        if torch.any(torch.isnan(data.f_in)):
+            print(data)
         f_in.append(data.f_in)
     f_in = torch.cat(f_in, dim=0).numpy()
     mean = f_in.mean(axis=0)
     std = f_in.std(axis=0)
     out = np.array([mean, std])
-    np.save(pdb_dir / "transform.npy", out)
+    # np.save(pdb_dir / "transform.npy", out)
 
 
 if __name__ == "__main__":

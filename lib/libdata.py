@@ -71,7 +71,6 @@ class PDBset(torch_geometric.data.Dataset):
         f_in, n_scalar, n_vector = cg.geom_to_feature(
             geom_s, noise_size=noise_size, dtype=self.dtype
         )
-        #
         data = torch_geometric.data.Data(
             pos=torch.as_tensor(r_cg[cg.atom_mask_cg > 0.0], dtype=self.dtype)
         )
