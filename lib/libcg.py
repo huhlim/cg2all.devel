@@ -59,7 +59,8 @@ class ResidueBasedModel(PDB):
         geom_s = {}
         #
         # pca
-        geom_s["pca"] = torch.pca_lowrank(r.view(-1, 3))[-1].T[:2]
+        if pca:
+            geom_s["pca"] = torch.pca_lowrank(r.view(-1, 3))[-1].T[:2]
 
         # n_neigh
         n_neigh = torch.zeros(r.shape[0], dtype=DTYPE, device=device)
