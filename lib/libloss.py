@@ -60,7 +60,8 @@ def loss_f_FAPE_CA(
 ) -> torch.Tensor:
     def rotate_vector_inv(R, X):
         R_inv = torch.inverse(R)
-        return torch.einsum("...ij,...j", R_inv, X)
+        return (X[..., None, :] @ R.mT)[..., 0, :]
+        #return torch.einsum("...ij,...j", R_inv, X)
 
     R_ref = batch.output_xyz[:, ATOM_INDEX_CA]
     bb_ref = batch.correct_bb

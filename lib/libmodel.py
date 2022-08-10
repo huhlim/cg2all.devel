@@ -236,7 +236,7 @@ class BaseModule(nn.Module):
                 self.mid_Irreps,
                 [self.activation if irrep.is_scalar() else None for (n, irrep) in self.mid_Irreps],
             )
-        self.skip_connection = skip_connection
+        self.skip_connection = config.skip_connection
         for i, (norm, irreps) in enumerate(
             zip(config.norm, [self.in_Irreps, self.mid_Irreps, self.out_Irreps])
         ):
