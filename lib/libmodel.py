@@ -25,9 +25,10 @@ from residue_constants import (
     RIGID_GROUPS_TENSOR,
     RIGID_GROUPS_DEP,
 )
-from libloss import (
+from libloss_l1 import (
     loss_f_rigid_body,
     loss_f_FAPE_CA,
+    loss_f_FAPE_all,
     loss_f_rotation_matrix,
     loss_f_mse_R,
     loss_f_distance_matrix,
@@ -35,7 +36,7 @@ from libloss import (
     loss_f_bonded_energy,
     loss_f_atomic_clash,
 )
-from torch_basics import v_norm_safe, inner_product
+from torch_basics import v_norm_safe, inner_product, rotate_matrix, rotate_vector
 from libmetric import rmsd_CA, rmsd_rigid, rmsd_all, rmse_bonded
 from libconfig import DTYPE, EQUIVARIANT_TOLERANCE
 
@@ -49,6 +50,7 @@ CONFIG["globals"]["loss_weight"].update(
     {
         "rigid_body": 1.0,
         "FAPE_CA": 5.0,
+        "FAPE_all": 5.0,
         "mse_R": 1.0,
         "bonded_energy": 1.0,
         "distance_matrix": 0.0,
@@ -487,33 +489,27 @@ class BackboneModule(BaseModule):
             loss["rigid_body"] = (
                 loss_f_rigid_body(ret["R"], batch.output_xyz) * self.loss_weight.rigid_body
             )
-        else:
-            loss["rigid_body"] = 0.0
         if self.loss_weight.get("FAPE_CA", 0.0) > 0.0:
             loss["FAPE_CA"] = (
                 loss_f_FAPE_CA(batch, ret["R"], ret["opr_bb"]) * self.loss_weight.FAPE_CA
             )
-        else:
-            loss["FAPE_CA"] = 0.0
+        if self.loss_weight.get("FAPE_all", 0.0) > 0.0:
+            loss["FAPE_all"] = (
+                loss_f_FAPE_all(batch, ret["R"], ret["opr_bb"]) * self.loss_weight.FAPE_all
+            )
         if self.loss_weight.get("rotation_matrix", 0.0) > 0.0:
             loss["rotation_matrix"] = (
                 loss_f_rotation_matrix(ret["bb"], bb1, batch.correct_bb)
                 * self.loss_weight.rotation_matrix
             )
-        else:
-            loss["rotation_matrix"] = 0.0
         if self.loss_weight.get("bonded_energy", 0.0) > 0.0:
             loss["bonded_energy"] = (
                 loss_f_bonded_energy(ret["R"], batch.continuous) * self.loss_weight.bonded_energy
             )
-        else:
-            loss["bonded_energy"] = 0.0
         if self.loss_weight.get("distance_matrix", 0.0) > 0.0:
             loss["distance_matrix"] = (
                 loss_f_distance_matrix(ret["R"], batch) * self.loss_weight.distance_matrix
             )
-        else:
-            loss["distance_matrix"] = 0.0
         #
         for k, v in loss_prev.items():
             if k in loss:
@@ -663,12 +659,10 @@ class SidechainModule(BaseModule):
                 loss_f_torsion_angle(ret["sc"], sc1, batch.correct_torsion, batch.torsion_mask)
                 * self.loss_weight.torsion_angle
             )
-        else:
-            loss["torsion_angle"] = 0.0
         if self.loss_weight.get("atomic_clash", 0.0) > 0.0:
-            loss["atomic_clash"] = loss_f_atomic_clash(ret["R"], batch)
-        else:
-            loss["atomic_clash"] = 0.0
+            loss["atomic_clash"] = (
+                loss_f_atomic_clash(ret["R"], batch) * self.loss_weight.atomic_clash
+            )
         for k, v in loss_prev.items():
             if k in loss:
                 loss[k] += v
@@ -839,48 +833,34 @@ class Model(nn.Module):
             loss["rigid_body"] = (
                 loss_f_rigid_body(R, batch.output_xyz) * self.loss_weight.rigid_body
             )
-        else:
-            loss["rigid_body"] = 0.0
         if self.loss_weight.get("FAPE_CA", 0.0) > 0.0:
             loss["FAPE_CA"] = loss_f_FAPE_CA(batch, R, ret["opr_bb"]) * self.loss_weight.FAPE_CA
-        else:
-            loss["FAPE_CA"] = 0.0
+        if self.loss_weight.get("FAPE_all", 0.0) > 0.0:
+            loss["FAPE_all"] = loss_f_FAPE_all(batch, R, ret["opr_bb"]) * self.loss_weight.FAPE_all
         if self.loss_weight.get("rotation_matrix", 0.0) > 0.0:
             loss["rotation_matrix"] = (
                 loss_f_rotation_matrix(ret["bb"], None, batch.correct_bb)
                 * self.loss_weight.rotation_matrix
             )
-        else:
-            loss["rotation_matrix"] = 0.0
         if self.loss_weight.get("mse_R", 0.0) > 0.0:
             loss["mse_R"] = (
                 loss_f_mse_R(R, batch.output_xyz, batch.output_atom_mask) * self.loss_weight.mse_R
             )
-        else:
-            loss["mse_R"] = 0.0
         if self.loss_weight.get("bonded_energy", 0.0) > 0.0:
             loss["bonded_energy"] = (
                 loss_f_bonded_energy(R, batch.continuous) * self.loss_weight.bonded_energy
             )
-        else:
-            loss["bonded_energy"] = 0.0
         if self.loss_weight.get("distance_matrix", 0.0) > 0.0:
             loss["distance_matrix"] = (
                 loss_f_distance_matrix(R, batch) * self.loss_weight.distance_matrix
             )
-        else:
-            loss["distance_matrix"] = 0.0
         if self.loss_weight.get("torsion_angle", 0.0) > 0.0:
             loss["torsion_angle"] = (
                 loss_f_torsion_angle(ret["sc"], None, batch.correct_torsion, batch.torsion_mask)
                 * self.loss_weight.torsion_angle
             )
-        else:
-            loss["torsion_angle"] = 0.0
         if self.loss_weight.get("atomic_clash", 0.0) > 0.0:
-            loss["atomic_clash"] = loss_f_atomic_clash(R, batch)
-        else:
-            loss["atomic_clash"] = 0.0
+            loss["atomic_clash"] = loss_f_atomic_clash(R, batch) * self.loss_weight.atomic_clash
         return loss
 
     def update_graph(self, batch, ret):
@@ -1036,14 +1016,6 @@ class Model(nn.Module):
             "equivariance_test.pt",
         )
         sys.exit("Could NOT pass equivariance test!")
-
-
-def rotate_matrix(R, X):
-    return R @ X
-
-
-def rotate_vector(R, X):
-    return (X[..., None, :] @ R.mT)[..., 0, :]
 
 
 def combine_operations(X, Y):

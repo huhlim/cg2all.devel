@@ -16,21 +16,7 @@ from residue_constants import (
 )
 
 from libconfig import DTYPE, EPS
-
-
-# some basic functions
-v_size = lambda v: torch.linalg.norm(v, dim=-1)
-v_norm = lambda v: v / v_size(v)[..., None]
-
-
-def v_norm_safe(v, index=0):
-    u = v.clone()
-    u[..., index] = u[..., index] + EPS
-    return v_norm(u)
-
-
-def inner_product(v1, v2):
-    return torch.sum(v1 * v2, dim=-1)
+from torch_basics import v_size, v_norm, v_norm_safe, inner_product
 
 
 # MSE loss for comparing coordinates
@@ -74,7 +60,8 @@ def loss_f_FAPE_CA(
 ) -> torch.Tensor:
     def rotate_vector_inv(R, X):
         R_inv = torch.inverse(R)
-        return torch.einsum("...ij,...j", R_inv, X)
+        return (X[..., None, :] @ R.mT)[..., 0, :]
+        # return torch.einsum("...ij,...j", R_inv, X)
 
     R_ref = batch.output_xyz[:, ATOM_INDEX_CA]
     bb_ref = batch.correct_bb
@@ -88,6 +75,35 @@ def loss_f_FAPE_CA(
         r = rotate_vector_inv(bb[i, :3], R[selected, ATOM_INDEX_CA] - bb[i, 3])
         r_ref = rotate_vector_inv(bb_ref[i, :3], R_ref[selected] - bb_ref[i, 3])
         dr = r - r_ref
+        d = torch.clamp(torch.sqrt(torch.pow(dr, 2).sum(dim=-1) + EPS**2), max=d_clamp)
+        loss[batch_index] = loss[batch_index] + torch.mean(d)
+        n_residue[batch_index] = n_residue[batch_index] + 1.0
+    return torch.mean(loss / n_residue)
+
+
+def loss_f_FAPE_all(
+    batch: torch_geometric.data.Batch,
+    R: torch.Tensor,
+    bb: torch.Tensor,
+    d_clamp: float = 2.0,
+) -> torch.Tensor:
+    def rotate_vector_inv(R, X):
+        R_inv = torch.inverse(R)
+        return (X[..., None, :] @ R.mT)[..., 0, :]
+
+    mask = batch.output_atom_mask > 0.0
+    R_ref = batch.output_xyz
+    bb_ref = batch.correct_bb
+    #
+    batch_size = batch.batch.max().item() + 1
+    loss = torch.zeros(batch_size, device=R.device, dtype=DTYPE)
+    n_residue = torch.zeros(batch_size, device=R.device, dtype=DTYPE)
+    for i in range(R.size(0)):
+        batch_index = batch.batch[i]
+        selected = batch.batch == batch_index
+        r = rotate_vector_inv(bb[i, :3], R[selected] - bb[i, 3])
+        r_ref = rotate_vector_inv(bb_ref[i, :3], R_ref[selected] - bb_ref[i, 3])
+        dr = (r - r_ref)[mask[selected]]
         d = torch.clamp(torch.sqrt(torch.pow(dr, 2).sum(dim=-1) + EPS**2), max=d_clamp)
         loss[batch_index] = loss[batch_index] + torch.mean(d)
         n_residue[batch_index] = n_residue[batch_index] + 1.0

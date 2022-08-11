@@ -15,6 +15,14 @@ def v_norm_safe(v, index=0):
 def inner_product(v1, v2):
     return torch.sum(v1 * v2, dim=-1)
 
+def rotate_matrix(R, X):
+    return R @ X
+
+
+def rotate_vector(R, X):
+    return (X[..., None, :] @ R.mT)[..., 0, :]
+
+
 
 def angle_sign(x):
     s = torch.sign(x)
