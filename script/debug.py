@@ -38,12 +38,12 @@ def main():
         num_workers=1,
         pin_memory=True,
     )
-    # batch = next(iter(train_loader))
+    batch = next(iter(train_loader))
     #
-    config = set_model_config({})
-    model = Model(config, cg_model, compute_loss=True, checkpoint=True)
-    # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    device = torch.device("cpu")
+    config = set_model_config({"globals.num_recycle": 2})
+    model = Model(config, cg_model, compute_loss=True, checkpoint=False)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # device = torch.device("cpu")
     model = model.to(device)
     model.eval()
     # model.test_equivariant(batch)
@@ -51,22 +51,16 @@ def main():
     optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
     model.train()
     #
-    for i in range(2):
-        for batch in train_loader:
-            optimizer.zero_grad()
-            out, loss, metrics = model(batch.to(device))
-            loss_sum = torch.tensor(0.0, device=device)
-            for module_name, loss_per_module in loss.items():
-                for loss_name, loss_value in loss_per_module.items():
-                    loss_sum += loss_value
-                    print(module_name, loss_name, loss_value)
-            print(loss_sum)
-            loss_sum.backward()
-            optimizer.step()
-            return
-    #
-    traj_s = create_trajectory_from_batch(batch, out["R"], write_native=True)
-    traj_s[0].save("test.pdb")
+    optimizer.zero_grad()
+    out, loss, metrics = model(batch.to(device))
+    loss_sum = torch.tensor(0.0, device=device)
+    for module_name, loss_per_module in loss.items():
+        for loss_name, loss_value in loss_per_module.items():
+            loss_sum += loss_value
+            print(module_name, loss_name, loss_value)
+    print(loss_sum)
+    loss_sum.backward()
+    optimizer.step()
 
 
 if __name__ == "__main__":

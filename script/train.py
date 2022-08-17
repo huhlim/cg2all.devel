@@ -22,7 +22,7 @@ from libconfig import USE_EQUIVARIANCE_TEST
 
 
 N_PROC = int(os.getenv("OMP_NUM_THREADS", "8"))
-IS_DEVELOP = USE_EQUIVARIANCE_TEST | False
+IS_DEVELOP = USE_EQUIVARIANCE_TEST | True
 if IS_DEVELOP:
     logger = logging.getLogger()
     logger.setLevel(logging.DEBUG)
@@ -44,9 +44,6 @@ class Model(pl.LightningModule):
     def forward(self, batch: torch_geometric.data.Batch):
         return self.model.forward(batch)
 
-    def update_loss_weight(self, _config):
-        self.model.update_loss_weight(_config)
-
     def on_train_batch_start(self, batch, batch_idx):
         if self.device.type == "cuda":
             torch.cuda.empty_cache()
@@ -64,7 +61,10 @@ class Model(pl.LightningModule):
             )
 
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), lr=0.001)
+        if IS_DEVELOP:
+            optimizer = torch.optim.Adam(self.parameters(), lr=0.01)
+        else:
+            optimizer = torch.optim.Adam(self.parameters(), lr=0.001)
         lr_scheduler = torch.optim.lr_scheduler.SequentialLR(
             optimizer,
             [

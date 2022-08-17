@@ -24,6 +24,7 @@ class ConvLayer(nn.Module):
         in_Irreps: str,
         out_Irreps: str,
         radius: float,
+        loop: Optional[bool] = False,
         l_max: Optional[int] = 2,
         mlp_num_neurons: Optional[List[int]] = [20, 20],
         activation=torch.relu,
@@ -35,6 +36,7 @@ class ConvLayer(nn.Module):
         self.out_Irreps = o3.Irreps(out_Irreps)
         self.sh_Irreps = o3.Irreps.spherical_harmonics(l_max)
         self.radius = radius
+        self.loop = loop
         self.mlp_num_basis = mlp_num_neurons[0]
         #
         self.tensor_product = o3.FullyConnectedTensorProduct(
@@ -65,6 +67,7 @@ class ConvLayer(nn.Module):
             edge_src, edge_dst = torch_cluster.radius_graph(
                 data.pos,
                 self.radius,
+                loop=self.loop,
                 batch=data.batch,
                 max_num_neighbors=n_node - 1,
             )
@@ -101,6 +104,8 @@ class SE3Transformer(nn.Module):
         out_Irreps: str,
         attn_Irreps: str,
         radius: float,
+        loop: Optional[bool] = False,
+        self_interaction: Optional[bool] = True,
         l_max: Optional[int] = 2,
         mlp_num_neurons: Optional[List[int]] = [20, 20],
         activation=torch.relu,
@@ -113,9 +118,15 @@ class SE3Transformer(nn.Module):
         self.out_Irreps = o3.Irreps(out_Irreps)
         self.sh_Irreps = o3.Irreps.spherical_harmonics(l_max)
         self.radius = radius
+        self.loop = loop
         self.mlp_num_basis = mlp_num_neurons[0]
         #
         self.attn_Irreps = o3.Irreps(attn_Irreps)  # for the query and key
+        #
+        if self_interaction:
+            self.self_interaction = o3.Linear(self.in_Irreps, self.out_Irreps)
+        else:
+            self.self_interaction = None
         #
         # Query
         self.h_q = o3.Linear(self.in_Irreps, self.attn_Irreps)
@@ -148,6 +159,7 @@ class SE3Transformer(nn.Module):
             edge_src, edge_dst = torch_cluster.radius_graph(
                 data.pos,
                 self.radius,
+                loop=self.loop,
                 batch=data.batch,
                 max_num_neighbors=n_node - 1,
             )
@@ -187,6 +199,10 @@ class SE3Transformer(nn.Module):
         f_out = torch_scatter.scatter(
             (alpha.relu() + EPS).sqrt() * v, edge_dst, dim=0, dim_size=len(f_in)
         )
+        # self-interaction
+        if self.self_interaction:
+            f_out = f_out + self.self_interaction(f_in)
+        #
         if self.return_attn:
             attn = torch.zeros((n_node, n_node), dtype=torch.float)
             attn[edge_src, edge_dst] = alpha[:, 0]

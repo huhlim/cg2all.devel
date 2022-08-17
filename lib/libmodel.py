@@ -4,6 +4,7 @@ import sys
 import copy
 import functools
 import logging
+import numpy as np
 
 import torch
 import torch.nn as nn
@@ -70,7 +71,7 @@ CONFIG_BASE["mid_Irreps"] = "40x0e + 10x1o"
 CONFIG_BASE["attn_Irreps"] = "40x0e + 10x1o"
 CONFIG_BASE["l_max"] = 2
 CONFIG_BASE["mlp_num_neurons"] = [20, 20]
-CONFIG_BASE["activation"] = None
+CONFIG_BASE["activation"] = "elu"
 CONFIG_BASE["radius"] = 0.8
 CONFIG_BASE["norm"] = [False, False, False]
 CONFIG_BASE["skip_connection"] = True
@@ -104,10 +105,13 @@ CONFIG["feature_extraction"].update(
     {
         "layer_type": "SE3Transformer",
         "num_layers": 2,
+        "radius": 0.8,
+        "loop": False,
+        "self_interaction": True,
         "in_Irreps": "40x0e + 10x1o",
         "out_Irreps": "40x0e + 10x1o",
         "mid_Irreps": "40x0e + 10x1o",
-        "attn_Irreps": "80x0e + 20x1o + 4x2o",
+        "attn_Irreps": "80x0e + 20x1o",
         "activation": "elu",
         "skip_connection": True,
         "norm": [False, True, True],
@@ -121,6 +125,7 @@ CONFIG["transition"].update(
         "in_Irreps": "40x0e + 10x1o",
         "out_Irreps": "40x0e + 10x1o",
         "mid_Irreps": "40x0e + 10x1o",
+        "activation": "elu",
         "skip_connection": True,
         "norm": [False, True, True],
     }
@@ -132,7 +137,7 @@ CONFIG["backbone"].update(
         "num_layers": 2,
         "in_Irreps": "40x0e + 10x1o",
         "out_Irreps": "3x1o",  # two for rotation, one for translation
-        "mid_Irreps": "20x0e + 4x1o",
+        "mid_Irreps": "10x1o",
         "skip_connection": True,
         "norm": [False, True, False],
         "loss_weight": {
@@ -151,7 +156,7 @@ CONFIG["sidechain"].update(
         "num_layers": 2,
         "in_Irreps": "40x0e + 10x1o",
         "out_Irreps": f"{MAX_TORSION*2:d}x0e",
-        "mid_Irreps": "20x0e + 4x1o",
+        "mid_Irreps": "20x0e",
         "skip_connection": True,
         "norm": [False, True, False],
         "loss_weight": {"torsion_angle": 0.0, "atomic_clash": 0.0},
@@ -252,6 +257,7 @@ class BaseModule(nn.Module):
             layer_partial = functools.partial(
                 liblayer.ConvLayer,
                 radius=config.radius,
+                loop=config.get("loop", False),
                 l_max=config.l_max,
                 mlp_num_neurons=config.mlp_num_neurons,
                 activation=self.activation,
@@ -263,6 +269,8 @@ class BaseModule(nn.Module):
                 liblayer.SE3Transformer,
                 attn_Irreps=config.attn_Irreps,
                 radius=config.radius,
+                loop=config.get("loop", False),
+                self_interaction=config.get("self_interaction", True),
                 l_max=config.l_max,
                 mlp_num_neurons=config.mlp_num_neurons,
                 activation=self.activation,
@@ -277,9 +285,6 @@ class BaseModule(nn.Module):
             [layer_partial(self.mid_Irreps, self.mid_Irreps) for _ in range(config.num_layers)]
         )
         self.layer_1 = layer_partial(self.mid_Irreps, self.out_Irreps)
-
-    def update_loss_weight(self, config):
-        self.loss_weight.update(config.loss_weight)
 
     def forward(self, batch, feat):
         if self.norm_0:
@@ -708,12 +713,6 @@ class Model(nn.Module):
             checkpoint=checkpoint,
         )
 
-    def update_loss_weight(self, _config):
-        self.loss_weight.update(_config.globals.loss_weight)
-        #
-        self.backbone_module.update_loss_weight(_config.backbone)
-        self.sidechain_module.update_loss_weight(_config.sidechain)
-
     def forward(self, batch):
         n_residue = batch.pos.size(0)
         device = batch.pos.device
@@ -724,7 +723,9 @@ class Model(nn.Module):
         # residue_type --> embedding
         embedding = self.embedding_module(batch)
         #
-        for k in range(self.num_recycle):
+        # num_recycle = np.random.randint(1, self.num_recycle + 1)
+        num_recycle = self.num_recycle
+        for k in range(num_recycle):
             # 16x0e + 4x1o --> 40x0e + 10x1o
             f_in = self.initialization_module(batch, batch.f_in, embedding)
             #
@@ -737,6 +738,7 @@ class Model(nn.Module):
             # 40x0e + 10x1o --> 4x0e + 1x1o
             bb = self.backbone_module(batch, f_out)
             ret["bb"] = self.backbone_module.output_to_opr(bb)
+            ret["bb"][:, 3] = ret["bb"][:, 3] / num_recycle
             #
             # 40x0e + 10x1o --> 14x0e
             sc = self.sidechain_module(batch, f_out, ret["bb"])
@@ -744,7 +746,7 @@ class Model(nn.Module):
             #
             # build structure
             ret["R"], ret["opr_bb"] = build_structure(
-                batch, ret["bb"], sc=ret["sc"], stop_grad=(k + 1 < self.num_recycle)
+                batch, ret["bb"], sc=ret["sc"], stop_grad=(k + 1 < num_recycle)
             )
             #
             if self.compute_loss or self.training:
@@ -756,15 +758,15 @@ class Model(nn.Module):
                 )
                 loss["sc"] = self.sidechain_module.loss_f(batch, ret, sc, loss.get("sc", {}))
             #
-            if k < self.num_recycle - 1:
+            if k < num_recycle - 1:
                 self.update_graph(batch, ret)
 
         if self.compute_loss or self.training:
             loss["R"] = self.loss_f(batch, ret)
             for k, v in loss["bb"].items():
-                loss["bb"][k] = v / self.num_recycle
+                loss["bb"][k] = v / num_recycle
             for k, v in loss["sc"].items():
-                loss["sc"][k] = v / self.num_recycle
+                loss["sc"][k] = v / num_recycle
 
         metrics = self.calc_metrics(batch, ret)
         #
@@ -1046,7 +1048,8 @@ def build_structure(batch, bb, sc=None, stop_grad=False):
         opr[:, 0, :3] = bb[:, :3].detach()
     else:
         opr[:, 0, :3] = bb[:, :3]
-    opr[:, 0, 3] = bb[:, 3] + batch.pos0
+    # opr[:, 0, 3] = bb[:, 3] + batch.pos0
+    opr[:, 0, 3] = bb[:, 3] + batch.pos
 
     # sidechain operations
     if sc is not None:
