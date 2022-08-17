@@ -19,6 +19,44 @@ from libconfig import DTYPE, EPS
 from torch_basics import v_size, v_norm, v_norm_safe, inner_product
 
 
+def loss_f(batch, ret, loss_weight, loss_prev=None):
+    R = ret["R"]
+    opr_bb = ret["opr_bb"]
+    #
+    loss = {}
+    if loss_weight.get("rigid_body", 0.0) > 0.0:
+        loss["rigid_body"] = loss_f_rigid_body(R, batch.output_xyz) * loss_weight.rigid_body
+    if loss_weight.get("FAPE_CA", 0.0) > 0.0:
+        loss["FAPE_CA"] = loss_f_FAPE_CA(batch, R, opr_bb) * loss_weight.FAPE_CA
+    if loss_weight.get("FAPE_all", 0.0) > 0.0:
+        loss["FAPE_all"] = loss_f_FAPE_all(batch, R, opr_bb) * loss_weight.FAPE_all
+    if loss_weight.get("rotation_matrix", 0.0) > 0.0:
+        loss["rotation_matrix"] = (
+            loss_f_rotation_matrix(ret["bb"], batch.correct_bb) * loss_weight.rotation_matrix
+        )
+    if loss_weight.get("bonded_energy", 0.0) > 0.0:
+        loss["bonded_energy"] = (
+            loss_f_bonded_energy(R, batch.continuous) * loss_weight.bonded_energy
+        )
+    if loss_weight.get("distance_matrix", 0.0) > 0.0:
+        loss["distance_matrix"] = loss_f_distance_matrix(R, batch) * loss_weight.distance_matrix
+    if loss_weight.get("torsion_angle", 0.0) > 0.0:
+        loss["torsion_angle"] = (
+            loss_f_torsion_angle(ret["sc"], batch.correct_torsion, batch.torsion_mask)
+            * loss_weight.torsion_angle
+        )
+    if loss_weight.get("atomic_clash", 0.0) > 0.0:
+        loss["atomic_clash"] = loss_f_atomic_clash(R, batch) * loss_weight.atomic_clash
+    #
+    if loss_prev is not None:
+        for k, v in loss_prev.items():
+            if k in loss:
+                loss[k] += v
+            else:
+                loss[k] = v
+    return loss
+
+
 # MSE loss for comparing coordinates
 def loss_f_mse_R(R, R_ref, mask):
     dr_sq = torch.sum(torch.pow(R - R_ref, 2) * mask[..., None])
