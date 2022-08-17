@@ -25,6 +25,7 @@ class ConvLayer(nn.Module):
         out_Irreps: str,
         radius: float,
         loop: Optional[bool] = False,
+        self_interaction: Optional[bool] = True,
         l_max: Optional[int] = 2,
         mlp_num_neurons: Optional[List[int]] = [20, 20],
         activation=torch.relu,
@@ -38,6 +39,11 @@ class ConvLayer(nn.Module):
         self.radius = radius
         self.loop = loop
         self.mlp_num_basis = mlp_num_neurons[0]
+        #
+        if self_interaction:
+            self.self_interaction = o3.Linear(self.in_Irreps, self.out_Irreps)
+        else:
+            self.self_interaction = None
         #
         self.tensor_product = o3.FullyConnectedTensorProduct(
             self.in_Irreps, self.sh_Irreps, self.out_Irreps, shared_weights=False
@@ -94,6 +100,11 @@ class ConvLayer(nn.Module):
         f_out = self.tensor_product(f_in[edge_src], sh, weight)
         f_out = torch_scatter.scatter(f_out, edge_dst, dim=0, dim_size=n_node, reduce="sum")
         f_out = f_out.div(n_neigh[data.batch][:, None] ** 0.5)
+        #
+        # self-interaction
+        if self.self_interaction:
+            f_out = f_out + self.self_interaction(f_in)
+        #
         return f_out, (edge_src, edge_dst, n_neigh)
 
 
