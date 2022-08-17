@@ -129,7 +129,7 @@ def loss_f_FAPE_all(
         R_inv = torch.inverse(R)
         return (X[..., None, :] @ R.mT)[..., 0, :]
 
-    mask = batch.output_atom_mask > 0.0
+    mask = batch.pdb_atom_mask > 0.0
     R_ref = batch.output_xyz
     bb_ref = batch.correct_bb
     #

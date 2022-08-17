@@ -35,7 +35,7 @@ from libconfig import DTYPE, EQUIVARIANT_TOLERANCE
 CONFIG = ConfigDict()
 
 CONFIG["globals"] = ConfigDict()
-CONFIG["globals"]["num_recycle"] = 2
+CONFIG["globals"]["num_recycle"] = 1
 CONFIG["globals"]["loss_weight"] = ConfigDict()
 CONFIG["globals"]["loss_weight"].update(
     {
@@ -658,7 +658,7 @@ class Model(nn.Module):
         metric_s = {}
         metric_s["rmsd_CA"] = rmsd_CA(R, R_ref)
         metric_s["rmsd_rigid"] = rmsd_rigid(R, R_ref)
-        metric_s["rmsd_all"] = rmsd_all(R, R_ref, batch.output_atom_mask)
+        metric_s["rmsd_all"] = rmsd_all(R, R_ref, batch.pdb_atom_mask)
         #
         bonded = rmse_bonded(R, batch.continuous)
         metric_s["bond_length"] = bonded[0]

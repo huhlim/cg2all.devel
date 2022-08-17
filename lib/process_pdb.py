@@ -60,15 +60,15 @@ class ProcessPDB(PDB):
                 amb = get_ambiguous_atom_list(residue_name, tor.name, tor.index)
                 if amb is None or amb.method == "closest":
                     opr_sc, atom_s, rigid_s = update_by_closest_method(
-                        self.R, self.atom_mask, i_res, ref_res, tor, amb, opr_s
+                        self.R, self.atom_mask_pdb, i_res, ref_res, tor, amb, opr_s
                     )
                 elif amb.method == "permute":
                     opr_sc, atom_s, rigid_s = update_by_permute_method(
-                        self.R, self.atom_mask, i_res, ref_res, tor, amb, opr_s
+                        self.R, self.atom_mask_pdb, i_res, ref_res, tor, amb, opr_s
                     )
                 elif amb.method == "periodic":
                     opr_sc, atom_s, rigid_s = update_by_periodic_method(
-                        self.R, self.atom_mask, i_res, ref_res, tor, amb, opr_s
+                        self.R, self.atom_mask_pdb, i_res, ref_res, tor, amb, opr_s
                     )
                 else:
                     raise ValueError("Unknown ambiguous method: %s" % amb.method)
@@ -83,9 +83,9 @@ class ProcessPDB(PDB):
             #
             # special torsion angles, only for Asn, Gln, Arg
             if residue_name in ["ASN", "GLN"]:
-                update_by_special_method(self.R, self.atom_mask, i_res, ref_res)
+                update_by_special_method(self.R, self.atom_mask_pdb, i_res, ref_res)
             elif residue_name == "ARG":
-                update_by_guanidium_method(self.R, self.atom_mask, i_res, ref_res)
+                update_by_guanidium_method(self.R, self.atom_mask_pdb, i_res, ref_res)
 
 
 def main():

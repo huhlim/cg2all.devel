@@ -25,26 +25,23 @@ def loss_f(batch, ret, loss_weight, loss_prev=None):
     #
     loss = {}
     if loss_weight.get("rigid_body", 0.0) > 0.0:
-        loss["rigid_body"] = (
-            loss_f_rigid_body(R, batch.output_xyz) * loss_weight.rigid_body
-        )
+        loss["rigid_body"] = loss_f_rigid_body(R, batch.output_xyz) * loss_weight.rigid_body
+    if loss_weight.get("mse_R", 0.0) > 0.0:
+        loss["mse_R"] = loss_f_mse_R(R, batch.output_xyz, batch.pdb_atom_mask) * loss_weight.mse_R
     if loss_weight.get("FAPE_CA", 0.0) > 0.0:
         loss["FAPE_CA"] = loss_f_FAPE_CA(batch, R, opr_bb) * loss_weight.FAPE_CA
     if loss_weight.get("FAPE_all", 0.0) > 0.0:
         loss["FAPE_all"] = loss_f_FAPE_all(batch, R, opr_bb) * loss_weight.FAPE_all
     if loss_weight.get("rotation_matrix", 0.0) > 0.0:
         loss["rotation_matrix"] = (
-            loss_f_rotation_matrix(ret["bb"], batch.correct_bb)
-            * loss_weight.rotation_matrix
+            loss_f_rotation_matrix(ret["bb"], batch.correct_bb) * loss_weight.rotation_matrix
         )
     if loss_weight.get("bonded_energy", 0.0) > 0.0:
         loss["bonded_energy"] = (
             loss_f_bonded_energy(R, batch.continuous) * loss_weight.bonded_energy
         )
     if loss_weight.get("distance_matrix", 0.0) > 0.0:
-        loss["distance_matrix"] = (
-            loss_f_distance_matrix(R, batch) * loss_weight.distance_matrix
-        )
+        loss["distance_matrix"] = loss_f_distance_matrix(R, batch) * loss_weight.distance_matrix
     if loss_weight.get("torsion_angle", 0.0) > 0.0:
         loss["torsion_angle"] = (
             loss_f_torsion_angle(ret["sc"], batch.correct_torsion, batch.torsion_mask)
@@ -130,7 +127,7 @@ def loss_f_FAPE_all(
         R_inv = torch.inverse(R)
         return (X[..., None, :] @ R.mT)[..., 0, :]
 
-    mask = batch.output_atom_mask > 0.0
+    mask = batch.pdb_atom_mask > 0.0
     R_ref = batch.output_xyz
     bb_ref = batch.correct_bb
     #
@@ -260,6 +257,8 @@ def loss_f_atomic_clash(R, batch, lj=False):
         radius_i = batch.atomic_radius[i, :, 0, 1]
         radius_j = batch.atomic_radius[selected][..., 0, 1]
         radius_sum = (radius_j[..., None] + radius_i[None, None, :])[mask]
+        delta = dist - radius_sum
+        closest_index = torch.argmin(delta)
         #
         if lj:
             epsilon_i = batch.atomic_radius[i, :, 0, 0]
@@ -270,7 +269,15 @@ def loss_f_atomic_clash(R, batch, lj=False):
             energy_i = epsilon * (x**2 - 2 * x)
         else:
             radius_sum = radius_sum * 2 ** (-1 / 6)
-            energy_i = torch.pow(-torch.clamp(dist - radius_sum, max=0.0), 2)
+            energy_i = 100.0 * torch.pow(-torch.clamp(dist - radius_sum, max=0.0), 2)
+        print(
+            f"residue {i}",
+            batch_index,
+            dist[closest_index],
+            radius_sum[closest_index],
+            energy_i[closest_index],
+            energy_i.sum(),
+        )
         energy = energy + energy_i.sum()
     energy = energy / n_residue
     return energy
@@ -283,8 +290,9 @@ def test():
     from libdata import PDBset
 
     base_dir = BASE / "pdb.processed"
-    pdblist = BASE / "pdb/pdblist"
-    cg_model = libcg.ResidueBasedModel
+    # pdblist = BASE / "pdb/pdblist"
+    pdblist = BASE / "pdb/errorlist"
+    cg_model = libcg.CalphaBasedModel
     #
     train_set = PDBset(
         base_dir,
@@ -296,9 +304,17 @@ def test():
         train_set, batch_size=2, shuffle=True, num_workers=1
     )
     batch = next(iter(train_loader))
-    #
-    print(loss_f_FAPE_CA(batch, batch.output_xyz, batch.correct_bb))
-    print(loss_f_FAPE_all(batch, batch.output_xyz, batch.correct_bb))
+
+    n_residue = batch.output_xyz.size(0) // 2
+    R = batch.output_xyz.clone()
+    bb = batch.correct_bb.clone()
+    # batch.output_xyz[:n_residue] = batch.output_xyz[n_residue:]
+    # batch.correct_bb[:n_residue] = batch.correct_bb[n_residue:]
+    batch.output_xyz[n_residue:] = batch.output_xyz[:n_residue]
+    batch.correct_bb[n_residue:] = batch.correct_bb[:n_residue]
+
+    loss = loss_f_atomic_clash(R, batch, lj=False)
+    print(loss)
 
 
 if __name__ == "__main__":

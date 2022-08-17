@@ -41,6 +41,7 @@ class PDB(object):
 
         self.R = np.zeros((self.n_frame, self.n_residue, MAX_ATOM, 3))
         self.atom_mask = np.zeros((self.n_residue, MAX_ATOM), dtype=np.float16)
+        self.atom_mask_pdb = np.zeros((self.n_residue, MAX_ATOM), dtype=np.float16)
         self.atomic_radius = np.zeros((self.n_residue, MAX_ATOM, 2, 2), dtype=np.float16)
         self.atomic_mass = np.zeros((self.n_residue, MAX_ATOM), dtype=np.float16)
         #
@@ -72,9 +73,12 @@ class PDB(object):
                     continue
                 i_atm = ref_res.atom_s.index(atom_name)
                 self.R[:, i_res, i_atm, :] = self.traj.xyz[:, atom.index, :]
-                self.atom_mask[i_res, i_atm] = 1.0
-                self.atomic_radius[i_res, i_atm] = ref_res.atomic_radius[i_atm]
+                self.atom_mask_pdb[i_res, i_atm] = 1.0
                 self.atomic_mass[i_res, i_atm] = atom.element.mass
+            #
+            n_atom = len(ref_res.atom_s)
+            self.atom_mask[i_res, :n_atom] = 1.0
+            self.atomic_radius[i_res, :n_atom] = ref_res.atomic_radius[:n_atom]
 
     # get continuity information, whether it has a previous residue
     def get_continuity(self):
@@ -104,7 +108,7 @@ class PDB(object):
                 top_residue = top.add_residue(residue_name, top_chain, residue.resSeq)
                 #
                 for i_atm, atom_name in enumerate(residue_s[residue_name].atom_s):
-                    if self.atom_mask[i_res, i_atm] == 0.0:
+                    if self.atom_mask_pdb[i_res, i_atm] == 0.0:
                         continue
                     element = mdtraj.core.element.Element.getBySymbol(atom_name[0])
                     top.add_atom(atom_name, element, top_residue)
@@ -112,7 +116,7 @@ class PDB(object):
 
     # get backbone orientations by placing rigid body atoms (N, CA, C)
     def get_backbone_orientation(self, i_res):
-        mask = np.all(self.atom_mask[i_res, :3])
+        mask = np.all(self.atom_mask_pdb[i_res, :3])
         if not mask:
             return mask, [np.eye(3), np.zeros(3)]
 
@@ -141,7 +145,7 @@ class PDB(object):
             #
             t_ang0, atom_s, rigid = get_rigid_group_by_torsion(residue_name, tor.name, tor.index)
             index = [ref_res.atom_s.index(atom) for atom in tor.atom_s[:4]]
-            mask = self.atom_mask[i_res, index]
+            mask = self.atom_mask_pdb[i_res, index]
             if not np.all(mask):  # if any of the atoms are missing, skip this torsion
                 continue
             #
@@ -168,7 +172,7 @@ class PDB(object):
 
     def write(self, R, pdb_fn, dcd_fn=None):
         top = self.create_new_topology()
-        mask = np.where(self.atom_mask)
+        mask = np.where(self.atom_mask_pdb)
         xyz = R[:, mask[0], mask[1], :]
         #
         traj = mdtraj.Trajectory(xyz[:1], top)

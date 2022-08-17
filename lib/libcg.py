@@ -30,7 +30,7 @@ class ResidueBasedModel(PDB):
         R_cg = mass_weighted_R.sum(axis=-2) / self.atomic_mass.sum(axis=-1)[None, ..., None]
         #
         self.R_cg = R_cg[..., None, :]
-        self.atom_mask_cg = self.atom_mask[:, (ATOM_INDEX_CA,)]
+        self.atom_mask_cg = self.atom_mask_pdb[:, (ATOM_INDEX_CA,)]
 
     @staticmethod
     def convert_to_cg_tensor(r: torch.Tensor, mass: torch.Tensor) -> torch.Tensor:
@@ -169,7 +169,7 @@ class CalphaBasedModel(ResidueBasedModel):
         self.bead_index = self.residue_index[:, None]
         #
         self.R_cg = self.R[:, :, (ATOM_INDEX_CA,), :]
-        self.atom_mask_cg = self.atom_mask[:, (ATOM_INDEX_CA,)]
+        self.atom_mask_cg = self.atom_mask_pdb[:, (ATOM_INDEX_CA,)]
 
     @staticmethod
     def convert_to_cg_tensor(r: torch.Tensor, mass: torch.Tensor) -> torch.Tensor:

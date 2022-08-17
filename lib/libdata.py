@@ -90,6 +90,7 @@ class PDBset(torch_geometric.data.Dataset):
         data.atomic_mass = torch.as_tensor(cg.atomic_mass, dtype=self.dtype)
         data.input_atom_mask = torch.as_tensor(cg.atom_mask_cg, dtype=self.dtype)
         data.output_atom_mask = torch.as_tensor(cg.atom_mask, dtype=self.dtype)
+        data.pdb_atom_mask = torch.as_tensor(cg.atom_mask_pdb, dtype=self.dtype)
         data.output_xyz = torch.as_tensor(cg.R[frame_index], dtype=self.dtype)
         #
         if self.get_structure_information:
@@ -109,7 +110,9 @@ class PDBset(torch_geometric.data.Dataset):
         return out
 
 
-def create_topology_from_data(data: torch_geometric.data.Data) -> mdtraj.Topology:
+def create_topology_from_data(
+    data: torch_geometric.data.Data, write_native: bool = False
+) -> mdtraj.Topology:
     top = mdtraj.Topology()
     #
     chain_prev = -1
@@ -130,8 +133,13 @@ def create_topology_from_data(data: torch_geometric.data.Data) -> mdtraj.Topolog
         ref_res = residue_s[residue_name]
         top_residue = top.add_residue(residue_name_std, top_chain, resSeq)
         #
+        if write_native:
+            mask = data.pdb_atom_mask[i_res]
+        else:
+            mask = data.output_atom_mask[i_res]
+        #
         for i_atm, atom_name in enumerate(ref_res.atom_s):
-            if data.output_atom_mask[i_res, i_atm] > 0.0:
+            if mask[i_atm] > 0.0:
                 element = mdtraj.core.element.Element.getBySymbol(atom_name[0])
                 top.add_atom(atom_name, element, top_residue)
     return top
@@ -139,8 +147,11 @@ def create_topology_from_data(data: torch_geometric.data.Data) -> mdtraj.Topolog
 
 def create_topology_from_batch(
     batch: torch_geometric.data.Batch,
+    write_native: bool = False,
 ) -> List[mdtraj.Topology]:
-    top_s = list(map(create_topology_from_data, batch.to_data_list()))
+    top_s = []
+    for data in batch.to_data_list():
+        top_s.append(create_topology_from_data(data, write_native=write_native))
     return top_s
 
 
@@ -157,13 +168,14 @@ def create_trajectory_from_batch(
     #
     traj_s = []
     for idx, data in enumerate(batch.to_data_list()):
-        top = create_topology_from_data(data)
-        mask = data.output_atom_mask.cpu().detach().numpy()
+        top = create_topology_from_data(data, write_native=write_native)
         #
         xyz = []
         if write_native:
+            mask = data.pdb_atom_mask.cpu().detach().numpy()
             xyz.append(data.output_xyz.cpu().detach().numpy()[mask > 0.0])
         else:
+            mask = data.output_atom_mask.cpu().detach().numpy()
             mask = np.ones_like(mask)
         #
         if output is not None:
