@@ -257,8 +257,6 @@ def loss_f_atomic_clash(R, batch, lj=False):
         radius_i = batch.atomic_radius[i, :, 0, 1]
         radius_j = batch.atomic_radius[selected][..., 0, 1]
         radius_sum = (radius_j[..., None] + radius_i[None, None, :])[mask]
-        delta = dist - radius_sum
-        closest_index = torch.argmin(delta)
         #
         if lj:
             epsilon_i = batch.atomic_radius[i, :, 0, 0]
@@ -269,15 +267,7 @@ def loss_f_atomic_clash(R, batch, lj=False):
             energy_i = epsilon * (x**2 - 2 * x)
         else:
             radius_sum = radius_sum * 2 ** (-1 / 6)
-            energy_i = 100.0 * torch.pow(-torch.clamp(dist - radius_sum, max=0.0), 2)
-        print(
-            f"residue {i}",
-            batch_index,
-            dist[closest_index],
-            radius_sum[closest_index],
-            energy_i[closest_index],
-            energy_i.sum(),
-        )
+            energy_i = torch.pow(-torch.clamp(dist - radius_sum, max=0.0), 2)
         energy = energy + energy_i.sum()
     energy = energy / n_residue
     return energy
