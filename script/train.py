@@ -162,6 +162,7 @@ class Model(pl.LightningModule):
             if IS_DEVELOP:
                 if USE_EQUIVARIANCE_TEST:
                     self.model.test_equivariance(batch)
+                    sys.exit()
                 #
                 sp.call(["cp", "lib/libmodel.py", log_dir])
                 sp.call(["cp", __file__, log_dir])
