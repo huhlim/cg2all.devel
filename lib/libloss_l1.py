@@ -209,13 +209,11 @@ def loss_f_bonded_energy(R, is_continuous, weight_s=(1.0, 0.0, 0.0)):
 def loss_f_bonded_energy_aux(batch, R):
     # proline ring closure
     proline = batch.residue_type == PROLINE_INDEX
-    if torch.any(proline):
-        R_pro_N = R[proline, ATOM_INDEX_N]
-        R_pro_CD = R[proline, 4]  # magic number for CD, should be updated
-        d_pro = v_size(R_pro_N - R_pro_CD)
-        bond_energy_pro = torch.mean(torch.abs(d_pro - BOND_LENGTH_PROLINE_RING))
-    else:
-        bond_energy_pro = 0.0
+    R_pro_N = R[proline, ATOM_INDEX_N]
+    R_pro_CD = R[proline, 4]  # magic number for CD, should be updated
+    d_pro = v_size(R_pro_N - R_pro_CD)
+    bond_energy_pro = torch.mean(torch.abs(d_pro - BOND_LENGTH_PROLINE_RING))
+    # bond_energy_pro = torch.sum(torch.abs(d_pro - BOND_LENGTH_PROLINE_RING)) / R.size(0)
 
     # disulfide bond
     bond_energy_ssbond = 0.0
@@ -271,7 +269,7 @@ def loss_f_atomic_clash(R, batch, lj=False):
         #
         # excluding BB(prev) - BB(curr)
         curr_bb = RIGID_GROUPS_DEP[curr_residue_type] < 3
-        if curr_residue_type != PROLINE_INDEX:
+        if curr_residue_type == PROLINE_INDEX:
             curr_bb[:7] = True  # BB + CD, HD1, HD2
         prev_bb = RIGID_GROUPS_DEP[prev_residue_type] < 3
         bb_pair = prev_bb[:, None] & curr_bb[None, :]
