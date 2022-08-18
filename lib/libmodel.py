@@ -108,7 +108,7 @@ CONFIG["feature_extraction"].update(
 CONFIG["output"].update(
     {
         "layer_type": "Linear",
-        "num_layers": 4,
+        "num_layers": 2,
         "in_Irreps": "40x0e + 10x1o",
         "mid_Irreps": "40x0e + 10x1o",
         "out_Irreps": f"3x1o + {MAX_TORSION*2:d}x0e",  # two for rotation, one for translation
@@ -439,7 +439,7 @@ class OutputModule(BaseModule):
         #
         t = output[:, 6:9][..., None, :]
         bb = torch.cat([rot, t], dim=1)
-        sc = output[:, 9:].reshape(-1, MAX_TORSION, 2)
+        sc = v_norm_safe(output[:, 9:].reshape(-1, MAX_TORSION, 2))
         return bb, sc
 
     @staticmethod

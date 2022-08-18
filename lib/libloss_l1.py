@@ -200,17 +200,14 @@ def loss_f_bonded_energy(R, is_continuous, weight_s=(1.0, 0.0, 0.0)):
     return bond_energy * weight_s[0] + angle_energy * weight_s[1] + torsion_energy * weight_s[2]
 
 
-def loss_f_torsion_angle(sc, sc_ref, mask, norm_weight=0.01):
+def loss_f_torsion_angle(sc, sc_ref, mask):
     # loss norm is to make torsion angle prediction stable
-    norm = v_size(sc)
-    loss_norm = torch.sum(torch.abs(norm - 1.0) * mask)
-    #
     sc_cos = torch.cos(sc_ref)
     sc_sin = torch.sin(sc_ref)
     #
     loss_cos = torch.sum(torch.abs(sc[:, :, 0] - sc_cos) * mask)
     loss_sin = torch.sum(torch.abs(sc[:, :, 1] - sc_sin) * mask)
-    loss = (loss_cos + loss_sin + loss_norm * norm_weight) / sc.size(0)
+    loss = (loss_cos + loss_sin) / sc.size(0)
     return loss
 
 
