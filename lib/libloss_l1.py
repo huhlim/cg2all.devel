@@ -16,7 +16,7 @@ from residue_constants import (
 )
 
 from libconfig import DTYPE, EPS
-from torch_basics import v_size, v_norm, v_norm_safe, inner_product
+from torch_basics import v_size, v_norm, inner_product
 
 
 def loss_f(batch, ret, loss_weight, loss_prev=None):
@@ -34,7 +34,8 @@ def loss_f(batch, ret, loss_weight, loss_prev=None):
         loss["FAPE_all"] = loss_f_FAPE_all(batch, R, opr_bb) * loss_weight.FAPE_all
     if loss_weight.get("rotation_matrix", 0.0) > 0.0:
         loss["rotation_matrix"] = (
-            loss_f_rotation_matrix(ret["bb"], batch.correct_bb) * loss_weight.rotation_matrix
+            loss_f_rotation_matrix(ret["bb"], ret["bb0"], batch.correct_bb)
+            * loss_weight.rotation_matrix
         )
     if loss_weight.get("bonded_energy", 0.0) > 0.0:
         loss["bonded_energy"] = (
@@ -44,7 +45,7 @@ def loss_f(batch, ret, loss_weight, loss_prev=None):
         loss["distance_matrix"] = loss_f_distance_matrix(R, batch) * loss_weight.distance_matrix
     if loss_weight.get("torsion_angle", 0.0) > 0.0:
         loss["torsion_angle"] = (
-            loss_f_torsion_angle(ret["sc"], batch.correct_torsion, batch.torsion_mask)
+            loss_f_torsion_angle(ret["sc"], ret["sc0"], batch.correct_torsion, batch.torsion_mask)
             * loss_weight.torsion_angle
         )
     if loss_weight.get("atomic_clash", 0.0) > 0.0:
@@ -80,13 +81,16 @@ def loss_f_rigid_body(R: torch.Tensor, R_ref: torch.Tensor) -> torch.Tensor:
 
 
 def loss_f_rotation_matrix(
-    bb: torch.Tensor, bb_ref: torch.Tensor, norm_weight: float = 0.01
+    bb: torch.Tensor, bb0: torch.Tensor, bb_ref: torch.Tensor, norm_weight: float = 0.01
 ) -> torch.Tensor:
     loss_bb = torch.mean(torch.abs(bb[:, :2] - bb_ref[:, :2]))
     #
-    loss_bb_norm_1 = torch.mean(torch.abs(v_size(bb[:, 0:3]) - 1.0))
-    loss_bb_norm_2 = torch.mean(torch.abs(v_size(bb[:, 3:6]) - 1.0))
-    return loss_bb + (loss_bb_norm_1 + loss_bb_norm_2) * norm_weight
+    if bb0 is not None and norm_weight > 0.0:
+        loss_bb_norm_1 = torch.mean(torch.abs(v_size(bb0[:, 0:3]) - 1.0))
+        loss_bb_norm_2 = torch.mean(torch.abs(v_size(bb0[:, 3:6]) - 1.0))
+        return loss_bb + (loss_bb_norm_1 + loss_bb_norm_2) * norm_weight
+    else:
+        return loss_bb
 
 
 def loss_f_FAPE_CA(
@@ -200,14 +204,20 @@ def loss_f_bonded_energy(R, is_continuous, weight_s=(1.0, 0.0, 0.0)):
     return bond_energy * weight_s[0] + angle_energy * weight_s[1] + torsion_energy * weight_s[2]
 
 
-def loss_f_torsion_angle(sc, sc_ref, mask):
-    # loss norm is to make torsion angle prediction stable
+def loss_f_torsion_angle(sc, sc0, sc_ref, mask, norm_weight: float = 0.01):
     sc_cos = torch.cos(sc_ref)
     sc_sin = torch.sin(sc_ref)
     #
     loss_cos = torch.sum(torch.abs(sc[:, :, 0] - sc_cos) * mask)
     loss_sin = torch.sum(torch.abs(sc[:, :, 1] - sc_sin) * mask)
-    loss = (loss_cos + loss_sin) / sc.size(0)
+
+    if sc0 is not None and norm_weight > 0.0:
+        norm = v_size(sc0)
+        loss_norm = torch.sum(torch.abs(norm - 1.0) * mask)
+        loss = loss_cos + loss_sin + loss_norm * norm_weight
+    else:
+        loss = loss_cos + loss_sin
+    loss = loss / sc.size(0)
     return loss
 
 

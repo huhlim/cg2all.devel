@@ -41,13 +41,13 @@ CONFIG["globals"]["loss_weight"].update(
     {
         "rigid_body": 1.0,
         "FAPE_CA": 5.0,
-        "FAPE_all": 5.0,
-        "mse_R": 1.0,
+        "FAPE_all": 0.0,
+        "mse_R": 0.0,
         "bonded_energy": 1.0,
         "distance_matrix": 0.0,
         "rotation_matrix": 1.0,
-        "torsion_angle": 1.0,
-        "atomic_clash": 1.0,
+        "torsion_angle": 2.0,
+        "atomic_clash": 0.0,
     }
 )
 
@@ -91,7 +91,7 @@ CONFIG["initialization"].update(
 CONFIG["feature_extraction"].update(
     {
         "layer_type": "SE3Transformer",
-        "num_layers": 2,
+        "num_layers": 4,
         "radius": 0.8,
         "loop": False,
         "self_interaction": True,
@@ -116,12 +116,14 @@ CONFIG["output"].update(
         "skip_connection": True,
         "norm": [False, True, False],
         "loss_weight": {
-            "rigid_body": 0.0,
-            "FAPE_CA": 0.0,
+            "rigid_body": 1.0,
+            "FAPE_CA": 5.0,
+            "FAPE_all": 0.0,
+            "mse_R": 0.0,
             "bonded_energy": 0.0,
             "distance_matrix": 0.0,
-            "rotation_matrix": 0.0,
-            "torsion_angle": 0.0,
+            "rotation_matrix": 1.0,
+            "torsion_angle": 1.0,
             "atomic_clash": 0.0,
         },
     }
@@ -429,6 +431,7 @@ class OutputModule(BaseModule):
     @staticmethod
     def output_to_opr(output):
         # rotation
+        bb0 = output[:, 0:6]
         v0 = output[:, 0:3]
         v1 = output[:, 3:6]
         e0 = v_norm_safe(v0, index=0)
@@ -439,12 +442,14 @@ class OutputModule(BaseModule):
         #
         t = output[:, 6:9][..., None, :]
         bb = torch.cat([rot, t], dim=1)
-        sc = v_norm_safe(output[:, 9:].reshape(-1, MAX_TORSION, 2))
-        return bb, sc
+        sc0 = output[:, 9:].reshape(-1, MAX_TORSION, 2)
+        sc = v_norm_safe(sc0)
+        #
+        return bb, sc, bb0, sc0
 
     @staticmethod
     def compose(output, bb_prev, sc_prev):
-        bb, sc = OutputModule.output_to_opr(output)
+        bb, sc, _, _ = OutputModule.output_to_opr(output)
         bb[:, 3] = bb[:, 3] + bb_prev[:, 3]
         sc = sc_prev
         return bb, sc
@@ -457,51 +462,6 @@ class OutputModule(BaseModule):
         sc = torch.zeros((n_residue, MAX_TORSION * 2), device=device)
         output = torch.cat([batch.global_frame, t, sc], dim=1)
         return OutputModule.output_to_opr(output)
-
-    # def test_equivariance(self, random_rotation, batch0, feat, *arg):
-    #     device = feat.device
-    #     feat = self.preprocess_feat(feat, *arg)
-    #     #
-    #     in_matrix = self.in_Irreps.D_from_matrix(random_rotation)
-    #     out_matrix = self.out_Irreps.D_from_matrix(random_rotation)
-    #     #
-    #     random_rotation = random_rotation.to(device)
-    #     in_matrix = in_matrix.to(device)
-    #     out_matrix = out_matrix.to(device)
-    #     #
-    #     batch = copy.deepcopy(batch0)
-    #     output = super().forward(batch, feat)
-    #     output_0 = output.clone() @ out_matrix.T
-    #     bb = self.output_to_opr(output)
-    #     bb_0 = bb.clone()
-    #     bb_0[:, :3] = rotate_matrix(random_rotation, bb_0[:, :3])
-    #     bb_0[:, 3] = rotate_vector(random_rotation, bb_0[:, 3])
-    #     #
-    #     batch.pos = batch.pos @ random_rotation.T
-    #     batch.pos0 = batch.pos0 @ random_rotation.T
-    #     batch.global_frame = rotate_vector(
-    #         random_rotation, batch.global_frame.reshape(-1, 2, 3)
-    #     ).reshape(-1, 6)
-    #     feat = feat @ in_matrix.T
-    #     output_1 = super().forward(batch, feat)
-    #     bb_1 = self.output_to_opr(output_1)
-    #     #
-    #     status = torch.allclose(
-    #         output_0, output_1, rtol=EQUIVARIANT_TOLERANCE, atol=EQUIVARIANT_TOLERANCE
-    #     )
-    #     logging.debug(f"Equivariance test for {self.__class__.__name__} {status}")
-    #     if not status:
-    #         logging.debug(random_rotation)
-    #         logging.debug(output[0])
-    #         logging.debug(output_0[0])
-    #         logging.debug(output_1[0])
-    #         logging.debug(torch.abs(output_0 - output_1).max())
-    #         logging.debug(bb[0])
-    #         logging.debug(bb_0[0])
-    #         logging.debug(bb_1[0])
-    #         logging.debug(torch.abs(bb_0 - bb_1).max())
-    #         sys.exit("Could NOT pass equivariance test!")
-    #     return output
 
 
 class Model(nn.Module):
@@ -552,30 +512,33 @@ class Model(nn.Module):
             #
             # 40x0e + 10x1o --> 3x1o + 14x0e
             f_out = self.output_module(batch, f_out)
-            bb, sc = self.output_module.output_to_opr(f_out)
+            bb, sc, bb0, sc0 = self.output_module.output_to_opr(f_out)
             ret["bb"] = bb
             ret["sc"] = sc
+            ret["bb0"] = bb0
+            ret["sc0"] = sc0
             #
             # build structure
             ret["R"], ret["opr_bb"] = build_structure(
                 batch, ret["bb"], sc=ret["sc"], stop_grad=(k + 1 < num_recycle)
             )
             #
-            if self.compute_loss or self.training:
-                loss["intermediate"] = loss_f(
-                    batch,
-                    ret,
-                    self.output_module.loss_weight,
-                    loss.get("intermediate", {}),
-                )
-            #
             if k < num_recycle - 1:
+                if self.compute_loss or self.training:
+                    loss["intermediate"] = loss_f(
+                        batch,
+                        ret,
+                        self.output_module.loss_weight,
+                        loss.get("intermediate", {}),
+                    )
+                #
                 self.update_graph(batch, ret)
 
         if self.compute_loss or self.training:
             loss["final"] = loss_f(batch, ret, self.loss_weight)
-            for k, v in loss["intermediate"].items():
-                loss["intermediate"][k] = v / num_recycle
+            if "intermediate" in loss:
+                for k, v in loss["intermediate"].items():
+                    loss["intermediate"][k] = v / (num_recycle - 1)
 
         metrics = self.calc_metrics(batch, ret)
         #
