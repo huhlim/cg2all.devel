@@ -10,7 +10,7 @@ from residue_constants import (
     BOND_ANGLE0,
     TORSION_ANGLE0,
 )
-from torch_basics import v_size, v_norm_safe, inner_product
+from torch_basics import v_size, v_norm_safe, inner_product, torsion_angle, pi
 
 
 def rmsd_CA(R, R_ref):
@@ -65,6 +65,18 @@ def rmse_bonded(R, is_continuous):
     rmse_omg_angle = torch.sqrt(torch.sum(torch.pow(d_omg, 2) * bonded) / n_bonded)
 
     return rmse_bond_length, rmse_bond_angle, rmse_omg_angle
+
+
+# TODO
+def rmsd_torsion_angle(sc0, sc_ref, mask):
+    sc = torch.acos(torch.clamp(sc0[..., 0], -1.0, 1.0))
+    sc = sc * torch.sign(sc0[..., 1])
+    d_sc = (sc - sc_ref) / (2.0 * pi)
+    d_sc = torch.minumum(d_sc, 2.0 * pi - d_sc) * mask
+    #
+    d_bb = torch.sqrt(torch.mean(torch.power(d_sc[:, :2], 2)))
+    d_sc = torch.sqrt(torch.sum(torch.power(d_sc[:, 3:], 2)) / mask[:, 3:].sum())
+    return d_bb, d_sc
 
 
 # TODO

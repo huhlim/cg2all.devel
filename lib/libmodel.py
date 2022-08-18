@@ -47,7 +47,7 @@ CONFIG["globals"]["loss_weight"].update(
         "distance_matrix": 0.0,
         "rotation_matrix": 1.0,
         "torsion_angle": 2.0,
-        "atomic_clash": 0.0,
+        "atomic_clash": 1.0,
     }
 )
 

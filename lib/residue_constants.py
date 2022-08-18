@@ -34,6 +34,7 @@ AMINO_ACID_s = (
     "UNK",
 )
 PROLINE_INDEX = AMINO_ACID_s.index("PRO")
+CYSTEINE_INDEX = AMINO_ACID_s.index("CYS")
 
 BACKBONE_ATOM_s = ("N", "CA", "C", "O")
 ATOM_INDEX_N = BACKBONE_ATOM_s.index("N")
