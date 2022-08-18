@@ -6,3 +6,4 @@ pdb.pisces/targets*
 pdb.pisces/*.pdb
 lightning_logs
 logs
+.DS_Store
