@@ -10,6 +10,8 @@ from residue_constants import (
     ATOM_INDEX_CA,
     ATOM_INDEX_C,
     BOND_LENGTH0,
+    BOND_LENGTH_PROLINE_RING,
+    BOND_LENGTH_DISULFIDE,
     BOND_ANGLE0,
     TORSION_ANGLE0,
     RIGID_GROUPS_DEP,
@@ -39,8 +41,8 @@ def loss_f(batch, ret, loss_weight, loss_prev=None):
         )
     if loss_weight.get("bonded_energy", 0.0) > 0.0:
         loss["bonded_energy"] = (
-            loss_f_bonded_energy(R, batch.continuous) * loss_weight.bonded_energy
-        )
+            loss_f_bonded_energy(R, batch.continuous) + loss_f_bonded_energy_aux(batch, R)
+        ) * loss_weight.bonded_energy
     if loss_weight.get("distance_matrix", 0.0) > 0.0:
         loss["distance_matrix"] = loss_f_distance_matrix(R, batch) * loss_weight.distance_matrix
     if loss_weight.get("torsion_angle", 0.0) > 0.0:
@@ -202,6 +204,23 @@ def loss_f_bonded_energy(R, is_continuous, weight_s=(1.0, 0.0, 0.0)):
     d_ang = torch.minimum(t_ang - TORSION_ANGLE0[0], TORSION_ANGLE0[1] - t_ang)
     torsion_energy = torch.sum(torch.abs(d_ang) * bonded) / n_bonded
     return bond_energy * weight_s[0] + angle_energy * weight_s[1] + torsion_energy * weight_s[2]
+
+
+def loss_f_bonded_energy_aux(batch, R):
+    # proline ring closure
+    proline = batch.residue_type == PROLINE_INDEX
+    if torch.any(proline):
+        R_pro_N = R[proline, ATOM_INDEX_N]
+        R_pro_CD = R[proline, 4]  # magic number for CD, should be updated
+        d_pro = v_size(R_pro_N - R_pro_CD)
+        bond_energy_pro = torch.mean(torch.abs(d_pro - BOND_LENGTH_PROLINE_RING))
+    else:
+        bond_energy_pro = 0.0
+
+    # disulfide bond
+    bond_energy_ssbond = 0.0
+
+    return bond_energy_pro + bond_energy_ssbond
 
 
 def loss_f_torsion_angle(sc, sc0, sc_ref, mask, norm_weight: float = 0.01):

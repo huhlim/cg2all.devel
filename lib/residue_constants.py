@@ -34,7 +34,6 @@ AMINO_ACID_s = (
     "UNK",
 )
 PROLINE_INDEX = AMINO_ACID_s.index("PRO")
-CYSTEINE_INDEX = AMINO_ACID_s.index("CYS")
 
 BACKBONE_ATOM_s = ("N", "CA", "C", "O")
 ATOM_INDEX_N = BACKBONE_ATOM_s.index("N")
@@ -43,6 +42,9 @@ ATOM_INDEX_C = BACKBONE_ATOM_s.index("C")
 ATOM_INDEX_O = BACKBONE_ATOM_s.index("O")
 
 BOND_LENGTH0 = 0.1345
+BOND_LENGTH_PROLINE_RING = 0.1455
+BOND_LENGTH_DISULFIDE = 0.2029
+
 BOND_ANGLE0 = (np.deg2rad(120.0), np.deg2rad(116.5))
 TORSION_ANGLE0 = (np.deg2rad(0.0), np.deg2rad(180.0))
 
@@ -332,7 +334,7 @@ def read_CHARMM_prm(fn):
 
 residue_s = read_CHARMM_rtf(DATA_HOME / "toppar/top_all36_prot.rtf")
 radius_s = read_CHARMM_prm(DATA_HOME / "toppar/par_all36m_prot.prm")
-#
+
 for residue_name, residue in residue_s.items():
     residue.add_torsion_info(torsion_s[residue_name])
     residue.add_radius_info(radius_s)
