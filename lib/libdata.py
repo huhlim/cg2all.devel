@@ -59,8 +59,9 @@ class PDBset(torch_geometric.data.Dataset):
         r_cg = torch.as_tensor(cg.R_cg[frame_index], dtype=self.dtype)
         if self.noise_level > 0.0:
             noise_size = torch.randn(1).item() * (self.noise_level / 2.0) + self.noise_level
-            if noise_size >= 0.0:
-                r_cg += torch.randn(r_cg.size()) * noise_size
+            if noise_size > 0.0:
+                dr = torch.randn(r_cg.size()) * noise_size
+                r_cg += (dr - dr.mean(axis=0))
             else:
                 noise_size = 0.0
         else:

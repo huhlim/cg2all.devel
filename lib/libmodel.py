@@ -429,7 +429,7 @@ class OutputModule(BaseModule):
         )
 
     @staticmethod
-    def output_to_opr(output):
+    def output_to_opr(output, num_recycle=1):
         # rotation
         bb0 = output[:, 0:6]
         v0 = output[:, 0:3]
@@ -440,7 +440,7 @@ class OutputModule(BaseModule):
         e2 = torch.cross(e0, e1)
         rot = torch.stack([e0, e1, e2], dim=1).mT
         #
-        t = output[:, 6:9][..., None, :]
+        t = output[:, 6:9][..., None, :] / num_recycle
         bb = torch.cat([rot, t], dim=1)
         sc0 = output[:, 9:].reshape(-1, MAX_TORSION, 2)
         sc = v_norm_safe(sc0)
@@ -512,7 +512,7 @@ class Model(nn.Module):
             #
             # 40x0e + 10x1o --> 3x1o + 14x0e
             f_out = self.output_module(batch, f_out)
-            bb, sc, bb0, sc0 = self.output_module.output_to_opr(f_out)
+            bb, sc, bb0, sc0 = self.output_module.output_to_opr(f_out, num_recycle)
             ret["bb"] = bb
             ret["sc"] = sc
             ret["bb0"] = bb0
