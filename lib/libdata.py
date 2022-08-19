@@ -61,7 +61,7 @@ class PDBset(torch_geometric.data.Dataset):
             noise_size = torch.randn(1).item() * (self.noise_level / 2.0) + self.noise_level
             if noise_size > 0.0:
                 dr = torch.randn(r_cg.size()) * noise_size
-                r_cg += (dr - dr.mean(axis=0))
+                r_cg += dr - dr.mean(axis=0)
             else:
                 noise_size = 0.0
         else:
@@ -86,6 +86,7 @@ class PDBset(torch_geometric.data.Dataset):
         data.chain_index = torch.as_tensor(cg.chain_index, dtype=int)
         data.residue_type = torch.as_tensor(cg.residue_index, dtype=torch.long)
         data.continuous = torch.as_tensor(cg.continuous, dtype=self.dtype)
+        data.ssbond_index = torch.as_tensor(cg.ssbond_s, dtype=int)
         #
         data.atomic_radius = torch.as_tensor(cg.atomic_radius, dtype=self.dtype)
         data.atomic_mass = torch.as_tensor(cg.atomic_mass, dtype=self.dtype)
@@ -192,7 +193,7 @@ def create_trajectory_from_batch(
 
 def test():
     base_dir = BASE / "pdb.processed"
-    pdblist = BASE / "pdb/pdblist"
+    pdblist = base_dir / "pdblist"
     cg_model = libcg.ResidueBasedModel
     #
     train_set = PDBset(
@@ -204,48 +205,13 @@ def test():
         get_structure_information=True,
     )
     train_loader = torch_geometric.loader.DataLoader(
-        train_set, batch_size=5, shuffle=True, num_workers=1
+        train_set, batch_size=3, shuffle=True, num_workers=1
     )
     batch = next(iter(train_loader))
     # for batch in train_loader:
     #     traj_s = create_trajectory_from_batch(
     #         batch, batch.output_xyz, write_native=True
     #     )
-    r = batch.output_xyz
-    mass = batch.atomic_mass
-    _pos_new = cg_model.convert_to_cg_tensor(r, mass)
-    print(
-        torch.allclose(
-            batch.pos,
-            _pos_new[batch.input_atom_mask == 1.0],
-            rtol=EQUIVARIANT_TOLERANCE,
-            atol=EQUIVARIANT_TOLERANCE,
-        )
-    )
-    #
-    for k in range(batch.num_graphs):
-        selected = batch.batch == k
-        pos_new = _pos_new[selected]
-        #
-        geom_s = cg_model.get_geometry(
-            pos_new, batch.continuous[selected], batch.input_atom_mask[selected]
-        )
-        f_in, _, _ = cg_model.geom_to_feature(
-            geom_s, batch.f_in[selected, 15], dtype=batch.f_in.dtype
-        )
-        f_in = f_in.to(f_in.device)
-        #
-        print(
-            torch.allclose(
-                f_in[:, 1:],
-                batch.f_in[selected, 1:],
-                rtol=0.005,
-                atol=0.005,
-            )
-        )
-        delta = torch.abs(f_in[:, 1:] - batch.f_in[selected, 1:])
-        print(delta.max())
-        print(delta.max(axis=0))
 
 
 if __name__ == "__main__":

@@ -59,7 +59,7 @@ class PDB(object):
                 if index.shape[0] == 1:
                     residue_index.append(self.top.atom(index[0]).residue.index)
             if len(residue_index) == 2:
-                ssbond_s.append(residue_index)
+                ssbond_s.append(sorted(residue_index))
         self.ssbond_s = ssbond_s
 
     def to_atom(self, verbose=False):

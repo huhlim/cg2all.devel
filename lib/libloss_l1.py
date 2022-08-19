@@ -9,6 +9,8 @@ from residue_constants import (
     ATOM_INDEX_N,
     ATOM_INDEX_CA,
     ATOM_INDEX_C,
+    ATOM_INDEX_PRO_CD,
+    ATOM_INDEX_CYS_SG,
     BOND_LENGTH0,
     BOND_LENGTH_PROLINE_RING,
     BOND_LENGTH_DISULFIDE,
@@ -209,14 +211,24 @@ def loss_f_bonded_energy(R, is_continuous, weight_s=(1.0, 0.0, 0.0)):
 def loss_f_bonded_energy_aux(batch, R):
     # proline ring closure
     proline = batch.residue_type == PROLINE_INDEX
-    R_pro_N = R[proline, ATOM_INDEX_N]
-    R_pro_CD = R[proline, 4]  # magic number for CD, should be updated
-    d_pro = v_size(R_pro_N - R_pro_CD)
-    bond_energy_pro = torch.mean(torch.abs(d_pro - BOND_LENGTH_PROLINE_RING))
-    # bond_energy_pro = torch.sum(torch.abs(d_pro - BOND_LENGTH_PROLINE_RING)) / R.size(0)
+    if torch.any(proline):
+        R_pro_N = R[proline, ATOM_INDEX_N]
+        R_pro_CD = R[proline, ATOM_INDEX_PRO_CD]
+        d_pro = v_size(R_pro_N - R_pro_CD)
+        bond_energy_pro = torch.mean(torch.abs(d_pro - BOND_LENGTH_PROLINE_RING))
+        # bond_energy_pro = torch.sum(torch.abs(d_pro - BOND_LENGTH_PROLINE_RING)) / R.size(0)
+    else:
+        bond_energy_pro = 0.0
 
     # disulfide bond
-    bond_energy_ssbond = 0.0
+    if batch.ssbond_index.size(0) > 0:
+        R_cys_0 = R[batch.ssbond_index[:, 0], ATOM_INDEX_CYS_SG]
+        R_cys_1 = R[batch.ssbond_index[:, 1], ATOM_INDEX_CYS_SG]
+        d_ssbond = v_size(R_cys_1 - R_cys_0)
+        bond_energy_ssbond = torch.mean(torch.abs(d_ssbond - BOND_LENGTH_DISULFIDE))
+        # bond_energy_ssbond = torch.sum(torch.abs(d_ssbond - BOND_LENGTH_DISULFIDE)) / R.size(0)
+    else:
+        bond_energy_ssbond = 0.0
 
     return bond_energy_pro + bond_energy_ssbond
 
@@ -275,6 +287,14 @@ def loss_f_atomic_clash(R, batch, lj=False):
         bb_pair = prev_bb[:, None] & curr_bb[None, :]
         mask[-1][bb_pair] = False
         #
+        if batch.ssbond_index.size(0) > 0:
+            ssbond_test = batch.ssbond_index[:, 1] == i
+            if torch.any(ssbond_test):
+                ssbond = batch.ssbond_index[ssbond_test][0, 0]
+                ssbond -= i - mask.size(0)
+                mask[ssbond, ATOM_INDEX_CYS_SG, ATOM_INDEX_CYS_SG] = False
+                dr = R[selected][..., None, :] - R[i][None, None, :]
+        #
         dr = R[selected][..., None, :] - R[i][None, None, :]
         dist = v_size(dr)[mask]
         #
@@ -291,6 +311,7 @@ def loss_f_atomic_clash(R, batch, lj=False):
             energy_i = epsilon * (x**2 - 2 * x)
         else:
             radius_sum = radius_sum * 2 ** (-1 / 6)
+            delta = dist - radius_sum
             energy_i = torch.pow(-torch.clamp(dist - radius_sum, max=0.0), 2)
         energy = energy + energy_i.sum()
     energy = energy / n_residue
@@ -304,8 +325,7 @@ def test():
     from libdata import PDBset
 
     base_dir = BASE / "pdb.processed"
-    # pdblist = BASE / "pdb/pdblist"
-    pdblist = BASE / "pdb/errorlist"
+    pdblist = base_dir / "pdblist"
     cg_model = libcg.CalphaBasedModel
     #
     train_set = PDBset(
@@ -315,7 +335,7 @@ def test():
         get_structure_information=True,
     )
     train_loader = torch_geometric.loader.DataLoader(
-        train_set, batch_size=2, shuffle=True, num_workers=1
+        train_set, batch_size=3, shuffle=True, num_workers=1
     )
     batch = next(iter(train_loader))
 
@@ -324,10 +344,8 @@ def test():
     bb = batch.correct_bb.clone()
     # batch.output_xyz[:n_residue] = batch.output_xyz[n_residue:]
     # batch.correct_bb[:n_residue] = batch.correct_bb[n_residue:]
-    batch.output_xyz[n_residue:] = batch.output_xyz[:n_residue]
-    batch.correct_bb[n_residue:] = batch.correct_bb[:n_residue]
 
-    loss = loss_f_atomic_clash(R, batch, lj=False)
+    loss = loss_f_bonded_energy_aux(batch, R)
     print(loss)
 
 
