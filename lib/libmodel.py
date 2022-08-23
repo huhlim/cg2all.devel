@@ -17,10 +17,12 @@ from e3nn import o3
 
 import liblayer
 import libnorm
+from libcg import get_residue_center_of_mass
 from residue_constants import (
     MAX_RESIDUE_TYPE,
     MAX_TORSION,
     MAX_RIGID,
+    ATOM_INDEX_CA,
     RIGID_TRANSFORMS_TENSOR,
     RIGID_TRANSFORMS_DEP,
     RIGID_GROUPS_TENSOR,
@@ -41,8 +43,9 @@ CONFIG["globals"]["loss_weight"].update(
     {
         "rigid_body": 1.0,
         "FAPE_CA": 5.0,
-        "FAPE_all": 0.0,
+        "FAPE_all": 5.0,
         "mse_R": 0.0,
+        "v_cntr": 1.0,
         "bonded_energy": 1.0,
         "distance_matrix": 0.0,
         "rotation_matrix": 1.0,
@@ -80,7 +83,7 @@ CONFIG["initialization"].update(
         "layer_type": "Linear",
         "num_layers": 2,
         "in_Irreps": "16x0e + 4x1o",
-        "out_Irreps": "40x0e + 10x1o",
+        "out_Irreps": "60x0e + 15x1o",
         "mid_Irreps": "40x0e + 10x1o",
         "activation": "elu",
         "skip_connection": True,
@@ -91,14 +94,14 @@ CONFIG["initialization"].update(
 CONFIG["feature_extraction"].update(
     {
         "layer_type": "SE3Transformer",
-        "num_layers": 4,
+        "num_layers": 2,
         "radius": 0.8,
         "loop": False,
         "self_interaction": True,
-        "in_Irreps": "40x0e + 10x1o",
-        "out_Irreps": "40x0e + 10x1o",
-        "mid_Irreps": "40x0e + 10x1o",
-        "attn_Irreps": "80x0e + 20x1o",
+        "in_Irreps": "60x0e + 15x1o",
+        "out_Irreps": "60x0e + 15x1o",
+        "mid_Irreps": "60x0e + 15x1o",
+        "attn_Irreps": "60x0e + 15x1o",
         "activation": "elu",
         "skip_connection": True,
         "norm": [False, True, True],
@@ -109,20 +112,21 @@ CONFIG["output"].update(
     {
         "layer_type": "Linear",
         "num_layers": 2,
-        "in_Irreps": "40x0e + 10x1o",
-        "mid_Irreps": "40x0e + 10x1o",
+        "in_Irreps": "60x0e + 15x1o",
+        "mid_Irreps": "60x0e + 15x1o",
         "out_Irreps": f"3x1o + {MAX_TORSION*2:d}x0e",  # two for rotation, one for translation
         "activation": "elu",
         "skip_connection": True,
         "norm": [False, True, False],
         "loss_weight": {
             "rigid_body": 1.0,
-            "FAPE_CA": 5.0,
+            "FAPE_CA": 1.0,
             "FAPE_all": 0.0,
             "mse_R": 0.0,
+            "v_cntr": 0.0,
             "bonded_energy": 0.0,
             "distance_matrix": 0.0,
-            "rotation_matrix": 1.0,
+            "rotation_matrix": 0.0,
             "torsion_angle": 1.0,
             "atomic_clash": 0.0,
         },
@@ -485,6 +489,12 @@ class Model(nn.Module):
             compute_loss=False,
             checkpoint=checkpoint,
         )
+        _config.feature_extraction.in_Irreps += " + 1x1o"
+        self.feature_extraction_module_fg = FeatureExtractionModule(
+            _config.feature_extraction,
+            compute_loss=False,
+            checkpoint=checkpoint,
+        )
         self.output_module = OutputModule(
             _config.output,
             compute_loss=compute_loss,
@@ -511,8 +521,27 @@ class Model(nn.Module):
             f_out = self.feature_extraction_module(batch, f_in)
             #
             # 40x0e + 10x1o --> 3x1o + 14x0e
-            f_out = self.output_module(batch, f_out)
-            bb, sc, bb0, sc0 = self.output_module.output_to_opr(f_out, num_recycle)
+            out = self.output_module(batch, f_out)
+            bb, sc, bb0, sc0 = self.output_module.output_to_opr(out, num_recycle)
+            ret["bb"] = bb
+            ret["sc"] = sc
+            ret["bb0"] = bb0
+            ret["sc0"] = sc0
+            #
+            # build structure
+            ret["R"], ret["opr_bb"] = build_structure(
+                batch, ret["bb"], sc=ret["sc"], stop_grad=(k + 1 < num_recycle)
+            )
+            # TODO: try to calc loss at here?
+            #
+            R_cntr = get_residue_center_of_mass(ret["R"], batch.atomic_mass)
+            R_cntr = R_cntr - ret["R"][:, ATOM_INDEX_CA, :]
+            f_out = torch.cat([f_out, R_cntr], dim=1)
+            #
+            f_out = self.feature_extraction_module_fg(batch, f_out)
+            #
+            out = self.output_module(batch, f_out)
+            bb, sc, bb0, sc0 = self.output_module.output_to_opr(out, num_recycle)
             ret["bb"] = bb
             ret["sc"] = sc
             ret["bb0"] = bb0

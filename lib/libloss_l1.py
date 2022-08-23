@@ -20,7 +20,8 @@ from residue_constants import (
 )
 
 from libconfig import DTYPE, EPS
-from torch_basics import v_size, v_norm, inner_product
+from libcg import get_residue_center_of_mass
+from torch_basics import v_size, v_norm, v_norm_safe, inner_product
 
 
 def loss_f(batch, ret, loss_weight, loss_prev=None):
@@ -32,6 +33,8 @@ def loss_f(batch, ret, loss_weight, loss_prev=None):
         loss["rigid_body"] = loss_f_rigid_body(R, batch.output_xyz) * loss_weight.rigid_body
     if loss_weight.get("mse_R", 0.0) > 0.0:
         loss["mse_R"] = loss_f_mse_R(R, batch.output_xyz, batch.pdb_atom_mask) * loss_weight.mse_R
+    if loss_weight.get("v_cntr", 0.0) > 0.0:
+        loss["v_cntr"] = loss_f_v_cntr(R, batch.atomic_mass, batch.v_cntr) * loss_weight.v_cntr
     if loss_weight.get("FAPE_CA", 0.0) > 0.0:
         loss["FAPE_CA"] = loss_f_FAPE_CA(batch, R, opr_bb) * loss_weight.FAPE_CA
     if loss_weight.get("FAPE_all", 0.0) > 0.0:
@@ -68,6 +71,12 @@ def loss_f(batch, ret, loss_weight, loss_prev=None):
 def loss_f_mse_R(R, R_ref, mask):
     dr_sq = torch.sum(torch.abs(R - R_ref) * mask[..., None])
     return dr_sq / mask.sum()
+
+
+def loss_f_v_cntr(R, mass, v_cntr_ref):
+    r_cntr = get_residue_center_of_mass(R, mass)
+    v_cntr = v_norm_safe(r_cntr - R[:, ATOM_INDEX_CA])
+    return torch.mean(torch.abs(1.0 - inner_product(v_cntr, v_cntr_ref)))
 
 
 def loss_f_rigid_body(R: torch.Tensor, R_ref: torch.Tensor) -> torch.Tensor:

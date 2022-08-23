@@ -13,7 +13,8 @@ import e3nn
 
 import libcg
 from libconfig import BASE, DTYPE, EQUIVARIANT_TOLERANCE
-from residue_constants import AMINO_ACID_s, AMINO_ACID_REV_s, residue_s
+from torch_basics import v_norm
+from residue_constants import AMINO_ACID_s, AMINO_ACID_REV_s, residue_s, ATOM_INDEX_CA
 
 
 class PDBset(torch_geometric.data.Dataset):
@@ -97,6 +98,10 @@ class PDBset(torch_geometric.data.Dataset):
         data.output_atom_mask = torch.as_tensor(cg.atom_mask, dtype=self.dtype)
         data.pdb_atom_mask = torch.as_tensor(cg.atom_mask_pdb, dtype=self.dtype)
         data.output_xyz = torch.as_tensor(cg.R[frame_index], dtype=self.dtype)
+        #
+        r_cntr = libcg.get_residue_center_of_mass(data.output_xyz, data.atomic_mass)
+        v_cntr = r_cntr - data.output_xyz[:, ATOM_INDEX_CA]
+        data.v_cntr = v_norm(v_cntr)
         #
         if self.get_structure_information:
             cg.get_structure_information()

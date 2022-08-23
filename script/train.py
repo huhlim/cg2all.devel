@@ -22,7 +22,7 @@ from libconfig import USE_EQUIVARIANCE_TEST
 
 
 N_PROC = int(os.getenv("OMP_NUM_THREADS", "8"))
-IS_DEVELOP = USE_EQUIVARIANCE_TEST | False
+IS_DEVELOP = USE_EQUIVARIANCE_TEST | True #False
 if IS_DEVELOP:
     logger = logging.getLogger()
     logger.setLevel(logging.DEBUG)

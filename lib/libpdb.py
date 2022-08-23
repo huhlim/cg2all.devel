@@ -118,7 +118,9 @@ class PDB(object):
             self.atomic_radius[i_res, :n_atom] = ref_res.atomic_radius[:n_atom]
             self.atom_mask[i_res, :n_atom] = 1.0
             if i_res in ssbond_s:
-                self.atom_mask[i_res, ref_res.atom_s.index("HG1")] = 0.0
+                HG1_index = ref_res.atom_s.index("HG1")
+                self.atom_mask[i_res, HG1_index] = 0.0
+                self.atomic_mass[i_res, HG1_index] = 0.0
 
     # get continuity information, whether it has a previous residue
     def get_continuity(self):

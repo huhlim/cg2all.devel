@@ -190,6 +190,14 @@ class Martini(PDB):
         raise NotImplementedError
 
 
+def get_residue_center_of_mass(r: torch.Tensor, mass: torch.Tensor) -> torch.Tensor:
+    # r: (n_residue, MAX_ATOM, 3)
+    # mass: (n_residue, MAX_ATOM)
+    mass_weighted_R = r * mass[..., None]
+    cntr = mass_weighted_R.sum(dim=1) / mass.sum(dim=1)[..., None]
+    return cntr
+
+
 def main():
     pdb = ResidueBasedModel("pdb.processed/1HEO.pdb")
 
