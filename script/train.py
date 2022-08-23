@@ -22,7 +22,7 @@ from libconfig import USE_EQUIVARIANCE_TEST
 
 
 N_PROC = int(os.getenv("OMP_NUM_THREADS", "8"))
-IS_DEVELOP = USE_EQUIVARIANCE_TEST | True
+IS_DEVELOP = USE_EQUIVARIANCE_TEST | False
 if IS_DEVELOP:
     logger = logging.getLogger()
     logger.setLevel(logging.DEBUG)
@@ -226,7 +226,7 @@ def main():
         pdblist_val = pdb_dir / "targets.valid"
         pin_memory = False
         checkpoint = True
-        batch_size = 4
+        batch_size = 2
     else:
         base_dir = pathlib.Path("./")
         pdb_dir = base_dir / "pdb.processed"

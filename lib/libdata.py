@@ -86,7 +86,10 @@ class PDBset(torch_geometric.data.Dataset):
         data.chain_index = torch.as_tensor(cg.chain_index, dtype=int)
         data.residue_type = torch.as_tensor(cg.residue_index, dtype=torch.long)
         data.continuous = torch.as_tensor(cg.continuous, dtype=self.dtype)
-        data.ssbond_index = torch.as_tensor(cg.ssbond_s, dtype=int)
+        if len(cg.ssbond_s) > 0:
+            data.ssbond_index = torch.as_tensor(cg.ssbond_s, dtype=int).T
+        else:
+            data.ssbond_index = torch.zeros((2, 0), dtype=int)
         #
         data.atomic_radius = torch.as_tensor(cg.atomic_radius, dtype=self.dtype)
         data.atomic_mass = torch.as_tensor(cg.atomic_mass, dtype=self.dtype)

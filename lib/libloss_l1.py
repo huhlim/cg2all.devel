@@ -221,9 +221,9 @@ def loss_f_bonded_energy_aux(batch, R):
         bond_energy_pro = 0.0
 
     # disulfide bond
-    if batch.ssbond_index.size(0) > 0:
-        R_cys_0 = R[batch.ssbond_index[:, 0], ATOM_INDEX_CYS_SG]
-        R_cys_1 = R[batch.ssbond_index[:, 1], ATOM_INDEX_CYS_SG]
+    if batch.ssbond_index.size(1) > 0:
+        R_cys_0 = R[batch.ssbond_index[0], ATOM_INDEX_CYS_SG]
+        R_cys_1 = R[batch.ssbond_index[1], ATOM_INDEX_CYS_SG]
         d_ssbond = v_size(R_cys_1 - R_cys_0)
         bond_energy_ssbond = torch.mean(torch.abs(d_ssbond - BOND_LENGTH_DISULFIDE))
         # bond_energy_ssbond = torch.sum(torch.abs(d_ssbond - BOND_LENGTH_DISULFIDE)) / R.size(0)
@@ -287,10 +287,10 @@ def loss_f_atomic_clash(R, batch, lj=False):
         bb_pair = prev_bb[:, None] & curr_bb[None, :]
         mask[-1][bb_pair] = False
         #
-        if batch.ssbond_index.size(0) > 0:
-            ssbond_test = batch.ssbond_index[:, 1] == i
+        if batch.ssbond_index.size(1) > 0:
+            ssbond_test = batch.ssbond_index[1] == i
             if torch.any(ssbond_test):
-                ssbond = batch.ssbond_index[ssbond_test][0, 0]
+                ssbond = batch.ssbond_index[0][ssbond_test]
                 ssbond -= i - mask.size(0)
                 mask[ssbond, ATOM_INDEX_CYS_SG, ATOM_INDEX_CYS_SG] = False
                 dr = R[selected][..., None, :] - R[i][None, None, :]

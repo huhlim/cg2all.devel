@@ -43,6 +43,9 @@ class PDB(object):
                 if line.startswith("SSBOND"):
                     cys_0 = (line[15], line[17:21])
                     cys_1 = (line[29], line[31:35])
+                    if cys_0 == cys_1:
+                        sys.stderr.write(f"WARNING: invalid SSBOND found {pdb_fn}\n")
+                        continue
                     ssbond_from_pdb.append((cys_0, cys_1))
                 elif line.startswith("ATOM"):
                     chain_id = line[21]
