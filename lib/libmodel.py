@@ -174,11 +174,11 @@ class EmbeddingModule(nn.Module):
 
 
 class BaseModule(nn.Module):
-    def __init__(self, config, compute_loss=False, checkpoint=False):
+    def __init__(self, config, compute_loss=False, gradient_checkpoint=False):
         super().__init__()
         #
         self.compute_loss = compute_loss
-        self.checkpoint = checkpoint
+        self.gradient_checkpoint = gradient_checkpoint
         self.loss_weight = config.loss_weight
         #
         self.in_Irreps = o3.Irreps(config.in_Irreps).simplify()
@@ -256,7 +256,7 @@ class BaseModule(nn.Module):
         return out
 
     def forward_graph(self, batch, feat):
-        if self.training and self.checkpoint:
+        if self.training and self.gradient_checkpoint:
             feat, graph = gradient_checkpoint(self.layer_0, batch, feat)
         else:
             feat, graph = self.layer_0(batch, feat)
@@ -270,12 +270,12 @@ class BaseModule(nn.Module):
                 feat = self.norm_1(feat)
             #
             if layer.radius == radius_prev:
-                if self.training and self.checkpoint:
+                if self.training and self.gradient_checkpoint:
                     feat, graph = gradient_checkpoint(layer, batch, feat, graph)
                 else:
                     feat, graph = layer(batch, feat, graph)
             else:
-                if self.training and self.checkpoint:
+                if self.training and self.gradient_checkpoint:
                     feat, graph = gradient_checkpoint(layer, batch, feat)
                 else:
                     feat, graph = layer(batch, feat)
@@ -287,14 +287,14 @@ class BaseModule(nn.Module):
         if self.norm_1:
             feat = self.norm_1(feat)
         #
-        if self.training and self.checkpoint:
+        if self.training and self.gradient_checkpoint:
             feat, graph = gradient_checkpoint(self.layer_1, batch, feat)
         else:
             feat, graph = self.layer_1(batch, feat)
         return feat
 
     def forward_linear(self, feat):
-        if self.training and self.checkpoint:
+        if self.training and self.gradient_checkpoint:
             feat = gradient_checkpoint(self.layer_0, feat)
         else:
             feat = self.layer_0(feat)
@@ -308,7 +308,7 @@ class BaseModule(nn.Module):
             if self.norm_1:
                 feat = self.norm_1(feat)
             #
-            if self.training and self.checkpoint:
+            if self.training and self.gradient_checkpoint:
                 feat = gradient_checkpoint(layer, feat)
             else:
                 feat = layer(feat)
@@ -322,7 +322,7 @@ class BaseModule(nn.Module):
         if self.norm_1:
             feat = self.norm_1(feat)
         #
-        if self.training and self.checkpoint:
+        if self.training and self.gradient_checkpoint:
             feat = gradient_checkpoint(self.layer_1, feat)
         else:
             feat = self.layer_1(feat)
@@ -366,11 +366,11 @@ class BaseModule(nn.Module):
 
 
 class InitializationModule(BaseModule):
-    def __init__(self, config, compute_loss=False, checkpoint=False):
+    def __init__(self, config, compute_loss=False, gradient_checkpoint=False):
         super().__init__(
             config,
             compute_loss=compute_loss,
-            checkpoint=checkpoint,
+            gradient_checkpoint=gradient_checkpoint,
         )
 
     def preprocess_feat(self, f_in, embedding):
@@ -416,20 +416,20 @@ class InitializationModule(BaseModule):
 
 
 class FeatureExtractionModule(BaseModule):
-    def __init__(self, config, compute_loss=False, checkpoint=False):
+    def __init__(self, config, compute_loss=False, gradient_checkpoint=False):
         super().__init__(
             config,
             compute_loss=compute_loss,
-            checkpoint=checkpoint,
+            gradient_checkpoint=gradient_checkpoint,
         )
 
 
 class OutputModule(BaseModule):
-    def __init__(self, config, compute_loss=False, checkpoint=False):
+    def __init__(self, config, compute_loss=False, gradient_checkpoint=False):
         super().__init__(
             config,
             compute_loss=compute_loss,
-            checkpoint=checkpoint,
+            gradient_checkpoint=gradient_checkpoint,
         )
 
     @staticmethod
@@ -469,12 +469,12 @@ class OutputModule(BaseModule):
 
 
 class Model(nn.Module):
-    def __init__(self, _config, cg_model, compute_loss=False, checkpoint=False):
+    def __init__(self, _config, cg_model, compute_loss=False, gradient_checkpoint=False):
         super().__init__()
         #
         self.cg_model = cg_model
         self.compute_loss = compute_loss
-        self.checkpoint = checkpoint
+        self.gradient_checkpoint = gradient_checkpoint
         self.num_recycle = _config.globals.num_recycle
         self.loss_weight = _config.globals.loss_weight
         #
@@ -482,23 +482,23 @@ class Model(nn.Module):
         self.initialization_module = InitializationModule(
             _config.initialization,
             compute_loss=False,
-            checkpoint=checkpoint,
+            gradient_checkpoint=gradient_checkpoint,
         )
         self.feature_extraction_module = FeatureExtractionModule(
             _config.feature_extraction,
             compute_loss=False,
-            checkpoint=checkpoint,
+            gradient_checkpoint=gradient_checkpoint,
         )
         _config.feature_extraction.in_Irreps += " + 1x1o"
         self.feature_extraction_module_fg = FeatureExtractionModule(
             _config.feature_extraction,
             compute_loss=False,
-            checkpoint=checkpoint,
+            gradient_checkpoint=gradient_checkpoint,
         )
         self.output_module = OutputModule(
             _config.output,
             compute_loss=compute_loss,
-            checkpoint=checkpoint,
+            gradient_checkpoint=gradient_checkpoint,
         )
 
     def forward(self, batch):

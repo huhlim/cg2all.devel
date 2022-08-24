@@ -20,20 +20,22 @@ from libcg import ResidueBasedModel, CalphaBasedModel, Martini
 import libmodel
 from libconfig import USE_EQUIVARIANCE_TEST
 
+torch.multiprocessing.set_sharing_strategy('file_system')
+
 
 N_PROC = int(os.getenv("OMP_NUM_THREADS", "8"))
-IS_DEVELOP = USE_EQUIVARIANCE_TEST | True #False
+IS_DEVELOP = USE_EQUIVARIANCE_TEST | False
 if IS_DEVELOP:
     logger = logging.getLogger()
     logger.setLevel(logging.DEBUG)
 
 
 class Model(pl.LightningModule):
-    def __init__(self, _config, cg_model, compute_loss=False, checkpoint=False, memcheck=False):
+    def __init__(self, _config, cg_model, compute_loss=False, gradient_checkpoint=False, memcheck=False):
         super().__init__()
         self.save_hyperparameters(_config.to_dict())
         self.model = libmodel.Model(
-            _config, cg_model, compute_loss=compute_loss, checkpoint=checkpoint
+            _config, cg_model, compute_loss=compute_loss, gradient_checkpoint=gradient_checkpoint
         )
         self.memcheck = memcheck
 
@@ -212,6 +214,11 @@ def main():
     else:
         config = {}
         name = None
+    if len(sys.argv) > 2:
+        ckpt_fn = pathlib.Path(sys.argv[2])
+    else:
+        ckpt_fn = None
+    #
     if IS_DEVELOP:
         name = "devel"
     #
@@ -225,7 +232,7 @@ def main():
         pdblist_test = pdb_dir / "targets.test"
         pdblist_val = pdb_dir / "targets.valid"
         pin_memory = False
-        checkpoint = True
+        gradient_checkpoint = True
         batch_size = 2
     else:
         base_dir = pathlib.Path("./")
@@ -234,7 +241,7 @@ def main():
         pdblist_test = pdb_dir / "pdblist"
         pdblist_val = pdb_dir / "pdblist"
         pin_memory = True
-        checkpoint = False
+        gradient_checkpoint = False
         batch_size = 2
     #
     # cg_model = functools.partial(ResidueBasedModel)
@@ -272,7 +279,7 @@ def main():
     in_Irreps = train_set[0].f_in_Irreps
     config["initialization.in_Irreps"] = str(in_Irreps)
     config = libmodel.set_model_config(config)
-    model = Model(config, cg_model, compute_loss=True, checkpoint=checkpoint, memcheck=True)
+    model = Model(config, cg_model, compute_loss=True, gradient_checkpoint=gradient_checkpoint, memcheck=True)
     #
     logger = pl.loggers.TensorBoardLogger("lightning_logs", name=name)
     checkpointing = pl.callbacks.ModelCheckpoint(
@@ -291,7 +298,7 @@ def main():
         logger=logger,
         callbacks=[checkpointing],  # , early_stopping],
     )
-    trainer.fit(model, train_loader, val_loader)
+    trainer.fit(model, train_loader, val_loader, ckpt_path=ckpt_fn)
     trainer.test(model, test_loader)
 
 

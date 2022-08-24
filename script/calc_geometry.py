@@ -20,8 +20,6 @@ OMEGA_TOL = 15.0
 def run(_pdb_fn):
     pdb_fn = pathlib.Path(_pdb_fn)
     out_fn = pdb_fn.parent / f"{pdb_fn.stem}.geom.dat"
-    if out_fn.exists() and out_fn.stat().st_size > 10:
-        return
     #
     traj = mdtraj.load(_pdb_fn, standard_names=False)
     #
@@ -96,51 +94,55 @@ def run(_pdb_fn):
     fout = open(out_fn, "wt")
     sys.stdout.write(f"# PDB {pdb_fn}\n")
     fout.write(f"# PDB {pdb_fn}\n")
-    for i, residue in enumerate(residue_s):
-        out = [[residue], [residue]]
-        out[0].append(":")
-        out[1].append(":")
+    for k in range(n_frames):
+        sys.stdout.write(f"# MODEL {k+1}\n")
+        fout.write(f"# MODEL {k+1}\n")
         #
-        b_len = data["b_len"][0, i, 0]
-        if chain_break[i] or np.abs(b_len - BOND_LENGTH0) < BOND_LENGTH_TOL:
-            out[0].append(f"{b_len:6.3f}")
-        else:
-            out[0].append("\033[1;31m%6.3f\033[0m" % b_len)
-        out[1].append(f"{b_len:6.3f}")
-        out[0].append(":")
-        out[1].append(":")
-        #
-        for k, b_ang in enumerate(data["b_ang"][0, i]):
-            if chain_break[i] or np.abs(b_ang - BOND_ANGLE0[k]) < BOND_ANGLE_TOL:
-                out[0].append(f"{b_ang:6.1f}")
+        for i, residue in enumerate(residue_s):
+            out = [[residue], [residue]]
+            out[0].append(":")
+            out[1].append(":")
+            #
+            b_len = data["b_len"][0, i, 0]
+            if chain_break[i] or np.abs(b_len - BOND_LENGTH0) < BOND_LENGTH_TOL:
+                out[0].append(f"{b_len:6.3f}")
             else:
-                out[0].append("\033[1;31m%6.1f\033[0m" % b_ang)
-            out[1].append(f"{b_ang:6.1f}")
-        out[0].append(":")
-        out[1].append(":")
-        #
-        out[0].append(" ".join([f"{x:6.1f}" for x in data["t_ang"][0, i, :2]]))
-        out[1].append(" ".join([f"{x:6.1f}" for x in data["t_ang"][0, i, :2]]))
-        omg = data["t_ang"][0, i, 2]
-        d_omg = np.min(np.abs([omg + 180.0, omg - 180.0, omg]))
-        d_omg = np.min([d_omg, 360.0 - d_omg])
-        if d_omg < OMEGA_TOL:
-            out[0].append(f"{omg:6.1f}")
-        else:
-            out[0].append("\033[1;31m%6.1f\033[0m" % omg)
-        out[1].append(f"{omg:6.1f}")
-        out[0].append(":")
-        out[1].append(":")
-        #
-        out[0].append(" ".join([f"{x:6.1f}" for x in data["t_ang"][0, i, 3:]]))
-        out[1].append(" ".join([f"{x:6.1f}" for x in data["t_ang"][0, i, 3:]]))
-        sys.stdout.write(" ".join(out[0]) + "\n")
-        fout.write(" ".join(out[1]) + "\n")
-        if chain_break[i]:
-            sys.stdout.write("TER\n")
-            fout.write("TER\n")
-    sys.stdout.write("END\n\n")
-    fout.write("END\n")
+                out[0].append("\033[1;31m%6.3f\033[0m" % b_len)
+            out[1].append(f"{b_len:6.3f}")
+            out[0].append(":")
+            out[1].append(":")
+            #
+            for k, b_ang in enumerate(data["b_ang"][0, i]):
+                if chain_break[i] or np.abs(b_ang - BOND_ANGLE0[k]) < BOND_ANGLE_TOL:
+                    out[0].append(f"{b_ang:6.1f}")
+                else:
+                    out[0].append("\033[1;31m%6.1f\033[0m" % b_ang)
+                out[1].append(f"{b_ang:6.1f}")
+            out[0].append(":")
+            out[1].append(":")
+            #
+            out[0].append(" ".join([f"{x:6.1f}" for x in data["t_ang"][0, i, :2]]))
+            out[1].append(" ".join([f"{x:6.1f}" for x in data["t_ang"][0, i, :2]]))
+            omg = data["t_ang"][0, i, 2]
+            d_omg = np.min(np.abs([omg + 180.0, omg - 180.0, omg]))
+            d_omg = np.min([d_omg, 360.0 - d_omg])
+            if d_omg < OMEGA_TOL:
+                out[0].append(f"{omg:6.1f}")
+            else:
+                out[0].append("\033[1;31m%6.1f\033[0m" % omg)
+            out[1].append(f"{omg:6.1f}")
+            out[0].append(":")
+            out[1].append(":")
+            #
+            out[0].append(" ".join([f"{x:6.1f}" for x in data["t_ang"][0, i, 3:]]))
+            out[1].append(" ".join([f"{x:6.1f}" for x in data["t_ang"][0, i, 3:]]))
+            sys.stdout.write(" ".join(out[0]) + "\n")
+            fout.write(" ".join(out[1]) + "\n")
+            if chain_break[i]:
+                sys.stdout.write("TER\n")
+                fout.write("TER\n")
+        sys.stdout.write("END\n\n")
+        fout.write("END\n")
 
 
 def main():
@@ -149,5 +151,4 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.argv.append("pdb.processed/1UBQ.pdb")
     main()
