@@ -20,18 +20,20 @@ from libcg import ResidueBasedModel, CalphaBasedModel, Martini
 import libmodel
 from libconfig import USE_EQUIVARIANCE_TEST
 
-torch.multiprocessing.set_sharing_strategy('file_system')
+torch.multiprocessing.set_sharing_strategy("file_system")
 
 
 N_PROC = int(os.getenv("OMP_NUM_THREADS", "8"))
-IS_DEVELOP = USE_EQUIVARIANCE_TEST | False
+IS_DEVELOP = USE_EQUIVARIANCE_TEST | True
 if IS_DEVELOP:
     logger = logging.getLogger()
     logger.setLevel(logging.DEBUG)
 
 
 class Model(pl.LightningModule):
-    def __init__(self, _config, cg_model, compute_loss=False, gradient_checkpoint=False, memcheck=False):
+    def __init__(
+        self, _config, cg_model, compute_loss=False, gradient_checkpoint=False, memcheck=False
+    ):
         super().__init__()
         self.save_hyperparameters(_config.to_dict())
         self.model = libmodel.Model(
@@ -279,7 +281,9 @@ def main():
     in_Irreps = train_set[0].f_in_Irreps
     config["initialization.in_Irreps"] = str(in_Irreps)
     config = libmodel.set_model_config(config)
-    model = Model(config, cg_model, compute_loss=True, gradient_checkpoint=gradient_checkpoint, memcheck=True)
+    model = Model(
+        config, cg_model, compute_loss=True, gradient_checkpoint=gradient_checkpoint, memcheck=True
+    )
     #
     logger = pl.loggers.TensorBoardLogger("lightning_logs", name=name)
     checkpointing = pl.callbacks.ModelCheckpoint(

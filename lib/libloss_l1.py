@@ -242,7 +242,7 @@ def loss_f_bonded_energy_aux(batch, R):
     return bond_energy_pro + bond_energy_ssbond
 
 
-def loss_f_torsion_angle(sc, sc0, sc_ref, mask, norm_weight: float = 0.01):
+def loss_f_torsion_angle_v0(sc, sc0, sc_ref, mask, norm_weight: float = 0.01):
     sc_cos = torch.cos(sc_ref)
     sc_sin = torch.sin(sc_ref)
     #
@@ -255,6 +255,19 @@ def loss_f_torsion_angle(sc, sc0, sc_ref, mask, norm_weight: float = 0.01):
         loss = loss_cos + loss_sin + loss_norm * norm_weight
     else:
         loss = loss_cos + loss_sin
+    loss = loss / sc.size(0)
+    return loss
+
+
+def loss_f_torsion_angle(sc, sc0, sc_ref, mask, norm_weight: float = 0.01):
+    sc_cos = torch.cos(sc_ref)
+    sc_sin = torch.sin(sc_ref)
+    loss = torch.sum((1.0 - ((sc[..., 0] * sc_cos) + (sc[..., 1] * sc_sin))) * mask)
+    #
+    if sc0 is not None and norm_weight > 0.0:
+        norm = v_size(sc0)
+        loss_norm = torch.sum(torch.abs(norm - 1.0) * mask)
+        loss = loss + loss_norm * norm_weight
     loss = loss / sc.size(0)
     return loss
 

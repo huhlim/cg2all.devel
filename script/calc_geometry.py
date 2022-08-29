@@ -94,16 +94,24 @@ def run(_pdb_fn):
     fout = open(out_fn, "wt")
     sys.stdout.write(f"# PDB {pdb_fn}\n")
     fout.write(f"# PDB {pdb_fn}\n")
-    for k in range(n_frames):
-        sys.stdout.write(f"# MODEL {k+1}\n")
-        fout.write(f"# MODEL {k+1}\n")
+    for k_frame in range(n_frames):
+        sys.stdout.write(f"# MODEL {k_frame}\n")
+        fout.write(f"# MODEL {k_frame}\n")
         #
         for i, residue in enumerate(residue_s):
-            out = [[residue], [residue]]
+            out = [[], []]
+            if n_frames > 1:
+                out[0].append(f"MODEL {k_frame}")
+                out[1].append(f"MODEL {k_frame}")
+                out[0].append(":")
+                out[1].append(":")
+            #
+            out[0].append(residue)
+            out[1].append(residue)
             out[0].append(":")
             out[1].append(":")
             #
-            b_len = data["b_len"][0, i, 0]
+            b_len = data["b_len"][k_frame, i, 0]
             if chain_break[i] or np.abs(b_len - BOND_LENGTH0) < BOND_LENGTH_TOL:
                 out[0].append(f"{b_len:6.3f}")
             else:
@@ -112,7 +120,7 @@ def run(_pdb_fn):
             out[0].append(":")
             out[1].append(":")
             #
-            for k, b_ang in enumerate(data["b_ang"][0, i]):
+            for k, b_ang in enumerate(data["b_ang"][k_frame, i]):
                 if chain_break[i] or np.abs(b_ang - BOND_ANGLE0[k]) < BOND_ANGLE_TOL:
                     out[0].append(f"{b_ang:6.1f}")
                 else:
@@ -121,9 +129,9 @@ def run(_pdb_fn):
             out[0].append(":")
             out[1].append(":")
             #
-            out[0].append(" ".join([f"{x:6.1f}" for x in data["t_ang"][0, i, :2]]))
-            out[1].append(" ".join([f"{x:6.1f}" for x in data["t_ang"][0, i, :2]]))
-            omg = data["t_ang"][0, i, 2]
+            out[0].append(" ".join([f"{x:6.1f}" for x in data["t_ang"][k_frame, i, :2]]))
+            out[1].append(" ".join([f"{x:6.1f}" for x in data["t_ang"][k_frame, i, :2]]))
+            omg = data["t_ang"][k_frame, i, 2]
             d_omg = np.min(np.abs([omg + 180.0, omg - 180.0, omg]))
             d_omg = np.min([d_omg, 360.0 - d_omg])
             if d_omg < OMEGA_TOL:
@@ -134,8 +142,8 @@ def run(_pdb_fn):
             out[0].append(":")
             out[1].append(":")
             #
-            out[0].append(" ".join([f"{x:6.1f}" for x in data["t_ang"][0, i, 3:]]))
-            out[1].append(" ".join([f"{x:6.1f}" for x in data["t_ang"][0, i, 3:]]))
+            out[0].append(" ".join([f"{x:6.1f}" for x in data["t_ang"][k_frame, i, 3:]]))
+            out[1].append(" ".join([f"{x:6.1f}" for x in data["t_ang"][k_frame, i, 3:]]))
             sys.stdout.write(" ".join(out[0]) + "\n")
             fout.write(" ".join(out[1]) + "\n")
             if chain_break[i]:
