@@ -241,7 +241,7 @@ def main():
         pdblist_train = pdb_dir / "targets.train"
         pdblist_test = pdb_dir / "targets.test"
         pdblist_val = pdb_dir / "targets.valid"
-        batch_size = 2
+        batch_size = 12
     #
     # cg_model = ResidueBasedModel
     cg_model = CalphaBasedModel

@@ -111,7 +111,7 @@ CONFIG["feature_extraction"].update(
 CONFIG["output"].update(
     {
         "layer_type": "Linear",
-        "num_layers": 2,
+        "num_layers": 4,
         "in_Irreps": "60x0e + 15x1o",
         "mid_Irreps": "60x0e + 15x1o",
         "out_Irreps": f"3x1o + {MAX_TORSION*2:d}x0e",  # two for rotation, one for translation
@@ -532,14 +532,14 @@ class Model(nn.Module):
             ret["R"], ret["opr_bb"] = build_structure(
                 batch, ret["bb"], sc=ret["sc"], stop_grad=(k + 1 < num_recycle)
             )
-            if self.compute_loss or self.training:
-                n_intermediate += 1
-                loss["intermediate"] = loss_f(
-                    batch,
-                    ret,
-                    self.output_module.loss_weight,
-                    loss.get("intermediate", {}),
-                )
+            # if self.compute_loss or self.training:
+            #     n_intermediate += 1
+            #     loss["intermediate"] = loss_f(
+            #         batch,
+            #         ret,
+            #         self.output_module.loss_weight,
+            #         loss.get("intermediate", {}),
+            #     )
             #
             R_cntr = get_residue_center_of_mass(ret["R"], batch.atomic_mass)
             R_cntr = R_cntr - ret["R"][:, ATOM_INDEX_CA, :]
