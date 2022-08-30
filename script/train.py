@@ -139,6 +139,7 @@ class Model(pl.LightningModule):
             out_f = log_dir / f"test_{self.current_epoch}_{i}.pdb"
             try:
                 traj.save(out_f)
+                # TODO: write_ssbond
             except:
                 sys.stderr.write(f"Failed to write {out_f}\n")
         #
@@ -233,20 +234,16 @@ def main():
         pdblist_train = pdb_dir / "targets.train"
         pdblist_test = pdb_dir / "targets.test"
         pdblist_val = pdb_dir / "targets.valid"
-        pin_memory = False
-        gradient_checkpoint = True
         batch_size = 2
     else:
         base_dir = pathlib.Path("./")
         pdb_dir = base_dir / "pdb.processed"
-        pdblist_train = pdb_dir / "pdblist"
-        pdblist_test = pdb_dir / "pdblist"
-        pdblist_val = pdb_dir / "pdblist"
-        pin_memory = True
-        gradient_checkpoint = False
+        pdblist_train = pdb_dir / "targets.train"
+        pdblist_test = pdb_dir / "targets.test"
+        pdblist_val = pdb_dir / "targets.valid"
         batch_size = 2
     #
-    # cg_model = functools.partial(ResidueBasedModel)
+    # cg_model = ResidueBasedModel
     cg_model = CalphaBasedModel
     _PDBset = functools.partial(
         PDBset,
@@ -260,7 +257,6 @@ def main():
         torch_geometric.loader.DataLoader,
         batch_size=batch_size,
         num_workers=N_PROC,
-        pin_memory=pin_memory,
     )
     train_set = _PDBset(pdb_dir, pdblist_train)
     train_loader = _DataLoader(
@@ -282,7 +278,11 @@ def main():
     config["initialization.in_Irreps"] = str(in_Irreps)
     config = libmodel.set_model_config(config)
     model = Model(
-        config, cg_model, compute_loss=True, gradient_checkpoint=gradient_checkpoint, memcheck=True
+        config,
+        cg_model,
+        compute_loss=True,
+        gradient_checkpoint=True,
+        memcheck=True,
     )
     #
     logger = pl.loggers.TensorBoardLogger("lightning_logs", name=name)
@@ -290,10 +290,10 @@ def main():
         dirpath=logger.log_dir,
         monitor="val_loss_sum",
     )
-    early_stopping = pl.callbacks.EarlyStopping(
-        monitor="val_loss_sum",
-        min_delta=1e-4,
-    )
+    # early_stopping = pl.callbacks.EarlyStopping(
+    #     monitor="val_loss_sum",
+    #     min_delta=1e-4,
+    # )
     trainer = pl.Trainer(
         max_epochs=100,
         accelerator="auto",

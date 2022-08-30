@@ -120,14 +120,14 @@ CONFIG["output"].update(
         "norm": [False, True, False],
         "loss_weight": {
             "rigid_body": 1.0,
-            "FAPE_CA": 1.0,
+            "FAPE_CA": 5.0,
             "FAPE_all": 0.0,
             "mse_R": 0.0,
-            "v_cntr": 0.0,
+            "v_cntr": 1.0,
             "bonded_energy": 0.0,
             "distance_matrix": 0.0,
             "rotation_matrix": 0.0,
-            "torsion_angle": 1.0,
+            "torsion_angle": 0.0,
             "atomic_clash": 0.0,
         },
     }
@@ -511,7 +511,7 @@ class Model(nn.Module):
         # residue_type --> embedding
         embedding = self.embedding_module(batch)
         #
-        # num_recycle = np.random.randint(1, self.num_recycle + 1)
+        n_intermediate = 0
         num_recycle = self.num_recycle
         for k in range(num_recycle):
             # 16x0e + 4x1o --> 40x0e + 10x1o
@@ -532,7 +532,14 @@ class Model(nn.Module):
             ret["R"], ret["opr_bb"] = build_structure(
                 batch, ret["bb"], sc=ret["sc"], stop_grad=(k + 1 < num_recycle)
             )
-            # TODO: try to calc loss at here?
+            if self.compute_loss or self.training:
+                n_intermediate += 1
+                loss["intermediate"] = loss_f(
+                    batch,
+                    ret,
+                    self.output_module.loss_weight,
+                    loss.get("intermediate", {}),
+                )
             #
             R_cntr = get_residue_center_of_mass(ret["R"], batch.atomic_mass)
             R_cntr = R_cntr - ret["R"][:, ATOM_INDEX_CA, :]
@@ -554,6 +561,7 @@ class Model(nn.Module):
             #
             if k < num_recycle - 1:
                 if self.compute_loss or self.training:
+                    n_intermediate += 1
                     loss["intermediate"] = loss_f(
                         batch,
                         ret,
@@ -567,7 +575,7 @@ class Model(nn.Module):
             loss["final"] = loss_f(batch, ret, self.loss_weight)
             if "intermediate" in loss:
                 for k, v in loss["intermediate"].items():
-                    loss["intermediate"][k] = v / (num_recycle - 1)
+                    loss["intermediate"][k] = v / n_intermediate
 
         metrics = self.calc_metrics(batch, ret)
         #
