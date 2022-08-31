@@ -1,8 +1,9 @@
-name: ml
+name: dgl
 channels:
   - conda-forge
   - defaults
   - pytorch
+  - dglteam
 dependencies:
   - cudatoolkit=11.3
   - python
@@ -11,17 +12,14 @@ dependencies:
   - numpy
   - scipy
   - scikit-learn
-  - pytorch=1.11
+  - pytorch
   - pytorch-lightning
   - mdtraj
   - openmm
   - tqdm
   - pip
+  - psutil
+  - dgl-cuda11.3
   - pip:
     - e3nn
     - ml_collections
-    - torch-cluster==1.6.0
-    - torch-geometric==2.0.4
-    - torch-scatter==2.0.9
-    - torch-sparse==0.6.13
-    - torch-spline-conv==1.2.1
