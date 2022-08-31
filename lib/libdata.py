@@ -76,14 +76,13 @@ class PDBset(Dataset):
         noise_size = torch.full((cg.n_residue,), noise_size)
         #
         geom_s = cg.get_geometry(r_cg, cg.continuous, cg.atom_mask_cg, pca=True)
-        f_in, n_scalar, n_vector = cg.geom_to_feature(
-            geom_s, noise_size=noise_size, dtype=self.dtype
-        )
+        node_feat = cg.geom_to_feature(geom_s, noise_size=noise_size, dtype=self.dtype)
         pos = r_cg[cg.atom_mask_cg > 0.0]
         data = dgl.radius_graph(pos, self.radius, self_loop=self.self_loop)
         data.ndata["pos"] = pos
         data.ndata["pos0"] = pos.clone()
-        data.ndata["f_in"] = f_in
+        data.ndata["node_feat_0"] = node_feat["0"]
+        data.ndata["node_feat_1"] = node_feat["1"]
         #
         global_frame = torch.as_tensor(geom_s["pca"], dtype=self.dtype).reshape(-1)
         data.ndata["global_frame"] = global_frame.repeat(cg.n_residue, 1)
@@ -96,6 +95,22 @@ class PDBset(Dataset):
         for cys_i, cys_j in cg.ssbond_s:
             ssbond_index[cys_i] = cys_j
         data.ndata["ssbond_index"] = ssbond_index
+        #
+        edge_feat = torch.zeros((data.num_edges(), 3), dtype=self.dtype)    # bonded / ssbond / space
+        for i, cont in enumerate(cg.continuous):
+            if cont and data.has_edges_between(i - 1, i):  # i-1 and i is connected
+                eid = data.edge_ids(i - 1, i)
+                edge_feat[eid, 0] = 1.0
+                eid = data.edge_ids(i, i - 1)
+                edge_feat[eid, 0] = 1.0
+        for cys_i, cys_j in cg.ssbond_s:
+            if data.has_edges_between(cys_i, cys_j):
+                eid = data.edge_ids(cys_i, cys_j)
+                edge_feat[eid, 1] = 1.0
+                eid = data.edge_ids(cys_j, cys_i)
+                edge_feat[eid, 1] = 1.0
+        edge_feat[edge_feat.sum(dim=-1) == 0.0, 2] = 1.0
+        data.edata["edge_feat"] = edge_feat
         #
         data.ndata["atomic_radius"] = torch.as_tensor(cg.atomic_radius, dtype=self.dtype)
         data.ndata["atomic_mass"] = torch.as_tensor(cg.atomic_mass, dtype=self.dtype)
@@ -210,9 +225,10 @@ def test():
         random_rotation=True,
         get_structure_information=True,
     )
-    train_loader = dgl.dataloading.GraphDataLoader(train_set, batch_size=2, shuffle=False, num_workers=1)
+    train_loader = dgl.dataloading.GraphDataLoader(
+        train_set, batch_size=2, shuffle=False, num_workers=1
+    )
     batch = next(iter(train_loader))
-    print(batch.ndata["ssbond_index"])
     # traj_s = create_trajectory_from_batch(batch, batch.ndata["output_xyz"], write_native=True)
     # for i,traj in enumerate(traj_s):
     #     traj.save(f"test_{i}.pdb")

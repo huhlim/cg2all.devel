@@ -115,42 +115,33 @@ class ResidueBasedModel(PDB):
     @staticmethod
     def geom_to_feature(geom_s, noise_size: torch.Tensor, dtype=DTYPE) -> torch.Tensor:
         # features for each residue
-        f_in = [[], []]  # 0d, 1d
+        f_in = {"0": [], "1": []}
         # 0d
-        f_in[0].append(geom_s["n_neigh"])  # 1
+        f_in["0"].append(geom_s["n_neigh"])  # 1
         #
-        f_in[0].append(geom_s["bond_length"][1][0][:, None])  # 4
-        f_in[0].append(geom_s["bond_length"][1][1][:, None])
-        f_in[0].append(geom_s["bond_length"][2][0][:, None])
-        f_in[0].append(geom_s["bond_length"][2][1][:, None])
+        f_in["0"].append(geom_s["bond_length"][1][0][:, None])  # 4
+        f_in["0"].append(geom_s["bond_length"][1][1][:, None])
+        f_in["0"].append(geom_s["bond_length"][2][0][:, None])
+        f_in["0"].append(geom_s["bond_length"][2][1][:, None])
         #
-        f_in[0].append(geom_s["bond_angle"][0][:, None])  # 2
-        f_in[0].append(geom_s["bond_angle"][1][:, None])
+        f_in["0"].append(geom_s["bond_angle"][0][:, None])  # 2
+        f_in["0"].append(geom_s["bond_angle"][1][:, None])
         #
-        f_in[0].append(geom_s["dihedral_angle"].reshape(-1, 8))  # 8
+        f_in["0"].append(geom_s["dihedral_angle"].reshape(-1, 8))  # 8
         #
         # noise-level
-        f_in[0].append(noise_size[:, None])  # 1
+        f_in["0"].append(noise_size[:, None])  # 1
         #
-        f_in[0] = torch.as_tensor(torch.cat(f_in[0], axis=1), dtype=dtype)  # 16x0e = 16
-        n_scalar = f_in[0].size(1)  # 16
+        f_in["0"] = torch.as_tensor(torch.cat(f_in["0"], axis=1), dtype=dtype)  # 16
         #
         # 1d: unit vectors from adjacent residues to the current residue
-        f_in[1].append(geom_s["bond_vector"][1][0])
-        f_in[1].append(geom_s["bond_vector"][1][1])
-        f_in[1].append(geom_s["bond_vector"][2][0])
-        f_in[1].append(geom_s["bond_vector"][2][1])
-        f_in[1] = torch.as_tensor(torch.cat(f_in[1], axis=1), dtype=dtype)  # 4x1o = 12
-        n_vector = int(f_in[1].size(1) // 3)  # 4
+        f_in["1"].append(geom_s["bond_vector"][1][0])
+        f_in["1"].append(geom_s["bond_vector"][1][1])
+        f_in["1"].append(geom_s["bond_vector"][2][0])
+        f_in["1"].append(geom_s["bond_vector"][2][1])
+        f_in["1"] = torch.as_tensor(torch.stack(f_in["1"], axis=1), dtype=dtype)  # 4x1o = 12
         #
-        f_in = torch.cat(
-            [
-                f_in[0],
-                f_in[1].reshape(f_in[1].shape[0], -1),
-            ],
-            dim=1,
-        )  # 16x0e + 4x1o = 28
-        return f_in, n_scalar, n_vector
+        return f_in
 
 
 class CalphaBasedModel(ResidueBasedModel):
