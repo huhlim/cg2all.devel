@@ -4,7 +4,7 @@
 import mdtraj
 import numpy as np
 import torch
-import torch_cluster
+import dgl
 
 from libconfig import DTYPE
 from libpdb import PDB
@@ -64,13 +64,8 @@ class ResidueBasedModel(PDB):
 
         # n_neigh
         n_neigh = torch.zeros(r.shape[0], dtype=DTYPE, device=device)
-        edge_src, edge_dst = torch_cluster.radius_graph(
-            r[mask > 0.0],
-            1.0,
-        )
-        n_neigh.index_add_(0, edge_src, torch.ones_like(edge_src, dtype=DTYPE, device=device))
-        n_neigh.index_add_(0, edge_dst, torch.ones_like(edge_dst, dtype=DTYPE, device=device))
-        n_neigh = n_neigh / 2.0
+        graph = dgl.radius_graph(r[mask > 0.0], 1.0)
+        n_neigh = graph.in_degrees(graph.nodes())
         geom_s["n_neigh"] = n_neigh[:, None]
 
         # bond vectors

@@ -7,9 +7,11 @@ import mdtraj
 from typing import List
 
 import torch
-import torch_geometric
-import torch_cluster
+from torch.utils.data import Dataset
+
 import e3nn
+
+import dgl
 
 import libcg
 from libconfig import BASE, DTYPE, EQUIVARIANT_TOLERANCE
@@ -17,13 +19,15 @@ from torch_basics import v_norm
 from residue_constants import AMINO_ACID_s, AMINO_ACID_REV_s, residue_s, ATOM_INDEX_CA
 
 
-class PDBset(torch_geometric.data.Dataset):
+class PDBset(Dataset):
     def __init__(
         self,
         basedir: str,
         pdblist: List[str],
         cg_model,
+        radius=0.8,
         noise_level=0.0,
+        self_loop=False,
         get_structure_information=False,
         random_rotation=False,
         dtype=DTYPE,
@@ -41,6 +45,8 @@ class PDBset(torch_geometric.data.Dataset):
         #
         self.n_pdb = len(self.pdb_s)
         self.cg_model = cg_model
+        self.radius = radius
+        self.self_loop = self_loop
         self.noise_level = noise_level
         self.get_structure_information = get_structure_information
         self.random_rotation = random_rotation
@@ -48,7 +54,7 @@ class PDBset(torch_geometric.data.Dataset):
     def __len__(self):
         return self.n_pdb
 
-    def __getitem__(self, index) -> torch_geometric.data.Data:
+    def __getitem__(self, index):
         pdb_id = self.pdb_s[index]
         pdb_fn = self.basedir / f"{pdb_id}.pdb"
         #
@@ -73,41 +79,44 @@ class PDBset(torch_geometric.data.Dataset):
         f_in, n_scalar, n_vector = cg.geom_to_feature(
             geom_s, noise_size=noise_size, dtype=self.dtype
         )
-        data = torch_geometric.data.Data(
-            pos=torch.as_tensor(r_cg[cg.atom_mask_cg > 0.0], dtype=self.dtype)
-        )
-        data.pos0 = data.pos.clone()
-        #
-        data.f_in = f_in
-        data.f_in_Irreps = f"{n_scalar}x0e + {n_vector}x1o"
+        pos = r_cg[cg.atom_mask_cg > 0.0]
+        data = dgl.radius_graph(pos, self.radius, self_loop=self.self_loop)
+        data.ndata["pos"] = pos
+        data.ndata["pos0"] = pos.clone()
+        data.ndata["f_in"] = f_in
         #
         global_frame = torch.as_tensor(geom_s["pca"], dtype=self.dtype).reshape(-1)
-        data.global_frame = global_frame.repeat(cg.n_residue, 1)
+        data.ndata["global_frame"] = global_frame.repeat(cg.n_residue, 1)
         #
-        data.chain_index = torch.as_tensor(cg.chain_index, dtype=int)
-        data.residue_type = torch.as_tensor(cg.residue_index, dtype=torch.long)
-        data.continuous = torch.as_tensor(cg.continuous, dtype=self.dtype)
-        if len(cg.ssbond_s) > 0:
-            data.ssbond_index = torch.as_tensor(cg.ssbond_s, dtype=int).T
-        else:
-            data.ssbond_index = torch.zeros((2, 0), dtype=int)
+        data.ndata["chain_index"] = torch.as_tensor(cg.chain_index, dtype=torch.long)
+        data.ndata["residue_type"] = torch.as_tensor(cg.residue_index, dtype=torch.long)
+        data.ndata["continuous"] = torch.as_tensor(cg.continuous, dtype=self.dtype)
         #
-        data.atomic_radius = torch.as_tensor(cg.atomic_radius, dtype=self.dtype)
-        data.atomic_mass = torch.as_tensor(cg.atomic_mass, dtype=self.dtype)
-        data.input_atom_mask = torch.as_tensor(cg.atom_mask_cg, dtype=self.dtype)
-        data.output_atom_mask = torch.as_tensor(cg.atom_mask, dtype=self.dtype)
-        data.pdb_atom_mask = torch.as_tensor(cg.atom_mask_pdb, dtype=self.dtype)
-        data.output_xyz = torch.as_tensor(cg.R[frame_index], dtype=self.dtype)
+        ssbond_index = torch.full((data.num_nodes(),), -1, dtype=torch.long)
+        for cys_i, cys_j in cg.ssbond_s:
+            ssbond_index[cys_i] = cys_j
+        data.ndata["ssbond_index"] = ssbond_index
         #
-        r_cntr = libcg.get_residue_center_of_mass(data.output_xyz, data.atomic_mass)
-        v_cntr = r_cntr - data.output_xyz[:, ATOM_INDEX_CA]
-        data.v_cntr = v_norm(v_cntr)
+        data.ndata["atomic_radius"] = torch.as_tensor(cg.atomic_radius, dtype=self.dtype)
+        data.ndata["atomic_mass"] = torch.as_tensor(cg.atomic_mass, dtype=self.dtype)
+        data.ndata["input_atom_mask"] = torch.as_tensor(cg.atom_mask_cg, dtype=self.dtype)
+        data.ndata["output_atom_mask"] = torch.as_tensor(cg.atom_mask, dtype=self.dtype)
+        data.ndata["pdb_atom_mask"] = torch.as_tensor(cg.atom_mask_pdb, dtype=self.dtype)
+        data.ndata["output_xyz"] = torch.as_tensor(cg.R[frame_index], dtype=self.dtype)
+        #
+        r_cntr = libcg.get_residue_center_of_mass(
+            data.ndata["output_xyz"], data.ndata["atomic_mass"]
+        )
+        v_cntr = r_cntr - data.ndata["output_xyz"][:, ATOM_INDEX_CA]
+        data.ndata["v_cntr"] = v_norm(v_cntr)
         #
         if self.get_structure_information:
             cg.get_structure_information()
-            data.correct_bb = torch.as_tensor(cg.bb[frame_index], dtype=self.dtype)
-            data.correct_torsion = torch.as_tensor(cg.torsion[frame_index], dtype=self.dtype)
-            data.torsion_mask = torch.as_tensor(cg.torsion_mask, dtype=self.dtype)
+            data.ndata["correct_bb"] = torch.as_tensor(cg.bb[frame_index], dtype=self.dtype)
+            data.ndata["correct_torsion"] = torch.as_tensor(
+                cg.torsion[frame_index], dtype=self.dtype
+            )
+            data.ndata["torsion_mask"] = torch.as_tensor(cg.torsion_mask, dtype=self.dtype)
         #
         return data
 
@@ -120,22 +129,20 @@ class PDBset(torch_geometric.data.Dataset):
         return out
 
 
-def create_topology_from_data(
-    data: torch_geometric.data.Data, write_native: bool = False
-) -> mdtraj.Topology:
+def create_topology_from_data(data: dgl.DGLGraph, write_native: bool = False) -> mdtraj.Topology:
     top = mdtraj.Topology()
     #
     chain_prev = -1
     resSeq = 0
-    for i_res in range(data.residue_type.size(0)):
-        chain_index = data.chain_index[i_res]
+    for i_res in range(data.ndata["residue_type"].size(0)):
+        chain_index = data.ndata["chain_index"][i_res]
         if chain_index != chain_prev:
             chain_prev = chain_index
             resSeq = 0
             top_chain = top.add_chain()
         #
         resSeq += 1
-        residue_type_index = int(data.residue_type[i_res])
+        residue_type_index = int(data.ndata["residue_type"][i_res])
         residue_name = AMINO_ACID_s[residue_type_index]
         residue_name_std = AMINO_ACID_REV_s.get(residue_name, residue_name)
         if residue_name == "UNK":
@@ -144,9 +151,9 @@ def create_topology_from_data(
         top_residue = top.add_residue(residue_name_std, top_chain, resSeq)
         #
         if write_native:
-            mask = data.pdb_atom_mask[i_res]
+            mask = data.ndata["pdb_atom_mask"][i_res]
         else:
-            mask = data.output_atom_mask[i_res]
+            mask = data.ndata["output_atom_mask"][i_res]
         #
         for i_atm, atom_name in enumerate(ref_res.atom_s):
             if mask[i_atm] > 0.0:
@@ -155,18 +162,8 @@ def create_topology_from_data(
     return top
 
 
-def create_topology_from_batch(
-    batch: torch_geometric.data.Batch,
-    write_native: bool = False,
-) -> List[mdtraj.Topology]:
-    top_s = []
-    for data in batch.to_data_list():
-        top_s.append(create_topology_from_data(data, write_native=write_native))
-    return top_s
-
-
 def create_trajectory_from_batch(
-    batch: torch_geometric.data.Batch,
+    batch: dgl.DGLGraph,
     output: torch.Tensor = None,
     write_native: bool = False,
 ) -> List[mdtraj.Trajectory]:
@@ -177,21 +174,22 @@ def create_trajectory_from_batch(
     write_native = write_native or output is None
     #
     traj_s = []
-    for idx, data in enumerate(batch.to_data_list()):
+    start = 0
+    for idx, data in enumerate(dgl.unbatch(batch)):
         top = create_topology_from_data(data, write_native=write_native)
         #
         xyz = []
         if write_native:
-            mask = data.pdb_atom_mask.cpu().detach().numpy()
-            xyz.append(data.output_xyz.cpu().detach().numpy()[mask > 0.0])
+            mask = data.ndata["pdb_atom_mask"].cpu().detach().numpy()
+            xyz.append(data.ndata["output_xyz"].cpu().detach().numpy()[mask > 0.0])
         else:
-            mask = data.output_atom_mask.cpu().detach().numpy()
+            mask = data.ndata["output_atom_mask"].cpu().detach().numpy()
             mask = np.ones_like(mask)
         #
         if output is not None:
-            start = int(batch._slice_dict["output_atom_mask"][idx])
-            end = int(batch._slice_dict["output_atom_mask"][idx + 1])
+            end = start + data.num_nodes()
             xyz.append(R[start:end][mask > 0.0])
+            start = end
         xyz = np.array(xyz)
         #
         traj = mdtraj.Trajectory(xyz=xyz, topology=top)
@@ -201,7 +199,7 @@ def create_trajectory_from_batch(
 
 def test():
     base_dir = BASE / "pdb.processed"
-    pdblist = base_dir / "pdblist"
+    pdblist = base_dir / "targets.train"
     cg_model = libcg.ResidueBasedModel
     #
     train_set = PDBset(
@@ -212,11 +210,13 @@ def test():
         random_rotation=True,
         get_structure_information=True,
     )
-    train_loader = torch_geometric.loader.DataLoader(
-        train_set, batch_size=3, shuffle=True, num_workers=1
-    )
+    train_loader = dgl.dataloading.GraphDataLoader(train_set, batch_size=2, shuffle=False, num_workers=1)
     batch = next(iter(train_loader))
-    # for batch in train_loader:
+    print(batch.ndata["ssbond_index"])
+    # traj_s = create_trajectory_from_batch(batch, batch.ndata["output_xyz"], write_native=True)
+    # for i,traj in enumerate(traj_s):
+    #     traj.save(f"test_{i}.pdb")
+    # # for batch in train_loader:
     #     traj_s = create_trajectory_from_batch(
     #         batch, batch.output_xyz, write_native=True
     #     )
