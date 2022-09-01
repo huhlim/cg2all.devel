@@ -14,8 +14,10 @@ from residue_constants import MAX_RESIDUE_TYPE, ATOM_INDEX_CA
 
 # %%
 class ResidueBasedModel(PDB):
-    n_scalar = 16
-    n_vector = 4
+    n_node_scalar = 16
+    n_node_vector = 4
+    n_edge_scalar = 3
+    n_edge_vector = 0
 
     def __init__(self, pdb_fn, dcd_fn=None):
         super().__init__(pdb_fn, dcd_fn)

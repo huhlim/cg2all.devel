@@ -60,8 +60,8 @@ CONFIG["embedding_module"] = EMBEDDING_MODULE
 # the base config for using ConvLayer or SE3Transformer
 STRUCTURE_MODULE = ConfigDict()
 STRUCTURE_MODULE["low_memory"] = False
-STRUCTURE_MODULE["num_layers"] = 2
-STRUCTURE_MODULE["num_heads"] = 4  # number of attention heads
+STRUCTURE_MODULE["num_layers"] = 4
+STRUCTURE_MODULE["num_heads"] = 8  # number of attention heads
 STRUCTURE_MODULE["norm"] = [True, True]  # norm between attention blocks / within attention blocks
 
 # fiber_in: is determined by input features
@@ -74,7 +74,7 @@ STRUCTURE_MODULE["fiber_out"] = [(0, MAX_TORSION * 2), (1, 3)]
 # - they will be converted to Fiber using Fiber.create(num_degrees, num_channels)
 # - which is {degree: num_channels for degree in range(num_degrees)}
 STRUCTURE_MODULE["num_degrees"] = 2
-STRUCTURE_MODULE["num_channels"] = 16  # ?
+STRUCTURE_MODULE["num_channels"] = 16
 STRUCTURE_MODULE["channels_div"] = 2  # no idea... # of channels is divided by this number
 STRUCTURE_MODULE["fiber_edge"] = None
 #
@@ -107,10 +107,18 @@ def set_model_config(arg: dict, cg_model) -> ConfigDict:
     config = copy.deepcopy(CONFIG)
     config.update_from_flattened_dict(arg)
     #
-    n_scalar = cg_model.n_scalar + config.embedding_module.embedding_dim
-    n_vector = cg_model.n_vector
-    #
-    config.structure_module.fiber_in = [(0, n_scalar), (1, n_vector)]
+    n_node_scalar = cg_model.n_node_scalar + config.embedding_module.embedding_dim
+    config.structure_module.fiber_in = []
+    if n_node_scalar > 0:
+        config.structure_module.fiber_in.append((0, n_node_scalar))
+    if cg_model.n_node_vector > 0:
+        config.structure_module.fiber_in.append((1, cg_model.n_node_vector))
+
+    config.structure_module.fiber_edge = []
+    if cg_model.n_edge_scalar > 0:
+        config.structure_module.fiber_edge.append((0, cg_model.n_edge_scalar))
+    if cg_model.n_edge_vector > 0:
+        config.structure_module.fiber_edge.append((1, cg_model.n_edge_vector))
     #
     return config
 
@@ -181,12 +189,11 @@ class Model(nn.Module):
         #
         n_intermediate = 0
         for k in range(self.num_recycle):
-            edge_feats = {}  # "0": batch.edata["edge_feat_0"]}
+            edge_feats = {"0": batch.edata["edge_feat_0"]}
             node_feats = {
                 "0": torch.cat([batch.ndata["node_feat_0"], embedding[..., None]], dim=1),
                 "1": batch.ndata["node_feat_1"],
             }
-            print(node_feats["0"].size(), node_feats["1"].size())
 
             out = self.structure_module(batch, node_feats=node_feats, edge_feats=edge_feats)
             bb, sc, bb0, sc0 = self.structure_module.output_to_opr(out, self.num_recycle)
