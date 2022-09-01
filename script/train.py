@@ -11,41 +11,36 @@ import subprocess as sp
 import numpy as np
 
 import torch
-import torch_geometric
+import dgl
 import pytorch_lightning as pl
 
 sys.path.insert(0, "lib")
 from libdata import PDBset, create_trajectory_from_batch
 from libcg import ResidueBasedModel, CalphaBasedModel, Martini
 import libmodel
-from libconfig import USE_EQUIVARIANCE_TEST
 
 torch.multiprocessing.set_sharing_strategy("file_system")
 
 
 N_PROC = int(os.getenv("OMP_NUM_THREADS", "8"))
-IS_DEVELOP = USE_EQUIVARIANCE_TEST | True
+IS_DEVELOP = True
 if IS_DEVELOP:
     logger = logging.getLogger()
     logger.setLevel(logging.DEBUG)
 
 
 class Model(pl.LightningModule):
-    def __init__(
-        self, _config, cg_model, compute_loss=False, gradient_checkpoint=False, memcheck=False
-    ):
+    def __init__(self, _config, cg_model, compute_loss=False, memcheck=False):
         super().__init__()
         self.save_hyperparameters(_config.to_dict())
-        self.model = libmodel.Model(
-            _config, cg_model, compute_loss=compute_loss, gradient_checkpoint=gradient_checkpoint
-        )
+        self.model = libmodel.Model(_config, cg_model, compute_loss=compute_loss)
         self.memcheck = memcheck
 
     @property
     def cg_model(self):
         return self.model.cg_model
 
-    def forward(self, batch: torch_geometric.data.Batch):
+    def forward(self, batch: dgl.DGLGraph):
         return self.model.forward(batch)
 
     def on_train_batch_start(self, batch, batch_idx):
@@ -53,7 +48,7 @@ class Model(pl.LightningModule):
             torch.cuda.empty_cache()
             if self.memcheck:
                 torch.cuda.reset_peak_memory_stats()
-                self.n_residue = batch.pos.size(0)
+                self.n_residue = batch.num_nodes()
 
     def on_train_batch_end(self, outputs, batch, batch_idx):
         if self.memcheck and self.device.type == "cuda":
@@ -112,20 +107,10 @@ class Model(pl.LightningModule):
             )
             raise ValueError(out, loss_s, metric)
         #
+        bs = batch.batch_size
+        self.log("train_loss", loss_s, batch_size=bs, on_epoch=True, on_step=False)
         self.log(
-            "train_loss",
-            loss_s,
-            batch_size=batch.num_graphs,
-            on_epoch=True,
-            on_step=False,
-        )
-        self.log(
-            "train_metric",
-            metric,
-            batch_size=batch.num_graphs,
-            on_epoch=True,
-            on_step=False,
-            prog_bar=IS_DEVELOP,
+            "train_metric", metric, batch_size=bs, on_epoch=True, on_step=False, prog_bar=IS_DEVELOP
         )
         return {"loss": loss_sum, "metric": metric, "out": out}
 
@@ -143,21 +128,9 @@ class Model(pl.LightningModule):
             except:
                 sys.stderr.write(f"Failed to write {out_f}\n")
         #
-        self.log(
-            "test_loss",
-            loss_s,
-            batch_size=batch.num_graphs,
-            on_epoch=True,
-            on_step=False,
-        )
-        self.log(
-            "test_metric",
-            metric,
-            prog_bar=True,
-            batch_size=batch.num_graphs,
-            on_epoch=True,
-            on_step=False,
-        )
+        bs = batch.batch_size
+        self.log("test_loss", loss_s, batch_size=bs, on_epoch=True, on_step=False)
+        self.log("test_metric", metric, prog_bar=True, batch_size=bs, on_epoch=True, on_step=False)
         return {"loss": loss_sum, "metric": metric, "out": out}
 
     def validation_step(self, batch, batch_idx):
@@ -165,10 +138,6 @@ class Model(pl.LightningModule):
         #
         if self.current_epoch == 0 and batch_idx == 0:
             if IS_DEVELOP:
-                if USE_EQUIVARIANCE_TEST:
-                    self.model.test_equivariance(batch)
-                    sys.exit()
-                #
                 sp.call(["cp", "lib/libmodel.py", log_dir])
                 sp.call(["cp", __file__, log_dir])
         #
@@ -183,28 +152,10 @@ class Model(pl.LightningModule):
                     traj.save(out_f)
                 except:
                     sys.stderr.write(f"Failed to write {out_f}\n")
-        self.log(
-            "val_loss_sum",
-            loss_sum,
-            batch_size=batch.num_graphs,
-            on_epoch=True,
-            on_step=False,
-        )
-        self.log(
-            "val_loss",
-            loss_s,
-            batch_size=batch.num_graphs,
-            on_epoch=True,
-            on_step=False,
-        )
-        self.log(
-            "val_metric",
-            metric,
-            prog_bar=True,
-            batch_size=batch.num_graphs,
-            on_epoch=True,
-            on_step=False,
-        )
+        bs = batch.batch_size
+        self.log("val_loss_sum", loss_sum, batch_size=bs, on_epoch=True, on_step=False)
+        self.log("val_loss", loss_s, batch_size=bs, on_epoch=True, on_step=False)
+        self.log("val_metric", metric, prog_bar=True, batch_size=bs, on_epoch=True, on_step=False)
         return {"loss": loss_sum, "metric": metric, "out": out}
 
 
@@ -217,6 +168,7 @@ def main():
     else:
         config = {}
         name = None
+    #
     if len(sys.argv) > 2:
         ckpt_fn = pathlib.Path(sys.argv[2])
     else:
@@ -227,6 +179,12 @@ def main():
     #
     pl.seed_everything(25, workers=True)
     #
+    # configure
+    # cg_model = ResidueBasedModel
+    cg_model = CalphaBasedModel
+    config = libmodel.set_model_config(config, cg_model)
+    #
+    # set file paths
     hostname = os.getenv("HOSTNAME", "local")
     if hostname == "markov.bch.msu.edu" or hostname.startswith("gpu") and (not IS_DEVELOP):
         base_dir = pathlib.Path("./")
@@ -242,46 +200,28 @@ def main():
         pdblist_test = pdb_dir / "targets.test"
         pdblist_val = pdb_dir / "targets.valid"
         batch_size = 12
-    #
-    # cg_model = ResidueBasedModel
-    cg_model = CalphaBasedModel
+
     _PDBset = functools.partial(
         PDBset,
         cg_model=cg_model,
+        radius=config.globals.radius,
         noise_level=0.0,
         get_structure_information=True,
         random_rotation=True,
     )
-    #
     _DataLoader = functools.partial(
-        torch_geometric.loader.DataLoader,
-        batch_size=batch_size,
-        num_workers=N_PROC,
+        dgl.dataloading.GraphDataLoader, batch_size=batch_size, num_workers=N_PROC
     )
+    # define train/val/test sets
     train_set = _PDBset(pdb_dir, pdblist_train)
-    train_loader = _DataLoader(
-        train_set,
-        shuffle=True,
-    )
+    train_loader = _DataLoader(train_set, shuffle=True)
     val_set = _PDBset(pdb_dir, pdblist_val)
-    val_loader = _DataLoader(
-        val_set,
-        shuffle=False,
-    )
+    val_loader = _DataLoader(val_set, shuffle=False)
     test_set = _PDBset(pdb_dir, pdblist_test)
-    test_loader = _DataLoader(
-        test_set,
-        shuffle=False,
-    )
+    test_loader = _DataLoader(test_set, shuffle=False)
     #
-    config = libmodel.set_model_config(config, cg_model)
-    model = Model(
-        config,
-        cg_model,
-        compute_loss=True,
-        gradient_checkpoint=True,
-        memcheck=True,
-    )
+    # define model
+    model = Model(config, cg_model, compute_loss=True, memcheck=True)
     #
     logger = pl.loggers.TensorBoardLogger("lightning_logs", name=name)
     checkpointing = pl.callbacks.ModelCheckpoint(
@@ -294,7 +234,7 @@ def main():
     # )
     trainer = pl.Trainer(
         max_epochs=100,
-        accelerator="auto",
+        accelerator="cuda",
         gradient_clip_val=1.0,
         check_val_every_n_epoch=1,
         logger=logger,

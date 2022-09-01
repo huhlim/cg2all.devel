@@ -14,7 +14,7 @@ import e3nn
 import dgl
 
 import libcg
-from libconfig import BASE, DTYPE, EQUIVARIANT_TOLERANCE
+from libconfig import BASE, DTYPE
 from torch_basics import v_norm
 from residue_constants import AMINO_ACID_s, AMINO_ACID_REV_s, residue_s, ATOM_INDEX_CA
 

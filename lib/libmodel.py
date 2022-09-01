@@ -27,7 +27,7 @@ from libloss_l1 import loss_f
 from torch_basics import v_norm_safe, inner_product, rotate_matrix, rotate_vector
 from libmetric import rmsd_CA, rmsd_rigid, rmsd_all, rmse_bonded
 from libcg import get_residue_center_of_mass
-from libconfig import DTYPE, EQUIVARIANT_TOLERANCE
+from libconfig import DTYPE
 
 
 CONFIG = ConfigDict()

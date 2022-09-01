@@ -12,7 +12,7 @@ dependencies:
   - numpy
   - scipy
   - scikit-learn
-  - pytorch
+  - pytorch=1.12.0
   - pytorch-lightning
   - mdtraj
   - openmm
