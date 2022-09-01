@@ -73,8 +73,8 @@ STRUCTURE_MODULE["fiber_out"] = [(0, MAX_TORSION * 2), (1, 3)]
 # num_degrees and num_channels are for fiber_hidden
 # - they will be converted to Fiber using Fiber.create(num_degrees, num_channels)
 # - which is {degree: num_channels for degree in range(num_degrees)}
-STRUCTURE_MODULE["num_degrees"] = 2
-STRUCTURE_MODULE["num_channels"] = 16
+STRUCTURE_MODULE["num_degrees"] = 3
+STRUCTURE_MODULE["num_channels"] = 32
 STRUCTURE_MODULE["channels_div"] = 2  # no idea... # of channels is divided by this number
 STRUCTURE_MODULE["fiber_edge"] = None
 #
@@ -159,7 +159,7 @@ class StructureModule(SE3Transformer):
         e2 = torch.cross(e0, e1)
         rot = torch.stack([e0, e1, e2], dim=1).mT
         #
-        t = output["1"][:, 2][..., None, :] / num_recycle
+        t = 0.1 * output["1"][:, 2][..., None, :] / num_recycle
         bb = torch.cat([rot, t], dim=1)
         #
         sc0 = output["0"].reshape(-1, MAX_TORSION, 2)

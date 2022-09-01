@@ -199,7 +199,7 @@ def main():
         pdblist_train = pdb_dir / "targets.train"
         pdblist_test = pdb_dir / "targets.test"
         pdblist_val = pdb_dir / "targets.valid"
-        batch_size = 12
+        batch_size = 6
 
     _PDBset = functools.partial(
         PDBset,
@@ -234,7 +234,7 @@ def main():
     # )
     trainer = pl.Trainer(
         max_epochs=100,
-        accelerator="cuda",
+        accelerator="auto",
         gradient_clip_val=1.0,
         check_val_every_n_epoch=1,
         logger=logger,

@@ -41,10 +41,10 @@ def loss_f(batch, ret, loss_weight, loss_prev=None):
         loss["v_cntr"] = (
             loss_f_v_cntr(R, batch.ndata["atomic_mass"], batch.ndata["v_cntr"]) * loss_weight.v_cntr
         )
-    if loss_weight.get("FAPE_CA", 0.0) > 0.0:
-        loss["FAPE_CA"] = loss_f_FAPE_CA(batch, R, opr_bb, d_clamp=1.0) * loss_weight.FAPE_CA
-    if loss_weight.get("FAPE_all", 0.0) > 0.0:
-        loss["FAPE_all"] = loss_f_FAPE_all(batch, R, opr_bb, d_clamp=1.0) * loss_weight.FAPE_all
+    # if loss_weight.get("FAPE_CA", 0.0) > 0.0:
+    #     loss["FAPE_CA"] = loss_f_FAPE_CA(batch, R, opr_bb, d_clamp=2.0) * loss_weight.FAPE_CA
+    # if loss_weight.get("FAPE_all", 0.0) > 0.0:
+    #     loss["FAPE_all"] = loss_f_FAPE_all(batch, R, opr_bb, d_clamp=2.0) * loss_weight.FAPE_all
     if loss_weight.get("rotation_matrix", 0.0) > 0.0:
         loss["rotation_matrix"] = (
             loss_f_rotation_matrix(ret["bb"], ret["bb0"], batch.ndata["correct_bb"])
@@ -63,8 +63,8 @@ def loss_f(batch, ret, loss_weight, loss_prev=None):
             )
             * loss_weight.torsion_angle
         )
-    if loss_weight.get("atomic_clash", 0.0) > 0.0:
-        loss["atomic_clash"] = loss_f_atomic_clash(R, batch) * loss_weight.atomic_clash
+    # if loss_weight.get("atomic_clash", 0.0) > 0.0:
+    #     loss["atomic_clash"] = loss_f_atomic_clash(R, batch) * loss_weight.atomic_clash
     #
     if loss_prev is not None:
         for k, v in loss_prev.items():
@@ -347,7 +347,7 @@ def loss_f_atomic_clash(R, batch, lj=False):
                 radius_sum = radius_sum * 2 ** (-1 / 6)
                 delta = dist - radius_sum
                 energy_i = torch.pow(-torch.clamp(dist - radius_sum, max=0.0), 2)
-        energy = energy + energy_i.sum()
+            energy = energy + energy_i.sum()
     energy = energy / R.size(0)
     return energy
 
