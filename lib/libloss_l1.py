@@ -107,8 +107,8 @@ def loss_f_rotation_matrix(
     loss_bb = torch.mean(torch.abs(bb[:, :2] - bb_ref[:, :2]))
     #
     if bb0 is not None and norm_weight > 0.0:
-        loss_bb_norm_1 = torch.mean(torch.abs(v_size(bb0[:, 0:3]) - 1.0))
-        loss_bb_norm_2 = torch.mean(torch.abs(v_size(bb0[:, 3:6]) - 1.0))
+        loss_bb_norm_1 = torch.mean(torch.abs(v_size(bb0[:, 0]) - 1.0))
+        loss_bb_norm_2 = torch.mean(torch.abs(v_size(bb0[:, 1]) - 1.0))
         return loss_bb + (loss_bb_norm_1 + loss_bb_norm_2) * norm_weight
     else:
         return loss_bb
@@ -134,7 +134,7 @@ def loss_f_FAPE_CA(
         #
         for i in range(n_residue):
             r = rotate_vector_inv(_bb[i, :3], _R - _bb[i, 3])
-            r_ref = rotate_vector_inv(bb_ref[i, :3], R_ref - bb_ref[i, :3])
+            r_ref = rotate_vector_inv(bb_ref[i, :3], R_ref - bb_ref[i, 3])
             dr = r - r_ref
             d = torch.clamp(torch.sqrt(torch.pow(dr, 2).sum(dim=-1) + EPS**2), max=d_clamp)
             loss[batch_index] = loss[batch_index] + torch.mean(d)
@@ -165,7 +165,7 @@ def loss_f_FAPE_all(
         #
         for i in range(n_residue):
             r = rotate_vector_inv(_bb[i, :3], _R - _bb[i, 3])
-            r_ref = rotate_vector_inv(bb_ref[i, :3], R_ref - bb_ref[i, :3])
+            r_ref = rotate_vector_inv(bb_ref[i, :3], R_ref - bb_ref[i, 3])
             dr = (r - r_ref)[mask]
             d = torch.clamp(torch.sqrt(torch.pow(dr, 2).sum(dim=-1) + EPS**2), max=d_clamp)
             loss[batch_index] = loss[batch_index] + torch.mean(d)

@@ -274,9 +274,7 @@ def main():
         shuffle=False,
     )
     #
-    in_Irreps = train_set[0].f_in_Irreps
-    config["initialization.in_Irreps"] = str(in_Irreps)
-    config = libmodel.set_model_config(config)
+    config = libmodel.set_model_config(config, cg_model)
     model = Model(
         config,
         cg_model,

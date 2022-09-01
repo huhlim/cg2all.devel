@@ -81,8 +81,11 @@ class PDBset(Dataset):
         data = dgl.radius_graph(pos, self.radius, self_loop=self.self_loop)
         data.ndata["pos"] = pos
         data.ndata["pos0"] = pos.clone()
-        data.ndata["node_feat_0"] = node_feat["0"]
-        data.ndata["node_feat_1"] = node_feat["1"]
+        data.ndata["node_feat_0"] = node_feat["0"][..., None]  # shape=(N, 16, 1)
+        data.ndata["node_feat_1"] = node_feat["1"]  # shape=(N, 4, 3)
+        #
+        edge_src, edge_dst = data.edges()
+        data.edata["rel_pos"] = pos[edge_dst] - pos[edge_src]
         #
         global_frame = torch.as_tensor(geom_s["pca"], dtype=self.dtype).reshape(-1)
         data.ndata["global_frame"] = global_frame.repeat(cg.n_residue, 1)
@@ -93,10 +96,13 @@ class PDBset(Dataset):
         #
         ssbond_index = torch.full((data.num_nodes(),), -1, dtype=torch.long)
         for cys_i, cys_j in cg.ssbond_s:
-            ssbond_index[cys_i] = cys_j
+            if cys_i < cys_j:   # because of loss_f_atomic_clash
+                ssbond_index[cys_j] = cys_i
+            else:
+                ssbond_index[cys_i] = cys_j
         data.ndata["ssbond_index"] = ssbond_index
         #
-        edge_feat = torch.zeros((data.num_edges(), 3), dtype=self.dtype)    # bonded / ssbond / space
+        edge_feat = torch.zeros((data.num_edges(), 3), dtype=self.dtype)  # bonded / ssbond / space
         for i, cont in enumerate(cg.continuous):
             if cont and data.has_edges_between(i - 1, i):  # i-1 and i is connected
                 eid = data.edge_ids(i - 1, i)
@@ -110,7 +116,7 @@ class PDBset(Dataset):
                 eid = data.edge_ids(cys_j, cys_i)
                 edge_feat[eid, 1] = 1.0
         edge_feat[edge_feat.sum(dim=-1) == 0.0, 2] = 1.0
-        data.edata["edge_feat"] = edge_feat
+        data.edata["edge_feat_0"] = edge_feat[..., None]
         #
         data.ndata["atomic_radius"] = torch.as_tensor(cg.atomic_radius, dtype=self.dtype)
         data.ndata["atomic_mass"] = torch.as_tensor(cg.atomic_mass, dtype=self.dtype)

@@ -9,12 +9,12 @@ import functools
 import numpy as np
 
 import torch
-import torch_geometric
+import dgl
 
 sys.path.insert(0, "lib")
 from libconfig import BASE
 from libdata import PDBset, create_trajectory_from_batch
-from libcg import ResidueBasedModel
+from libcg import ResidueBasedModel, CalphaBasedModel
 from libmodel import Model, set_model_config
 
 torch.autograd.set_detect_anomaly(True)
@@ -25,28 +25,25 @@ def main():
     pdblist = base_dir / "pdblist"
     cg_model = ResidueBasedModel
     #
+    config = set_model_config({}, cg_model)
+    #
     train_set = PDBset(
         base_dir,
         pdblist,
         cg_model,
+        radius=config.globals.radius,
         get_structure_information=True,
     )
-    train_loader = torch_geometric.loader.DataLoader(
-        train_set,
-        batch_size=2,
-        shuffle=True,
-        num_workers=1,
-        pin_memory=True,
+    train_loader = dgl.dataloading.GraphDataLoader(
+        train_set, batch_size=2, shuffle=False, num_workers=1
     )
     batch = next(iter(train_loader))
     #
-    config = set_model_config({"globals.num_recycle": 2})
-    model = Model(config, cg_model, compute_loss=True, checkpoint=False)
+    model = Model(config, cg_model, compute_loss=True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # device = torch.device("cpu")
     model = model.to(device)
     model.eval()
-    # model.test_equivariant(batch)
     #
     optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
     model.train()

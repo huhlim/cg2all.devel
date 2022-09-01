@@ -14,6 +14,9 @@ from residue_constants import MAX_RESIDUE_TYPE, ATOM_INDEX_CA
 
 # %%
 class ResidueBasedModel(PDB):
+    n_scalar = 16
+    n_vector = 4
+
     def __init__(self, pdb_fn, dcd_fn=None):
         super().__init__(pdb_fn, dcd_fn)
         self.max_bead_type = MAX_RESIDUE_TYPE
@@ -139,7 +142,7 @@ class ResidueBasedModel(PDB):
         f_in["1"].append(geom_s["bond_vector"][1][1])
         f_in["1"].append(geom_s["bond_vector"][2][0])
         f_in["1"].append(geom_s["bond_vector"][2][1])
-        f_in["1"] = torch.as_tensor(torch.stack(f_in["1"], axis=1), dtype=dtype)  # 4x1o = 12
+        f_in["1"] = torch.as_tensor(torch.stack(f_in["1"], axis=1), dtype=dtype)  # 4
         #
         return f_in
 
