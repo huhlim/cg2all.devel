@@ -33,7 +33,7 @@ import torch.utils.checkpoint
 from dgl import DGLGraph
 from torch import Tensor
 
-from se3_transformer.model.fiber import Fiber
+from se3_transformer.model_no_cuda.fiber import Fiber
 from se3_transformer.runtime.utils import degree_to_dim, unfuse_features
 
 

@@ -30,9 +30,9 @@ from dgl.ops import edge_softmax
 from torch import Tensor
 from typing import Dict, Optional, Union
 
-from se3_transformer.model.fiber import Fiber
-from se3_transformer.model.layers.convolution import ConvSE3, ConvSE3FuseLevel
-from se3_transformer.model.layers.linear import LinearSE3
+from se3_transformer.model_no_cuda.fiber import Fiber
+from se3_transformer.model_no_cuda.layers.convolution import ConvSE3, ConvSE3FuseLevel
+from se3_transformer.model_no_cuda.layers.linear import LinearSE3
 from se3_transformer.runtime.utils import degree_to_dim, aggregate_residual, unfuse_features
 
 
