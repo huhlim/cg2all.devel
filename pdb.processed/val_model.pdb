@@ -1,5 +1,5 @@
-SSBOND   1 CYS A    6    CYS A   30
-SSBOND   2 CYS A   18    CYS A  101
+SSBOND   1 CYS A    4    CYS A   28
+SSBOND   2 CYS A   16    CYS A   99
 ATOM      1  N   GLU A   1      10.066  17.770  -1.449  1.00  0.00           N  
 ATOM      2  CA  GLU A   1      10.015  19.039  -0.748  1.00  0.00           C  
 ATOM      3  C   GLU A   1      10.917  20.007  -1.500  1.00  0.00           C  

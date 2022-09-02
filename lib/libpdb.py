@@ -297,7 +297,8 @@ def generate_structure_from_bb_and_torsion(residue_index, bb, torsion):
 
 
 if __name__ == "__main__":
-    pdb = PDB("../db/pisces/pdb1/1ab1_A.pdb")
+    # pdb = PDB("../db/pisces/pdb1/1ab1_A.pdb")
+    pdb = PDB("pdb.processed/val_native.pdb")
     # pdb = PDB("pdb.processed/3PBL.pdb")
     # pdb.get_structure_information()
     # R = generate_structure_from_bb_and_torsion(pdb.residue_index, pdb.bb, pdb.torsion)

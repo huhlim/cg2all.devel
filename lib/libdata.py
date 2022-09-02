@@ -96,7 +96,7 @@ class PDBset(Dataset):
         #
         ssbond_index = torch.full((data.num_nodes(),), -1, dtype=torch.long)
         for cys_i, cys_j in cg.ssbond_s:
-            if cys_i < cys_j:   # because of loss_f_atomic_clash
+            if cys_i < cys_j:  # because of loss_f_atomic_clash
                 ssbond_index[cys_j] = cys_i
             else:
                 ssbond_index[cys_i] = cys_j

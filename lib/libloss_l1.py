@@ -242,6 +242,7 @@ def loss_f_bonded_energy_aux(batch, R):
         bond_energy_pro = 0.0
 
     # disulfide bond
+    bond_energy_ssbond = 0.0
     for batch_index in range(batch.batch_size):
         data = dgl.slice_batch(batch, batch_index, store_ids=True)
         if not torch.any(data.ndata["ssbond_index"] >= 0):
@@ -255,10 +256,10 @@ def loss_f_bonded_energy_aux(batch, R):
         R_cys_0 = _R[cys_0_index, ATOM_INDEX_CYS_SG]
         R_cys_1 = _R[cys_1_index, ATOM_INDEX_CYS_SG]
         d_ssbond = v_size(R_cys_1 - R_cys_0)
-        bond_energy_ssbond = torch.mean(torch.abs(d_ssbond - BOND_LENGTH_DISULFIDE))
-        # bond_energy_ssbond = torch.sum(torch.abs(d_ssbond - BOND_LENGTH_DISULFIDE)) / R.size(0)
-    else:
-        bond_energy_ssbond = 0.0
+        bond_energy_ssbond = bond_energy_ssbond + torch.mean(
+            torch.abs(d_ssbond - BOND_LENGTH_DISULFIDE)
+        )
+        # bond_energy_ssbond = bond_energy_ssbond + torch.sum(torch.abs(d_ssbond - BOND_LENGTH_DISULFIDE)) / R.size(0)
 
     return bond_energy_pro + bond_energy_ssbond
 
@@ -344,8 +345,7 @@ def loss_f_atomic_clash(R, batch, lj=False):
                 x = torch.pow(radius_sum / dist, 6)
                 energy_i = epsilon * (x**2 - 2 * x)
             else:
-                radius_sum = radius_sum * 2 ** (-1 / 6)
-                delta = dist - radius_sum
+                # radius_sum = radius_sum * 2 ** (-1 / 6)
                 energy_i = torch.pow(-torch.clamp(dist - radius_sum, max=0.0), 2)
             energy = energy + energy_i.sum()
     energy = energy / R.size(0)
@@ -376,13 +376,19 @@ def test():
     native = dgl.slice_batch(batch, 0)
     model = dgl.slice_batch(batch, 1)
     #
+    R_ref = native.ndata["output_xyz"]
+    bb_ref = native.ndata["correct_bb"]
     R = model.ndata["output_xyz"]
     bb = model.ndata["correct_bb"]
 
-    loss = loss_f_bonded_energy_aux(model, R)
-    print(loss)
-    loss = loss_f_atomic_clash(R, model)
-    print(loss)
+    # loss = loss_f_bonded_energy_aux(native, R)
+    # print(loss)
+    # loss = loss_f_bonded_energy_aux(native, R_ref)
+    # print(loss)
+    # loss = loss_f_atomic_clash(R, model)
+    # print(loss)
+    # loss = loss_f_atomic_clash(R_ref, native)
+    # print(loss)
 
 
 if __name__ == "__main__":
