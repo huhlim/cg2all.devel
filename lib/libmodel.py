@@ -11,7 +11,12 @@ import torch.nn as nn
 from ml_collections import ConfigDict
 
 import dgl
-from se3_transformer.model import Fiber, SE3Transformer
+
+try:
+    from torch._C import _nvtx
+    from se3_transformer.model import Fiber, SE3Transformer
+except ImportError:
+    from se3_transformer.model_no_cuda import Fiber, SE3Transformer
 
 from residue_constants import (
     MAX_RESIDUE_TYPE,
