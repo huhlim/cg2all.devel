@@ -41,10 +41,10 @@ def loss_f(batch, ret, loss_weight, loss_prev=None):
         loss["v_cntr"] = (
             loss_f_v_cntr(R, batch.ndata["atomic_mass"], batch.ndata["v_cntr"]) * loss_weight.v_cntr
         )
-    # if loss_weight.get("FAPE_CA", 0.0) > 0.0:
-    #     loss["FAPE_CA"] = loss_f_FAPE_CA(batch, R, opr_bb, d_clamp=2.0) * loss_weight.FAPE_CA
-    # if loss_weight.get("FAPE_all", 0.0) > 0.0:
-    #     loss["FAPE_all"] = loss_f_FAPE_all(batch, R, opr_bb, d_clamp=2.0) * loss_weight.FAPE_all
+    if loss_weight.get("FAPE_CA", 0.0) > 0.0:
+        loss["FAPE_CA"] = loss_f_FAPE_CA(batch, R, opr_bb, d_clamp=2.0) * loss_weight.FAPE_CA
+    if loss_weight.get("FAPE_all", 0.0) > 0.0:
+        loss["FAPE_all"] = loss_f_FAPE_all(batch, R, opr_bb, d_clamp=2.0) * loss_weight.FAPE_all
     if loss_weight.get("rotation_matrix", 0.0) > 0.0:
         loss["rotation_matrix"] = (
             loss_f_rotation_matrix(ret["bb"], ret["bb0"], batch.ndata["correct_bb"])
@@ -63,8 +63,8 @@ def loss_f(batch, ret, loss_weight, loss_prev=None):
             )
             * loss_weight.torsion_angle
         )
-    # if loss_weight.get("atomic_clash", 0.0) > 0.0:
-    #     loss["atomic_clash"] = loss_f_atomic_clash(R, batch) * loss_weight.atomic_clash
+    if loss_weight.get("atomic_clash", 0.0) > 0.0:
+        loss["atomic_clash"] = loss_f_atomic_clash(R, batch) * loss_weight.atomic_clash
     #
     if loss_prev is not None:
         for k, v in loss_prev.items():
@@ -376,10 +376,10 @@ def test():
     native = dgl.slice_batch(batch, 0)
     model = dgl.slice_batch(batch, 1)
     #
-    R_ref = native.ndata["output_xyz"]
-    bb_ref = native.ndata["correct_bb"]
-    R = model.ndata["output_xyz"]
-    bb = model.ndata["correct_bb"]
+    R_ref = native.ndata["output_xyz"].clone()
+    bb_ref = native.ndata["correct_bb"].clone()
+    R = model.ndata["output_xyz"].clone()
+    bb = model.ndata["correct_bb"].clone()
 
     # loss = loss_f_bonded_energy_aux(native, R)
     # print(loss)
@@ -389,6 +389,10 @@ def test():
     # print(loss)
     # loss = loss_f_atomic_clash(R_ref, native)
     # print(loss)
+    loss = loss_f_FAPE_all(native, R, bb)
+    print(loss)
+    loss = loss_f_FAPE_all(native, R_ref, bb_ref)
+    print(loss)
 
 
 if __name__ == "__main__":
