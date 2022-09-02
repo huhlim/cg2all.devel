@@ -2,8 +2,7 @@ data/toppar
 data/toppar_c36_jul21.tgz
 .vscode
 pdb/r0.*
-pdb.pisces/targets*
-pdb.pisces/*.pdb
+pdb.pisces
 lightning_logs
 logs
 .DS_Store

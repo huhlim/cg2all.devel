@@ -359,7 +359,7 @@ def test():
     from libdata import PDBset
 
     base_dir = BASE / "pdb.processed"
-    pdblist = base_dir / "pdblist"
+    pdblist = base_dir / "loss_test"
     cg_model = libcg.CalphaBasedModel
     #
     train_set = PDBset(
@@ -372,15 +372,16 @@ def test():
         train_set, batch_size=2, shuffle=False, num_workers=1
     )
     batch = next(iter(train_loader))
-    R = batch.ndata["output_xyz"].clone()
-    bb = batch.ndata["correct_bb"].clone()
-    # n_residue = batch.output_xyz.size(0) // 2
-    # batch.output_xyz[:n_residue] = batch.output_xyz[n_residue:]
-    # batch.correct_bb[:n_residue] = batch.correct_bb[n_residue:]
+    #
+    native = dgl.slice_batch(batch, 0)
+    model = dgl.slice_batch(batch, 1)
+    #
+    R = model.ndata["output_xyz"]
+    bb = model.ndata["correct_bb"]
 
-    loss = loss_f_bonded_energy_aux(batch, R)
+    loss = loss_f_bonded_energy_aux(model, R)
     print(loss)
-    loss = loss_f_atomic_clash(R, batch)
+    loss = loss_f_atomic_clash(R, model)
     print(loss)
 
 

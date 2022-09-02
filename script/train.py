@@ -23,7 +23,7 @@ torch.multiprocessing.set_sharing_strategy("file_system")
 
 
 N_PROC = int(os.getenv("OMP_NUM_THREADS", "8"))
-IS_DEVELOP = True
+IS_DEVELOP = False #True
 if IS_DEVELOP:
     logger = logging.getLogger()
     logger.setLevel(logging.DEBUG)
