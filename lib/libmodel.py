@@ -78,7 +78,7 @@ STRUCTURE_MODULE["fiber_out"] = [(0, MAX_TORSION * 2), (1, 3)]
 # num_degrees and num_channels are for fiber_hidden
 # - they will be converted to Fiber using Fiber.create(num_degrees, num_channels)
 # - which is {degree: num_channels for degree in range(num_degrees)}
-STRUCTURE_MODULE["num_degrees"] = 3
+STRUCTURE_MODULE["num_degrees"] = 2
 STRUCTURE_MODULE["num_channels"] = 32
 STRUCTURE_MODULE["channels_div"] = 2  # no idea... # of channels is divided by this number
 STRUCTURE_MODULE["fiber_edge"] = None

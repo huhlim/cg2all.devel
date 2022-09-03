@@ -41,9 +41,9 @@ def loss_f(batch, ret, loss_weight, loss_prev=None):
         loss["v_cntr"] = (
             loss_f_v_cntr(R, batch.ndata["atomic_mass"], batch.ndata["v_cntr"]) * loss_weight.v_cntr
         )
-    if loss_weight.get("FAPE_CA", 0.0) > 0.0:
+    if loss_weight.get("FAPE_CA", 0.0) > 0.0:  # time-consuming
         loss["FAPE_CA"] = loss_f_FAPE_CA(batch, R, opr_bb, d_clamp=2.0) * loss_weight.FAPE_CA
-    if loss_weight.get("FAPE_all", 0.0) > 0.0:
+    if loss_weight.get("FAPE_all", 0.0) > 0.0:  # time-consuming
         loss["FAPE_all"] = loss_f_FAPE_all(batch, R, opr_bb, d_clamp=2.0) * loss_weight.FAPE_all
     if loss_weight.get("rotation_matrix", 0.0) > 0.0:
         loss["rotation_matrix"] = (
@@ -63,7 +63,7 @@ def loss_f(batch, ret, loss_weight, loss_prev=None):
             )
             * loss_weight.torsion_angle
         )
-    if loss_weight.get("atomic_clash", 0.0) > 0.0:
+    if loss_weight.get("atomic_clash", 0.0) > 0.0:  # time consuming
         loss["atomic_clash"] = loss_f_atomic_clash(R, batch) * loss_weight.atomic_clash
     #
     if loss_prev is not None:
@@ -143,6 +143,10 @@ def loss_f_FAPE_CA_old(
 def loss_f_FAPE_CA(
     batch: dgl.DGLGraph, R: torch.Tensor, bb: torch.Tensor, d_clamp: float = 2.0
 ) -> torch.Tensor:
+    # time: ~30% vs. loss_f_FAPE_CA_old
+    # memory: O(N^2) vs. O(N) for loss_f_FAPE_CA_old
+    #   (e.g., 51 MB vs. 0.2 MB for 855 aa.)
+    #
     first = 0
     loss = 0.0
     for batch_index, data in enumerate(dgl.unbatch(batch)):
@@ -165,36 +169,13 @@ def loss_f_FAPE_CA(
     return loss / batch.batch_size
 
 
-def loss_f_FAPE_all_old(
-    batch: dgl.DGLGraph, R: torch.Tensor, bb: torch.Tensor, d_clamp: float = 2.0
-) -> torch.Tensor:
-    first = 0
-    loss = torch.zeros(batch.batch_size, device=R.device, dtype=DTYPE)
-    for batch_index, data in enumerate(dgl.unbatch(batch)):
-        n_residue = data.num_nodes()
-        last = first + n_residue
-        #
-        mask = data.ndata["pdb_atom_mask"] > 0.0
-        _R = R[first:last]
-        _bb = bb[first:last]
-        R_ref = data.ndata["output_xyz"]
-        bb_ref = data.ndata["correct_bb"]
-        #
-        for i in range(n_residue):
-            r = rotate_vector_inv(_bb[i, :3], _R - _bb[i, 3])
-            r_ref = rotate_vector_inv(bb_ref[i, :3], R_ref - bb_ref[i, 3])
-            dr = (r - r_ref)[mask]
-            d = torch.clamp(torch.sqrt(torch.pow(dr, 2).sum(dim=-1) + EPS**2), max=d_clamp)
-            loss[batch_index] = loss[batch_index] + torch.mean(d)
-        #
-        first = last
-        #
-    return torch.mean(loss / batch.batch_num_nodes())
-
-
 def loss_f_FAPE_all(
     batch: dgl.DGLGraph, R: torch.Tensor, bb: torch.Tensor, d_clamp: float = 2.0
 ) -> torch.Tensor:
+    # time: ~30% vs. loss_f_FAPE_all_old
+    # memory: O(N^2) vs. O(N) for loss_f_FAPE_all_old
+    #   (e.g., 1,200 MB vs. 1.2 MB for 855 aa.)
+    #
     first = 0
     loss = 0.0
     for batch_index, data in enumerate(dgl.unbatch(batch)):
@@ -218,6 +199,34 @@ def loss_f_FAPE_all(
         first = last
         #
     return loss / batch.batch_size
+
+
+def loss_f_FAPE_all_old(
+    batch: dgl.DGLGraph, R: torch.Tensor, bb: torch.Tensor, d_clamp: float = 2.0
+) -> torch.Tensor:
+    #
+    first = 0
+    loss = torch.zeros(batch.batch_size, device=R.device, dtype=DTYPE)
+    for batch_index, data in enumerate(dgl.unbatch(batch)):
+        n_residue = data.num_nodes()
+        last = first + n_residue
+        #
+        mask = data.ndata["pdb_atom_mask"] > 0.0
+        _R = R[first:last]
+        _bb = bb[first:last]
+        R_ref = data.ndata["output_xyz"]
+        bb_ref = data.ndata["correct_bb"]
+        #
+        for i in range(n_residue):
+            r = rotate_vector_inv(_bb[i, :3], _R - _bb[i, 3])
+            r_ref = rotate_vector_inv(bb_ref[i, :3], R_ref - bb_ref[i, 3])
+            dr = (r - r_ref)[mask]
+            d = torch.clamp(torch.sqrt(torch.pow(dr, 2).sum(dim=-1) + EPS**2), max=d_clamp)
+            loss[batch_index] = loss[batch_index] + torch.mean(d)
+        #
+        first = last
+        #
+    return torch.mean(loss / batch.batch_num_nodes())
 
 
 # Bonded energy penalties
@@ -359,8 +368,8 @@ def loss_f_atomic_clash(R, batch, lj=False):
         for i in range(1, data.num_nodes()):
             curr_residue_type = data.ndata["residue_type"][i]
             prev_residue_type = data.ndata["residue_type"][i - 1]
-            mask_i = data.ndata["output_atom_mask"][i] > 0.0
-            mask_j = data.ndata["output_atom_mask"][:i] > 0.0
+            mask_i = data.ndata["pdb_atom_mask"][i] > 0.0
+            mask_j = data.ndata["pdb_atom_mask"][:i] > 0.0
             mask = mask_j[..., None] & mask_i[None, None, :]
             #
             # excluding BB(prev) - BB(curr)
@@ -383,16 +392,70 @@ def loss_f_atomic_clash(R, batch, lj=False):
             radius_sum = (radius_j[..., None] + radius_i[None, None, :])[mask]
             #
             if lj:
-                epsilon_i = batch.ndata["atomic_radius"][i, :, 0, 0]
-                epsilon_j = batch.ndata["atomic_radius"][:i, :, 0, 0]
+                epsilon_i = data.ndata["atomic_radius"][i, :, 0, 0]
+                epsilon_j = data.ndata["atomic_radius"][:i, :, 0, 0]
                 epsilon = torch.sqrt(epsilon_j[..., None] * epsilon_i[None, None, :])[mask]
                 #
                 x = torch.pow(radius_sum / dist, 6)
-                energy_i = epsilon * (x**2 - 2 * x)
+                energy_i = epsilon * (x**2 - 2 * x).sum()
             else:
                 # radius_sum = radius_sum * 2 ** (-1 / 6)
-                energy_i = torch.pow(-torch.clamp(dist - radius_sum, max=0.0), 2)
-            energy = energy + energy_i.sum()
+                energy_i = torch.pow(-torch.clamp(dist - radius_sum, max=0.0), 2).sum()
+            energy = energy + energy_i
+    energy = energy / R.size(0)
+    return energy
+
+
+def loss_f_atomic_clash_graph(R, batch, lj=False):
+    # this function
+    # - is approximate
+    # - takes ~1.8 times of time
+    # - consumes ~10% of memory
+
+    energy = 0.0
+    for i in range(1, batch.num_nodes()):
+        j = batch.in_edges([i])[0]  # this takes the longest
+        j = j[j < i]
+        prev_residue_index = j == i - 1
+        if not torch.any(prev_residue_index):
+            continue
+        #
+        curr_residue_type = batch.ndata["residue_type"][i]
+        prev_residue_type = batch.ndata["residue_type"][i - 1]
+        mask_i = batch.ndata["pdb_atom_mask"][i] > 0.0
+        mask_j = batch.ndata["pdb_atom_mask"][j] > 0.0
+        mask = mask_j[..., None] & mask_i[None, None, :]
+        #
+        # excluding BB(prev) - BB(curr)
+        curr_bb = RIGID_GROUPS_DEP[curr_residue_type] < 3
+        if curr_residue_type == PROLINE_INDEX:
+            curr_bb[:7] = True  # BB + CD, HD1, HD2
+        prev_bb = RIGID_GROUPS_DEP[prev_residue_type] < 3
+        bb_pair = prev_bb[:, None] & curr_bb[None, :]
+        mask[prev_residue_index, bb_pair] = False
+        #
+        ssbond = batch.ndata["ssbond_index"][i]
+        if ssbond >= 0:
+            mask[j == ssbond, ATOM_INDEX_CYS_SG, ATOM_INDEX_CYS_SG] = False
+        #
+        dr = R[j][..., None, :] - R[i][None, None, :]
+        dist = v_size(dr)[mask]
+        #
+        radius_i = batch.ndata["atomic_radius"][i, :, 0, 1]
+        radius_j = batch.ndata["atomic_radius"][j, :, 0, 1]
+        radius_sum = (radius_j[..., None] + radius_i[None, None, :])[mask]
+        #
+        if lj:
+            epsilon_i = batch.ndata["atomic_radius"][i, :, 0, 0]
+            epsilon_j = batch.ndata["atomic_radius"][j, :, 0, 0]
+            epsilon = torch.sqrt(epsilon_j[..., None] * epsilon_i[None, None, :])[mask]
+            #
+            x = torch.pow(radius_sum / dist, 6)
+            energy_i = epsilon * (x**2 - 2 * x).sum()
+        else:
+            energy_i = torch.pow(-torch.clamp(dist - radius_sum, max=0.0), 2).sum()
+        energy = energy + energy_i
+        #
     energy = energy / R.size(0)
     return energy
 
@@ -415,25 +478,64 @@ def test():
         get_structure_information=True,
     )
     train_loader = dgl.dataloading.GraphDataLoader(
-        train_set, batch_size=2, shuffle=False, num_workers=1
+        train_set, batch_size=4, shuffle=False, num_workers=1
     )
     batch = next(iter(train_loader))
+    batch = batch.to("cuda")
     #
     native = dgl.slice_batch(batch, 0)
     model = dgl.slice_batch(batch, 1)
     #
     R_ref = native.ndata["output_xyz"].clone()
     bb_ref = native.ndata["correct_bb"].clone()
-    R = model.ndata["output_xyz"].clone()
-    bb = model.ndata["correct_bb"].clone()
+    R_model = model.ndata["output_xyz"].clone()
+    bb_model = model.ndata["correct_bb"].clone()
+    R = batch.ndata["output_xyz"].clone()
+    bb = batch.ndata["correct_bb"].clone()
     #
+    print(R.size())
+    torch.cuda.empty_cache()
+    torch.cuda.reset_peak_memory_stats()
+    max_memory0 = torch.cuda.max_memory_allocated() / 1024**2  # in MBytes
     t0 = time.time()
     loss = loss_f_FAPE_all_old(native, R, bb)
     print(time.time() - t0, loss)
+    max_memory = torch.cuda.max_memory_allocated() / 1024**2  # in MBytes
+    print(max_memory - max_memory0, max_memory)
 
+    torch.cuda.empty_cache()
+    torch.cuda.reset_peak_memory_stats()
+    max_memory0 = torch.cuda.max_memory_allocated() / 1024**2  # in MBytes
     t0 = time.time()
-    loss = loss_f_FAPE_all_new(native, R, bb)
+    loss = loss_f_FAPE_all(native, R, bb)
     print(time.time() - t0, loss)
+    max_memory = torch.cuda.max_memory_allocated() / 1024**2  # in MBytes
+    print(max_memory - max_memory0, max_memory)
+
+
+#     t0 = time.time()
+#     for i in range(1, batch.num_nodes()):
+#         j = batch.in_edges([i])[0]
+#     print(time.time() - t0)
+#
+#     t0 = time.time()
+#     for edge in zip(*batch.edges()):
+#         pass
+#     print(time.time() - t0)
+#
+#     return
+#     t0 = time.time()
+#     loss = loss_f_atomic_clash_graph(batch.ndata["output_xyz"], batch)
+#     print(loss, time.time() - t0)
+#
+#     t0 = time.time()
+#     loss = loss_f_atomic_clash(batch.ndata["output_xyz"], batch)
+#     print(loss, time.time() - t0)
+#     # print(loss)
+#     # loss = loss_f_FAPE_all(native, R, bb)
+#     # print(loss)
+#     # loss = loss_f_FAPE_all(native, R_ref, bb_ref)
+#     # print(loss)
 
 
 if __name__ == "__main__":

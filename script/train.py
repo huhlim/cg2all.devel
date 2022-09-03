@@ -23,7 +23,7 @@ torch.multiprocessing.set_sharing_strategy("file_system")
 
 
 N_PROC = int(os.getenv("OMP_NUM_THREADS", "8"))
-IS_DEVELOP = False #True
+IS_DEVELOP = True
 if IS_DEVELOP:
     logger = logging.getLogger()
     logger.setLevel(logging.DEBUG)
@@ -63,7 +63,7 @@ class Model(pl.LightningModule):
         if IS_DEVELOP:
             optimizer = torch.optim.Adam(self.parameters(), lr=0.01)
         else:
-            optimizer = torch.optim.Adam(self.parameters(), lr=0.001)
+            optimizer = torch.optim.Adam(self.parameters(), lr=1e-4)
         lr_scheduler = torch.optim.lr_scheduler.SequentialLR(
             optimizer,
             [
@@ -192,14 +192,14 @@ def main():
         pdblist_train = pdb_dir / "targets.train"
         pdblist_test = pdb_dir / "targets.test"
         pdblist_val = pdb_dir / "targets.valid"
-        batch_size = 2
+        batch_size = 4
     else:
         base_dir = pathlib.Path("./")
         pdb_dir = base_dir / "pdb.processed"
         pdblist_train = pdb_dir / "targets.train"
         pdblist_test = pdb_dir / "targets.test"
         pdblist_val = pdb_dir / "targets.valid"
-        batch_size = 6
+        batch_size = 4
 
     _PDBset = functools.partial(
         PDBset,
