@@ -30,6 +30,7 @@ class PDBset(Dataset):
         self_loop=False,
         get_structure_information=False,
         random_rotation=False,
+        cache=False,
         dtype=DTYPE,
     ):
         super().__init__()
@@ -50,11 +51,18 @@ class PDBset(Dataset):
         self.noise_level = noise_level
         self.get_structure_information = get_structure_information
         self.random_rotation = random_rotation
+        if cache:
+            self.cached = {}
+        else:
+            self.cached = None
 
     def __len__(self):
         return self.n_pdb
 
     def __getitem__(self, index):
+        if self.cached is not None and index in self.cached:
+            return self.cached[index].clone()
+        #
         pdb_id = self.pdb_s[index]
         pdb_fn = self.basedir / f"{pdb_id}.pdb"
         #
@@ -138,6 +146,9 @@ class PDBset(Dataset):
                 cg.torsion[frame_index], dtype=self.dtype
             )
             data.ndata["torsion_mask"] = torch.as_tensor(cg.torsion_mask, dtype=self.dtype)
+        #
+        if self.cached is not None:
+            self.cached[index] = data.clone()
         #
         return data
 

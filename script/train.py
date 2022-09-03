@@ -211,6 +211,7 @@ def main():
         noise_level=0.0,
         get_structure_information=True,
         random_rotation=True,
+        cache=IS_DEVELOP,
     )
     _DataLoader = functools.partial(
         dgl.dataloading.GraphDataLoader, batch_size=batch_size, num_workers=N_PROC
@@ -239,7 +240,7 @@ def main():
         max_epochs=100,
         accelerator="auto",
         gradient_clip_val=1.0,
-        check_val_every_n_epoch=1,
+        check_val_every_n_epoch=10 if IS_DEVELOP else 1,
         logger=logger,
         callbacks=[checkpointing],  # , early_stopping],
     )
