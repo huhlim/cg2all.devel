@@ -43,6 +43,9 @@ class Model(pl.LightningModule):
     def forward(self, batch: dgl.DGLGraph):
         return self.model.forward(batch)
 
+    def on_fit_start(self):
+        self.model.set_rigid_operations(self.device, dtype=self.dtype)
+
     def on_train_batch_start(self, batch, batch_idx):
         if self.device.type == "cuda":
             torch.cuda.empty_cache()
@@ -192,7 +195,7 @@ def main():
         pdblist_train = pdb_dir / "targets.train"
         pdblist_test = pdb_dir / "targets.test"
         pdblist_val = pdb_dir / "targets.valid"
-        batch_size = 4
+        batch_size = 8
     else:
         base_dir = pathlib.Path("./")
         pdb_dir = base_dir / "pdb.processed"

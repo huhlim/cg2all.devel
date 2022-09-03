@@ -185,6 +185,20 @@ class Model(nn.Module):
         self.embedding_module = EmbeddingModule(_config.embedding_module)
         self.structure_module = StructureModule(_config.structure_module)
 
+    def set_rigid_operations(self, device, dtype=DTYPE):
+        _RIGID_TRANSFORMS_TENSOR = RIGID_TRANSFORMS_TENSOR.to(device)
+        _RIGID_GROUPS_TENSOR = RIGID_GROUPS_TENSOR.to(device)
+        if dtype != DTYPE:
+            _RIGID_TRANSFORMS_TENSOR = _RIGID_TRANSFORMS_TENSOR.type(dtype)
+            _RIGID_GROUPS_TENSOR = _RIGID_GROUPS_TENSOR.type(dtype)
+        _RIGID_TRANSFORMS_DEP = RIGID_TRANSFORMS_DEP.to(device)
+        _RIGID_GROUPS_DEP = RIGID_GROUPS_DEP.to(device)
+        #
+        self.RIGID_OPs = (
+            (_RIGID_TRANSFORMS_TENSOR, _RIGID_GROUPS_TENSOR),
+            (_RIGID_TRANSFORMS_DEP, _RIGID_GROUPS_DEP),
+        )
+
     def forward(self, batch: dgl.DGLGraph):
         loss = {}
         ret = {}
@@ -209,7 +223,7 @@ class Model(nn.Module):
             #
             # build structure
             ret["R"], ret["opr_bb"] = build_structure(
-                batch, ret["bb"], sc=ret["sc"], stop_grad=(k + 1 < self.num_recycle)
+                self.RIGID_OPs, batch, ret["bb"], sc=ret["sc"], stop_grad=(k + 1 < self.num_recycle)
             )
             #
             if k < self.num_recycle - 1:
@@ -219,13 +233,14 @@ class Model(nn.Module):
                         batch,
                         ret,
                         self.output_module.loss_weight,
-                        loss.get("intermediate", {}),
+                        loss_prev=loss.get("intermediate", {}),
+                        RIGID_OPs=self.RIGID_OPs,  # only for atomic_clash
                     )
                 #
                 # self.update_graph(batch, ret)
 
         if self.compute_loss or self.training:
-            loss["final"] = loss_f(batch, ret, self.loss_weight)
+            loss["final"] = loss_f(batch, ret, self.loss_weight, RIGID_OPs=self.RIGID_OPs)
             if "intermediate" in loss:
                 for k, v in loss["intermediate"].items():
                     loss["intermediate"][k] = v / n_intermediate
@@ -280,19 +295,23 @@ def combine_operations(X, Y):
     return Y
 
 
-def build_structure(batch, bb, sc=None, stop_grad=False):
+def build_structure(RIGID_OPs, batch, bb, sc=None, stop_grad=False):
     dtype = bb.dtype
     device = bb.device
     residue_type = batch.ndata["residue_type"]
     #
-    if dtype != DTYPE:
-        transforms = RIGID_TRANSFORMS_TENSOR[residue_type].to(device).type(dtype)
-        rigids = RIGID_GROUPS_TENSOR[residue_type].to(device).type(dtype)
-    else:
-        transforms = RIGID_TRANSFORMS_TENSOR[residue_type].to(device)
-        rigids = RIGID_GROUPS_TENSOR[residue_type].to(device)
-    transforms_dep = RIGID_TRANSFORMS_DEP[residue_type].to(device)
-    rigids_dep = RIGID_GROUPS_DEP[residue_type].to(device)
+    transforms = RIGID_OPs[0][0][residue_type]
+    rigids = RIGID_OPs[0][1][residue_type]
+    transforms_dep = RIGID_OPs[1][0][residue_type]
+    rigids_dep = RIGID_OPs[1][1][residue_type]
+    # if dtype != DTYPE:
+    #     transforms = RIGID_TRANSFORMS_TENSOR[residue_type].to(device).type(dtype)
+    #     rigids = RIGID_GROUPS_TENSOR[residue_type].to(device).type(dtype)
+    # else:
+    #     transforms = RIGID_TRANSFORMS_TENSOR[residue_type].to(device)
+    #     rigids = RIGID_GROUPS_TENSOR[residue_type].to(device)
+    # transforms_dep = RIGID_TRANSFORMS_DEP[residue_type].to(device)
+    # rigids_dep = RIGID_GROUPS_DEP[residue_type].to(device)
     #
     opr = torch.zeros_like(transforms, device=device)
     #
