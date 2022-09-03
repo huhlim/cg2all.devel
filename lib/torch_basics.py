@@ -26,6 +26,11 @@ def rotate_matrix(R, X):
 def rotate_vector(R, X):
     return (X[..., None, :] @ R.mT)[..., 0, :]
 
+def rotate_vector_inv(R, X):
+    R_inv = torch.inverse(R)
+    return rotate_vector(R_inv, X)
+
+
 
 def angle_sign(x):
     s = torch.sign(x)

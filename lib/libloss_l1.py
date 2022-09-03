@@ -20,7 +20,7 @@ from residue_constants import (
 
 from libconfig import DTYPE, EPS
 from libcg import get_residue_center_of_mass
-from torch_basics import v_size, v_norm, v_norm_safe, inner_product
+from torch_basics import v_size, v_norm, v_norm_safe, inner_product, rotate_vector_inv
 
 
 def loss_f(batch, ret, loss_weight, loss_prev=None):
@@ -114,13 +114,9 @@ def loss_f_rotation_matrix(
         return loss_bb
 
 
-def loss_f_FAPE_CA(
+def loss_f_FAPE_CA_old(
     batch: dgl.DGLGraph, R: torch.Tensor, bb: torch.Tensor, d_clamp: float = 2.0
 ) -> torch.Tensor:
-    def rotate_vector_inv(R, X):
-        R_inv = torch.inverse(R)
-        return (X[..., None, :] @ R.mT)[..., 0, :]
-
     first = 0
     loss = torch.zeros(batch.batch_size, device=R.device, dtype=DTYPE)
     for batch_index, data in enumerate(dgl.unbatch(batch)):
@@ -144,13 +140,34 @@ def loss_f_FAPE_CA(
     return torch.mean(loss / batch.batch_num_nodes())
 
 
-def loss_f_FAPE_all(
+def loss_f_FAPE_CA(
     batch: dgl.DGLGraph, R: torch.Tensor, bb: torch.Tensor, d_clamp: float = 2.0
 ) -> torch.Tensor:
-    def rotate_vector_inv(R, X):
-        R_inv = torch.inverse(R)
-        return (X[..., None, :] @ R.mT)[..., 0, :]
+    first = 0
+    loss = 0.0
+    for batch_index, data in enumerate(dgl.unbatch(batch)):
+        n_residue = data.num_nodes()
+        last = first + n_residue
+        #
+        _R = R[first:last, ATOM_INDEX_CA]
+        _bb = bb[first:last][:, None]
+        R_ref = data.ndata["output_xyz"][:, ATOM_INDEX_CA]
+        bb_ref = data.ndata["correct_bb"][:, None]
+        #
+        r = rotate_vector_inv(_bb[:, :, :3], _R[None, :] - _bb[:, :, 3])
+        r_ref = rotate_vector_inv(bb_ref[:, :, :3], R_ref[None, :] - bb_ref[:, :, 3])
+        dr = r - r_ref
+        d = torch.clamp(torch.sqrt(torch.pow(dr, 2).sum(dim=-1) + EPS**2), max=d_clamp)
+        loss = loss + torch.mean(d)
+        #
+        first = last
 
+    return loss / batch.batch_size
+
+
+def loss_f_FAPE_all_old(
+    batch: dgl.DGLGraph, R: torch.Tensor, bb: torch.Tensor, d_clamp: float = 2.0
+) -> torch.Tensor:
     first = 0
     loss = torch.zeros(batch.batch_size, device=R.device, dtype=DTYPE)
     for batch_index, data in enumerate(dgl.unbatch(batch)):
@@ -173,6 +190,34 @@ def loss_f_FAPE_all(
         first = last
         #
     return torch.mean(loss / batch.batch_num_nodes())
+
+
+def loss_f_FAPE_all(
+    batch: dgl.DGLGraph, R: torch.Tensor, bb: torch.Tensor, d_clamp: float = 2.0
+) -> torch.Tensor:
+    first = 0
+    loss = 0.0
+    for batch_index, data in enumerate(dgl.unbatch(batch)):
+        n_residue = data.num_nodes()
+        last = first + n_residue
+        #
+        mask = data.ndata["pdb_atom_mask"] > 0.0
+        _R = R[first:last]
+        _bb = bb[first:last][:, None]  # shape=(N, 1, 4, 3)
+        R_ref = data.ndata["output_xyz"]
+        bb_ref = data.ndata["correct_bb"][:, None]
+        #
+        r = rotate_vector_inv(_bb[:, :, None, :3], _R[None, :] - _bb[..., 3, :][:, None])
+        r_ref = rotate_vector_inv(
+            bb_ref[:, :, None, :3], R_ref[None, :] - bb_ref[..., 3, :][:, None]
+        )
+        dr = (r - r_ref)[:, mask]
+        d = torch.clamp(torch.sqrt(torch.pow(dr, 2).sum(dim=-1) + EPS**2), max=d_clamp)
+        loss = loss + torch.mean(d)
+        #
+        first = last
+        #
+    return loss / batch.batch_size
 
 
 # Bonded energy penalties
@@ -353,6 +398,7 @@ def loss_f_atomic_clash(R, batch, lj=False):
 
 
 def test():
+    import time
     from libconfig import BASE
     import libcg
     import functools
@@ -380,19 +426,14 @@ def test():
     bb_ref = native.ndata["correct_bb"].clone()
     R = model.ndata["output_xyz"].clone()
     bb = model.ndata["correct_bb"].clone()
+    #
+    t0 = time.time()
+    loss = loss_f_FAPE_all_old(native, R, bb)
+    print(time.time() - t0, loss)
 
-    # loss = loss_f_bonded_energy_aux(native, R)
-    # print(loss)
-    # loss = loss_f_bonded_energy_aux(native, R_ref)
-    # print(loss)
-    # loss = loss_f_atomic_clash(R, model)
-    # print(loss)
-    # loss = loss_f_atomic_clash(R_ref, native)
-    # print(loss)
-    loss = loss_f_FAPE_all(native, R, bb)
-    print(loss)
-    loss = loss_f_FAPE_all(native, R_ref, bb_ref)
-    print(loss)
+    t0 = time.time()
+    loss = loss_f_FAPE_all_new(native, R, bb)
+    print(time.time() - t0, loss)
 
 
 if __name__ == "__main__":
