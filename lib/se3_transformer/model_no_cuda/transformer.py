@@ -39,7 +39,7 @@ from se3_transformer.model_no_cuda.fiber import Fiber
 
 
 class Sequential(nn.Sequential):
-    """ Sequential module with arbitrary forward args and kwargs. Used to pass graph, basis and edge features. """
+    """Sequential module with arbitrary forward args and kwargs. Used to pass graph, basis and edge features."""
 
     def forward(self, input, *args, **kwargs):
         for module in self:
@@ -47,34 +47,39 @@ class Sequential(nn.Sequential):
         return input
 
 
-def get_populated_edge_features(relative_pos: Tensor, edge_features: Optional[Dict[str, Tensor]] = None):
-    """ Add relative positions to existing edge features """
+def get_populated_edge_features(
+    relative_pos: Tensor, edge_features: Optional[Dict[str, Tensor]] = None
+):
+    """Add relative positions to existing edge features"""
     edge_features = edge_features.copy() if edge_features else {}
     r = relative_pos.norm(dim=-1, keepdim=True)
-    if '0' in edge_features:
-        edge_features['0'] = torch.cat([edge_features['0'], r[..., None]], dim=1)
+    if "0" in edge_features:
+        edge_features["0"] = torch.cat([edge_features["0"], r[..., None]], dim=1)
     else:
-        edge_features['0'] = r[..., None]
+        edge_features["0"] = r[..., None]
 
     return edge_features
 
 
 class SE3Transformer(nn.Module):
-    def __init__(self,
-                 num_layers: int,
-                 fiber_in: Fiber,
-                 fiber_hidden: Fiber,
-                 fiber_out: Fiber,
-                 num_heads: int,
-                 channels_div: int,
-                 fiber_edge: Fiber = Fiber({}),
-                 return_type: Optional[int] = None,
-                 pooling: Optional[Literal['avg', 'max']] = None,
-                 norm: bool = True,
-                 use_layer_norm: bool = True,
-                 tensor_cores: bool = False,
-                 low_memory: bool = False,
-                 **kwargs):
+    def __init__(
+        self,
+        num_layers: int,
+        fiber_in: Fiber,
+        fiber_hidden: Fiber,
+        fiber_out: Fiber,
+        num_heads: int,
+        channels_div: int,
+        fiber_edge: Fiber = Fiber({}),
+        return_type: Optional[int] = None,
+        pooling: Optional[Literal["avg", "max"]] = None,
+        norm: bool = True,
+        use_layer_norm: bool = True,
+        nonlinearity: nn.Module = nn.ReLU(),
+        tensor_cores: bool = False,
+        low_memory: bool = False,
+        **kwargs
+    ):
         """
         :param num_layers:          Number of attention layers
         :param fiber_in:            Input fiber description
@@ -109,44 +114,65 @@ class SE3Transformer(nn.Module):
 
         graph_modules = []
         for i in range(num_layers):
-            graph_modules.append(AttentionBlockSE3(fiber_in=fiber_in,
-                                                   fiber_out=fiber_hidden,
-                                                   fiber_edge=fiber_edge,
-                                                   num_heads=num_heads,
-                                                   channels_div=channels_div,
-                                                   use_layer_norm=use_layer_norm,
-                                                   max_degree=self.max_degree,
-                                                   fuse_level=self.fuse_level,
-                                                   low_memory=low_memory))
+            graph_modules.append(
+                AttentionBlockSE3(
+                    fiber_in=fiber_in,
+                    fiber_out=fiber_hidden,
+                    fiber_edge=fiber_edge,
+                    num_heads=num_heads,
+                    channels_div=channels_div,
+                    use_layer_norm=use_layer_norm,
+                    max_degree=self.max_degree,
+                    fuse_level=self.fuse_level,
+                    low_memory=low_memory,
+                )
+            )
             if norm:
-                graph_modules.append(NormSE3(fiber_hidden))
+                graph_modules.append(NormSE3(fiber_hidden, nonlinearity=nonlinearity))
             fiber_in = fiber_hidden
 
-        graph_modules.append(ConvSE3(fiber_in=fiber_in,
-                                     fiber_out=fiber_out,
-                                     fiber_edge=fiber_edge,
-                                     self_interaction=True,
-                                     use_layer_norm=use_layer_norm,
-                                     max_degree=self.max_degree))
+        graph_modules.append(
+            ConvSE3(
+                fiber_in=fiber_in,
+                fiber_out=fiber_out,
+                fiber_edge=fiber_edge,
+                self_interaction=True,
+                use_layer_norm=use_layer_norm,
+                nonlinearity=nonlinearity,
+                max_degree=self.max_degree,
+            )
+        )
         self.graph_modules = Sequential(*graph_modules)
 
         if pooling is not None:
-            assert return_type is not None, 'return_type must be specified when pooling'
+            assert return_type is not None, "return_type must be specified when pooling"
             self.pooling_module = GPooling(pool=pooling, feat_type=return_type)
 
-    def forward(self, graph: DGLGraph, node_feats: Dict[str, Tensor],
-                edge_feats: Optional[Dict[str, Tensor]] = None,
-                basis: Optional[Dict[str, Tensor]] = None):
+    def forward(
+        self,
+        graph: DGLGraph,
+        node_feats: Dict[str, Tensor],
+        edge_feats: Optional[Dict[str, Tensor]] = None,
+        basis: Optional[Dict[str, Tensor]] = None,
+    ):
         # Compute bases in case they weren't precomputed as part of the data loading
-        basis = basis or get_basis(graph.edata['rel_pos'], max_degree=self.max_degree, compute_gradients=False,
-                                   use_pad_trick=self.tensor_cores and not self.low_memory,
-                                   amp=torch.is_autocast_enabled())
+        basis = basis or get_basis(
+            graph.edata["rel_pos"],
+            max_degree=self.max_degree,
+            compute_gradients=False,
+            use_pad_trick=self.tensor_cores and not self.low_memory,
+            amp=torch.is_autocast_enabled(),
+        )
 
         # Add fused bases (per output degree, per input degree, and fully fused) to the dict
-        basis = update_basis_with_fused(basis, self.max_degree, use_pad_trick=self.tensor_cores and not self.low_memory,
-                                        fully_fused=self.fuse_level == ConvSE3FuseLevel.FULL)
+        basis = update_basis_with_fused(
+            basis,
+            self.max_degree,
+            use_pad_trick=self.tensor_cores and not self.low_memory,
+            fully_fused=self.fuse_level == ConvSE3FuseLevel.FULL,
+        )
 
-        edge_feats = get_populated_edge_features(graph.edata['rel_pos'], edge_feats)
+        edge_feats = get_populated_edge_features(graph.edata["rel_pos"], edge_feats)
 
         node_feats = self.graph_modules(node_feats, edge_feats, graph=graph, basis=basis)
 
@@ -160,37 +186,70 @@ class SE3Transformer(nn.Module):
 
     @staticmethod
     def add_argparse_args(parser):
-        parser.add_argument('--num_layers', type=int, default=7,
-                            help='Number of stacked Transformer layers')
-        parser.add_argument('--num_heads', type=int, default=8,
-                            help='Number of heads in self-attention')
-        parser.add_argument('--channels_div', type=int, default=2,
-                            help='Channels division before feeding to attention layer')
-        parser.add_argument('--pooling', type=str, default=None, const=None, nargs='?', choices=['max', 'avg'],
-                            help='Type of graph pooling')
-        parser.add_argument('--norm', type=str2bool, nargs='?', const=True, default=False,
-                            help='Apply a normalization layer after each attention block')
-        parser.add_argument('--use_layer_norm', type=str2bool, nargs='?', const=True, default=False,
-                            help='Apply layer normalization between MLP layers')
-        parser.add_argument('--low_memory', type=str2bool, nargs='?', const=True, default=False,
-                            help='If true, will use fused ops that are slower but that use less memory '
-                                 '(expect 25 percent less memory). '
-                                 'Only has an effect if AMP is enabled on Volta GPUs, or if running on Ampere GPUs')
+        parser.add_argument(
+            "--num_layers", type=int, default=7, help="Number of stacked Transformer layers"
+        )
+        parser.add_argument(
+            "--num_heads", type=int, default=8, help="Number of heads in self-attention"
+        )
+        parser.add_argument(
+            "--channels_div",
+            type=int,
+            default=2,
+            help="Channels division before feeding to attention layer",
+        )
+        parser.add_argument(
+            "--pooling",
+            type=str,
+            default=None,
+            const=None,
+            nargs="?",
+            choices=["max", "avg"],
+            help="Type of graph pooling",
+        )
+        parser.add_argument(
+            "--norm",
+            type=str2bool,
+            nargs="?",
+            const=True,
+            default=False,
+            help="Apply a normalization layer after each attention block",
+        )
+        parser.add_argument(
+            "--use_layer_norm",
+            type=str2bool,
+            nargs="?",
+            const=True,
+            default=False,
+            help="Apply layer normalization between MLP layers",
+        )
+        parser.add_argument(
+            "--low_memory",
+            type=str2bool,
+            nargs="?",
+            const=True,
+            default=False,
+            help="If true, will use fused ops that are slower but that use less memory "
+            "(expect 25 percent less memory). "
+            "Only has an effect if AMP is enabled on Volta GPUs, or if running on Ampere GPUs",
+        )
 
         return parser
 
 
 class SE3TransformerPooled(nn.Module):
-    def __init__(self,
-                 fiber_in: Fiber,
-                 fiber_out: Fiber,
-                 fiber_edge: Fiber,
-                 num_degrees: int,
-                 num_channels: int,
-                 output_dim: int,
-                 **kwargs):
+    def __init__(
+        self,
+        fiber_in: Fiber,
+        fiber_out: Fiber,
+        fiber_edge: Fiber,
+        num_degrees: int,
+        num_channels: int,
+        output_dim: int,
+        **kwargs
+    ):
         super().__init__()
-        kwargs['pooling'] = kwargs['pooling'] or 'max'
+        kwargs["pooling"] = kwargs["pooling"] or "max"
         self.transformer = SE3Transformer(
             fiber_in=fiber_in,
             fiber_hidden=Fiber.create(num_degrees, num_channels),
@@ -204,7 +263,7 @@ class SE3TransformerPooled(nn.Module):
         self.mlp = nn.Sequential(
             nn.Linear(n_out_features, n_out_features),
             nn.ReLU(),
-            nn.Linear(n_out_features, output_dim)
+            nn.Linear(n_out_features, output_dim),
         )
 
     def forward(self, graph, node_feats, edge_feats, basis=None):
@@ -216,8 +275,16 @@ class SE3TransformerPooled(nn.Module):
     def add_argparse_args(parent_parser):
         parser = parent_parser.add_argument_group("Model architecture")
         SE3Transformer.add_argparse_args(parser)
-        parser.add_argument('--num_degrees',
-                            help='Number of degrees to use. Hidden features will have types [0, ..., num_degrees - 1]',
-                            type=int, default=4)
-        parser.add_argument('--num_channels', help='Number of channels for the hidden features', type=int, default=32)
+        parser.add_argument(
+            "--num_degrees",
+            help="Number of degrees to use. Hidden features will have types [0, ..., num_degrees - 1]",
+            type=int,
+            default=4,
+        )
+        parser.add_argument(
+            "--num_channels",
+            help="Number of channels for the hidden features",
+            type=int,
+            default=32,
+        )
         return parent_parser

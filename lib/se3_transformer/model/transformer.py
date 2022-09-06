@@ -75,6 +75,7 @@ class SE3Transformer(nn.Module):
         pooling: Optional[Literal["avg", "max"]] = None,
         norm: bool = True,
         use_layer_norm: bool = True,
+        nonlinearity: nn.Module = nn.ReLU(),
         tensor_cores: bool = False,
         low_memory: bool = False,
         **kwargs
@@ -127,7 +128,7 @@ class SE3Transformer(nn.Module):
                 )
             )
             if norm:
-                graph_modules.append(NormSE3(fiber_hidden))
+                graph_modules.append(NormSE3(fiber_hidden, nonlinearity=nonlinearity))
             fiber_in = fiber_hidden
 
         graph_modules.append(
@@ -137,6 +138,7 @@ class SE3Transformer(nn.Module):
                 fiber_edge=fiber_edge,
                 self_interaction=True,
                 use_layer_norm=use_layer_norm,
+                nonlinearity=nonlinearity,
                 max_degree=self.max_degree,
             )
         )
