@@ -15,8 +15,10 @@ import dgl
 try:
     from torch._C import _nvtx
     from se3_transformer.model import Fiber, SE3Transformer
+    from se3_transformer.model.layers import LinearSE3, NormSE3
 except ImportError:
     from se3_transformer.model_no_cuda import Fiber, SE3Transformer
+    from se3_transformer.model_no_cuda.layers import LinearSE3, NormSE3
 
 from residue_constants import (
     MAX_RESIDUE_TYPE,
@@ -74,12 +76,13 @@ STRUCTURE_MODULE["fiber_in"] = None
 # fiber_out: is determined by outputs
 # - degree 0: cosine/sine values of torsion angles
 # - degree 1: two for BB rigid body rotation matrix and one for CA translation
+STRUCTURE_MODULE["fiber_out_g"] = [(0, 32), (1, 16)]
 STRUCTURE_MODULE["fiber_out"] = [(0, MAX_TORSION * 2), (1, 3)]
 # num_degrees and num_channels are for fiber_hidden
 # - they will be converted to Fiber using Fiber.create(num_degrees, num_channels)
 # - which is {degree: num_channels for degree in range(num_degrees)}
-STRUCTURE_MODULE["num_degrees"] = 2
-STRUCTURE_MODULE["num_channels"] = 32
+STRUCTURE_MODULE["num_degrees"] = 3
+STRUCTURE_MODULE["num_channels"] = 16
 STRUCTURE_MODULE["channels_div"] = 2  # no idea... # of channels is divided by this number
 STRUCTURE_MODULE["fiber_edge"] = None
 #
@@ -138,13 +141,15 @@ class EmbeddingModule(nn.Module):
         return self.layer(batch.ndata["residue_type"])
 
 
-class StructureModule(SE3Transformer):
+class StructureModule(nn.Module):
     def __init__(self, config):
-        super().__init__(
+        super().__init__()
+        #
+        self.graph_module = SE3Transformer(
             num_layers=config.num_layers,
             fiber_in=Fiber(config.fiber_in),
             fiber_hidden=Fiber.create(config.num_degrees, config.num_channels),
-            fiber_out=Fiber(config.fiber_out),
+            fiber_out=Fiber(config.fiber_out_g),
             num_heads=config.num_heads,
             channels_div=config.channels_div,
             fiber_edge=Fiber(config.fiber_edge or {}),
@@ -152,6 +157,22 @@ class StructureModule(SE3Transformer):
             use_layer_norm=config.norm[1],
             low_memory=config.low_memory,
         )
+        #
+        linear_module = []
+        linear_module.append(NormSE3(Fiber(config.fiber_out_g)))
+        linear_module.append(LinearSE3(Fiber(config.fiber_out_g), Fiber(config.fiber_out_g)))
+        linear_module.append(NormSE3(Fiber(config.fiber_out_g)))
+        linear_module.append(LinearSE3(Fiber(config.fiber_out_g), Fiber(config.fiber_out_g)))
+        linear_module.append(NormSE3(Fiber(config.fiber_out_g)))
+        linear_module.append(LinearSE3(Fiber(config.fiber_out_g), Fiber(config.fiber_out_g)))
+        linear_module.append(NormSE3(Fiber(config.fiber_out_g)))
+        linear_module.append(LinearSE3(Fiber(config.fiber_out_g), Fiber(config.fiber_out)))
+        self.linear_module = nn.Sequential(*linear_module)
+
+    def forward(self, batch: dgl.DGLGraph, node_feats, edge_feats):
+        out = self.graph_module(batch, node_feats=node_feats, edge_feats=edge_feats)
+        out = self.linear_module(out)
+        return out
 
     @staticmethod
     def output_to_opr(output, num_recycle=1):
