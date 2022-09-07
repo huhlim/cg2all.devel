@@ -23,7 +23,7 @@ torch.multiprocessing.set_sharing_strategy("file_system")
 
 
 N_PROC = int(os.getenv("OMP_NUM_THREADS", "8"))
-IS_DEVELOP = True
+IS_DEVELOP = False
 if IS_DEVELOP:
     logger = logging.getLogger()
     logger.setLevel(logging.DEBUG)
@@ -66,7 +66,7 @@ class Model(pl.LightningModule):
         if IS_DEVELOP:
             optimizer = torch.optim.Adam(self.parameters(), lr=0.01)
         else:
-            optimizer = torch.optim.Adam(self.parameters(), lr=1e-4)
+            optimizer = torch.optim.Adam(self.parameters(), lr=1e-3)
         lr_scheduler = torch.optim.lr_scheduler.SequentialLR(
             optimizer,
             [
@@ -124,7 +124,7 @@ class Model(pl.LightningModule):
         traj_s = create_trajectory_from_batch(batch, out["R"], write_native=True)
         log_dir = pathlib.Path(self.logger.log_dir)
         for i, traj in enumerate(traj_s):
-            out_f = log_dir / f"test_{self.current_epoch}_{i}.pdb"
+            out_f = log_dir / f"test_{batch_idx}_{i}.pdb"
             try:
                 traj.save(out_f)
                 # TODO: write_ssbond
@@ -177,7 +177,7 @@ def main():
     else:
         ckpt_fn = None
     #
-    if IS_DEVELOP:
+    if name is None:
         name = "devel"
     #
     pl.seed_everything(25, workers=True)
