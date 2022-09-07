@@ -61,6 +61,8 @@ def get_populated_edge_features(
     return edge_features
 
 
+# This module contains only first parts of SE3Transformer
+# fiber_in --> fiber_hidden
 class SE3Transformer(nn.Module):
     def __init__(
         self,
@@ -78,6 +80,7 @@ class SE3Transformer(nn.Module):
         nonlinearity: nn.Module = nn.ReLU(),
         tensor_cores: bool = False,
         low_memory: bool = False,
+        header: bool = False,
         **kwargs
     ):
         """
@@ -122,6 +125,7 @@ class SE3Transformer(nn.Module):
                     num_heads=num_heads,
                     channels_div=channels_div,
                     use_layer_norm=use_layer_norm,
+                    nonlinearity=nonlinearity,
                     max_degree=self.max_degree,
                     fuse_level=self.fuse_level,
                     low_memory=low_memory,
@@ -131,30 +135,25 @@ class SE3Transformer(nn.Module):
                 graph_modules.append(NormSE3(fiber_hidden, nonlinearity=nonlinearity))
             fiber_in = fiber_hidden
 
-        graph_modules.append(
-            ConvSE3(
-                fiber_in=fiber_in,
-                fiber_out=fiber_out,
-                fiber_edge=fiber_edge,
-                self_interaction=True,
-                use_layer_norm=use_layer_norm,
-                nonlinearity=nonlinearity,
-                max_degree=self.max_degree,
+        if not header:
+            graph_modules.append(
+                ConvSE3(
+                    fiber_in=fiber_in,
+                    fiber_out=fiber_out,
+                    fiber_edge=fiber_edge,
+                    self_interaction=True,
+                    use_layer_norm=use_layer_norm,
+                    nonlinearity=nonlinearity,
+                    max_degree=self.max_degree,
+                )
             )
-        )
         self.graph_modules = Sequential(*graph_modules)
 
         if pooling is not None:
             assert return_type is not None, "return_type must be specified when pooling"
             self.pooling_module = GPooling(pool=pooling, feat_type=return_type)
 
-    def forward(
-        self,
-        graph: DGLGraph,
-        node_feats: Dict[str, Tensor],
-        edge_feats: Optional[Dict[str, Tensor]] = None,
-        basis: Optional[Dict[str, Tensor]] = None,
-    ):
+    def get_basis(self, graph: DGLGraph):
         # Compute bases in case they weren't precomputed as part of the data loading
         basis = basis or get_basis(
             graph.edata["rel_pos"],
@@ -171,6 +170,32 @@ class SE3Transformer(nn.Module):
             use_pad_trick=self.tensor_cores and not self.low_memory,
             fully_fused=self.fuse_level == ConvSE3FuseLevel.FULL,
         )
+        return basis
+
+    def forward(
+        self,
+        graph: DGLGraph,
+        node_feats: Dict[str, Tensor],
+        edge_feats: Optional[Dict[str, Tensor]] = None,
+        basis: Optional[Dict[str, Tensor]] = None,
+    ):
+        basis = basis or self.get_basis(graph)
+        # # Compute bases in case they weren't precomputed as part of the data loading
+        # basis = basis or get_basis(
+        #     graph.edata["rel_pos"],
+        #     max_degree=self.max_degree,
+        #     compute_gradients=False,
+        #     use_pad_trick=self.tensor_cores and not self.low_memory,
+        #     amp=torch.is_autocast_enabled(),
+        # )
+        #
+        # # Add fused bases (per output degree, per input degree, and fully fused) to the dict
+        # basis = update_basis_with_fused(
+        #     basis,
+        #     self.max_degree,
+        #     use_pad_trick=self.tensor_cores and not self.low_memory,
+        #     fully_fused=self.fuse_level == ConvSE3FuseLevel.FULL,
+        # )
 
         edge_feats = get_populated_edge_features(graph.edata["rel_pos"], edge_feats)
 
