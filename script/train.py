@@ -183,7 +183,6 @@ def main():
     pl.seed_everything(25, workers=True)
     #
     # configure
-    # cg_model = ResidueBasedModel
     cg_model = CalphaBasedModel
     config = libmodel.set_model_config(config, cg_model)
     #

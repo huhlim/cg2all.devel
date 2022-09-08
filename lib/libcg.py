@@ -10,12 +10,12 @@ from libconfig import DTYPE
 from libpdb import PDB
 from sklearn.decomposition import PCA
 from torch_basics import v_size, inner_product, torsion_angle
-from residue_constants import MAX_RESIDUE_TYPE, ATOM_INDEX_CA
+from residue_constants import MAX_RESIDUE_TYPE, ATOM_INDEX_CA, ATOM_INDEX_N, ATOM_INDEX_C
 
-# %%
+
 class ResidueBasedModel(PDB):
     n_node_scalar = 16
-    n_node_vector = 4
+    n_node_vector = 5
     n_edge_scalar = 3
     n_edge_vector = 0
 
@@ -170,7 +170,6 @@ class CalphaBasedModel(ResidueBasedModel):
         return R_cg
 
 
-# %%
 class Martini(PDB):
     def __init__(self, pdb_fn, dcd_fn=None):
         super().__init__(pdb_fn, dcd_fn)
@@ -189,8 +188,29 @@ def get_residue_center_of_mass(r: torch.Tensor, mass: torch.Tensor) -> torch.Ten
     return cntr
 
 
+def get_backbone_angles(R):
+    r_N = R[:, ATOM_INDEX_N]
+    r_CA = R[:, ATOM_INDEX_CA]
+    r_C = R[:, ATOM_INDEX_C]
+    #
+    R_phi = torch.stack([r_C[:-1], r_N[1:], r_CA[1:], r_C[1:]], dim=1)
+    phi = torsion_angle(R_phi)
+    R_psi = torch.stack([r_N[:-1], r_CA[:-1], r_C[:-1], r_N[1:]], dim=1)
+    psi = torsion_angle(R_psi)
+    #
+    tor_s = torch.zeros((R.size(0), 3, 2), device=R.device)
+    tor_s[1:, 0, 0] = phi
+    tor_s[:-1, 0, 1] = psi
+    tor_s[:-1, 1, :] = tor_s[1:, 0]
+    tor_s[1:, 2, :] = tor_s[:-1, 0]
+    #
+    out = torch.cat([torch.cos(tor_s), torch.sin(tor_s)], dim=-1).view(-1, 12)
+    return out
+
+
 def main():
-    pdb = ResidueBasedModel("pdb.processed/1HEO.pdb")
+    pdb = ResidueBasedModel("pdb.processed/1ab1_A.pdb")
+    get_backbone_angles(torch.as_tensor(pdb.R[0]))
 
 
 if __name__ == "__main__":

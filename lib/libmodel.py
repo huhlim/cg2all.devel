@@ -31,9 +31,9 @@ from residue_constants import (
     RIGID_GROUPS_DEP,
 )
 from libloss_l1 import loss_f
-from torch_basics import v_norm_safe, inner_product, rotate_matrix, rotate_vector
+from torch_basics import v_size, v_norm_safe, inner_product, rotate_matrix, rotate_vector
 from libmetric import rmsd_CA, rmsd_rigid, rmsd_all, rmse_bonded
-from libcg import get_residue_center_of_mass
+from libcg import get_residue_center_of_mass, get_backbone_angles
 from libconfig import DTYPE
 
 
@@ -53,7 +53,7 @@ CONFIG["globals"]["loss_weight"].update(
         "bonded_energy": 1.0,
         "distance_matrix": 0.0,
         "rotation_matrix": 1.0,
-        "torsion_angle": 2.0,
+        "torsion_angle": 2.5,
         "atomic_clash": 1.0,
     }
 )
@@ -71,7 +71,7 @@ STRUCTURE_MODULE["num_layers"] = 4
 STRUCTURE_MODULE["num_linear_layers"] = 4
 STRUCTURE_MODULE["num_heads"] = 8  # number of attention heads
 STRUCTURE_MODULE["norm"] = [True, True]  # norm between attention blocks / within attention blocks
-STRUCTURE_MODULE["nonlinearity"] = "elu"
+STRUCTURE_MODULE["nonlinearity"] = "relu"
 
 # fiber_in: is determined by input features
 STRUCTURE_MODULE["fiber_in"] = None
@@ -143,8 +143,54 @@ class EmbeddingModule(nn.Module):
         return self.layer(batch.ndata["residue_type"])
 
 
+class InteractionModule(nn.Module):
+    def __init__(self, config, n_node_add=[0, 0], n_edge_add=[0, 0]):
+        super().__init__()
+        #
+        if config.nonlinearity == "elu":
+            nonlinearity = nn.ELU()
+        elif config.nonlinearity == "relu":
+            nonlinearity = nn.ReLU()
+        #
+        if sum(n_node_add) > 0:
+            fiber_in = []
+            for degree, n_feat in config.fiber_in:
+                fiber_in.append((degree, n_feat + n_node_add[degree]))
+        else:
+            fiber_in = config.fiber_in
+
+        if sum(n_edge_add) > 0:
+            if config.fiber_edge is None:
+                fiber_edge = [(degree, n_feat) for degree, n_feat in enumerate(n_edge_add)]
+            else:
+                fiber_edge = []
+                for degree, n_feat in config.fiber_edge:
+                    fiber_edge.append((degree, n_feat + n_edge_add[degree]))
+        else:
+            fiber_edge = config.fiber_edge
+
+        #
+        self.graph_module = SE3Transformer(
+            num_layers=config.num_layers,
+            fiber_in=Fiber(fiber_in),
+            fiber_hidden=Fiber.create(config.num_degrees, config.num_channels),
+            fiber_out=Fiber(config.fiber_out_g),
+            num_heads=config.num_heads,
+            channels_div=config.channels_div,
+            fiber_edge=Fiber(fiber_edge or {}),
+            norm=config.norm[0],
+            use_layer_norm=config.norm[1],
+            nonlinearity=nonlinearity,
+            low_memory=config.low_memory,
+        )
+
+    def forward(self, batch: dgl.DGLGraph, node_feats, edge_feats):
+        out = self.graph_module(batch, node_feats=node_feats, edge_feats=edge_feats)
+        return out
+
+
 class StructureModule(nn.Module):
-    def __init__(self, config, n_node_scalar_add=0, n_node_vector_add=0):
+    def __init__(self, config):
         super().__init__()
         #
         self.loss_weight = config.loss_weight
@@ -154,44 +200,37 @@ class StructureModule(nn.Module):
         elif config.nonlinearity == "relu":
             nonlinearity = nn.ReLU()
         #
-        if n_node_scalar_add > 0 or n_node_vector_add > 0:
-            fiber_in = []
-            for degree, n_feat in config.fiber_in:
-                if degree == 0:
-                    fiber_in.append((degree, n_feat + n_node_scalar_add))
-                elif degree == 1:
-                    fiber_in.append((degree, n_feat + n_node_vector_add))
-                else:
-                    fiber_in.append((degree, n_feat))
-        else:
-            fiber_in = config.fiber_in
-        #
-        self.graph_module = SE3Transformer(
-            num_layers=config.num_layers,
-            fiber_in=Fiber(fiber_in),
-            fiber_hidden=Fiber.create(config.num_degrees, config.num_channels),
-            fiber_out=Fiber(config.fiber_out_g),
-            num_heads=config.num_heads,
-            channels_div=config.channels_div,
-            fiber_edge=Fiber(config.fiber_edge or {}),
-            norm=config.norm[0],
-            use_layer_norm=config.norm[1],
-            nonlinearity=nonlinearity,
-            low_memory=config.low_memory,
-        )
-        #
         linear_module = []
         for _ in range(config.num_linear_layers - 1):
-            linear_module.append(NormSE3(Fiber(config.fiber_out_g)))
+            if config.norm[0]:
+                linear_module.append(NormSE3(Fiber(config.fiber_out_g), nonlinearity=nonlinearity))
             linear_module.append(LinearSE3(Fiber(config.fiber_out_g), Fiber(config.fiber_out_g)))
-        linear_module.append(NormSE3(Fiber(config.fiber_out_g)))
-        linear_module.append(LinearSE3(Fiber(config.fiber_out_g), Fiber(config.fiber_out)))
+        #
         self.linear_module = nn.Sequential(*linear_module)
+        #
+        backbone_module = []
+        if config.norm[0]:
+            backbone_module.append(NormSE3(Fiber(config.fiber_out_g), nonlinearity=nonlinearity))
+        backbone_module.append(LinearSE3(Fiber(config.fiber_out_g), Fiber(config.fiber_out[1])))
+        self.backbone_module = nn.Sequential(*backbone_module)
+        #
+        sidechain_module = []
+        for _ in range(2):
+            if config.norm[0]:
+                sidechain_module.append(
+                    NormSE3(Fiber(config.fiber_out_g), nonlinearity=nonlinearity)
+                )
+            sidechain_module.append(LinearSE3(Fiber(config.fiber_out_g), Fiber(config.fiber_out_g)))
+        #
+        if config.norm[0]:
+            sidechain_module.append(NormSE3(Fiber(config.fiber_out_g), nonlinearity=nonlinearity))
+        sidechain_module.append(LinearSE3(Fiber(config.fiber_out_g), Fiber(config.fiber_out[0])))
 
-    def forward(self, batch: dgl.DGLGraph, node_feats, edge_feats):
-        out = self.graph_module(batch, node_feats=node_feats, edge_feats=edge_feats)
-        out = self.linear_module(out)
-        return out
+    def forward(self, feats):
+        out = self.linear_module(feats)
+        bb = self.backbone_module(out)
+        sc = self.sidechain_module(out)
+        return bb|sc
 
     @staticmethod
     def output_to_opr(output, num_recycle=1):
@@ -223,8 +262,12 @@ class Model(nn.Module):
         self.loss_weight = _config.globals.loss_weight
         #
         self.embedding_module = EmbeddingModule(_config.embedding_module)
+        self.interaction_module_0 = InteractionModule(_config.structure_module)
+        # self.interaction_module_1 = InteractionModule(
+        #     _config.structure_module, n_node_add=[0, 1], n_edge_add=[1, 0]
+        # )
         self.structure_module_0 = StructureModule(_config.structure_module)
-        self.structure_module_1 = StructureModule(_config.structure_module, n_node_vector_add=1)
+        # self.structure_module_1 = StructureModule(_config.structure_module)
 
     def set_rigid_operations(self, device, dtype=DTYPE):
         _RIGID_TRANSFORMS_TENSOR = RIGID_TRANSFORMS_TENSOR.to(device)
@@ -256,7 +299,8 @@ class Model(nn.Module):
                 "1": batch.ndata["node_feat_1"],
             }
 
-            out = self.structure_module_0(batch, node_feats=node_feats, edge_feats=edge_feats)
+            out = self.interaction_module_0(batch, node_feats=node_feats, edge_feats=edge_feats)
+            out = self.structure_module_0(out)
             bb, sc, bb0, sc0 = self.structure_module_0.output_to_opr(out, self.num_recycle)
             ret["bb"] = bb
             ret["sc"] = sc
@@ -268,47 +312,58 @@ class Model(nn.Module):
                 self.RIGID_OPs, batch, ret["bb"], sc=ret["sc"], stop_grad=(k + 1 < self.num_recycle)
             )
             #
-            if self.compute_loss or self.training:
-                n_intermediate += 1
-                loss["intermediate"] = loss_f(
-                    batch,
-                    ret,
-                    self.structure_module_0.loss_weight,
-                    loss_prev=loss.get("intermediate", {}),
-                    RIGID_OPs=self.RIGID_OPs,  # only for atomic_clash
-                )
+            # if self.compute_loss or self.training:
+            #     n_intermediate += 1
+            #     loss["intermediate"] = loss_f(
+            #         batch,
+            #         ret,
+            #         self.structure_module.loss_weight,
+            #         loss_prev=loss.get("intermediate", {}),
+            #         RIGID_OPs=self.RIGID_OPs,  # only for atomic_clash
+            #     )
+            # #
+            # stop_grad
+            # ret["R"] = ret["R"].detach()
             #
-            # calculate v_cntr
-            R_cntr = get_residue_center_of_mass(ret["R"], batch.ndata["atomic_mass"])
-            v_cntr = R_cntr - ret["R"][:, ATOM_INDEX_CA, :]
-            # v_cntr = v_cntr.detach()  # stop_grad
-            node_feats["1"] = torch.cat([batch.ndata["node_feat_1"], v_cntr[:, None, :]], dim=1)
+            # calculate backbone torsion angles
+            # angles = get_backbone_angles(ret["R"])
+            # node_feats["0"] = torch.cat([node_feats["0"], angles[..., None]], dim=1)
             #
-            # second-pass with v_cntr
-            out = self.structure_module_1(batch, node_feats=node_feats, edge_feats=edge_feats)
-            bb, sc, bb0, sc0 = self.structure_module_1.output_to_opr(out, self.num_recycle)
-            ret["bb"] = bb
-            ret["sc"] = sc
-            ret["bb0"] = bb0
-            ret["sc0"] = sc0
-            #
-            # build structure (2)
-            ret["R"], ret["opr_bb"] = build_structure(
-                self.RIGID_OPs, batch, ret["bb"], sc=ret["sc"], stop_grad=(k + 1 < self.num_recycle)
-            )
-            #
-            if k < self.num_recycle - 1:
-                if self.compute_loss or self.training:
-                    n_intermediate += 1
-                    loss["intermediate"] = loss_f(
-                        batch,
-                        ret,
-                        self.structure_module_1.loss_weight,
-                        loss_prev=loss.get("intermediate", {}),
-                        RIGID_OPs=self.RIGID_OPs,  # only for atomic_clash
-                    )
-                #
-                # self.update_graph(batch, ret)
+            # # calculate v_cntr
+            # R_cntr = get_residue_center_of_mass(ret["R"], batch.ndata["atomic_mass"])
+            # v_cntr = R_cntr - ret["R"][:, ATOM_INDEX_CA, :]
+            # node_feats["1"] = torch.cat([node_feats["1"], v_cntr[:, None, :]], dim=1)
+            # #
+            # i, j = batch.edges()
+            # dij = v_size(R_cntr[j] - R_cntr[i])
+            # edge_feats["0"] = torch.cat([edge_feats["0"], dij[..., None, None]], dim=1)
+            # #
+            # # second-pass with v_cntr
+            # out = self.interaction_module_1(batch, node_feats=node_feats, edge_feats=edge_feats)
+            # out = self.structure_module_1(out)
+            # bb, sc, bb0, sc0 = self.structure_module_1.output_to_opr(out, self.num_recycle)
+            # ret["bb"] = bb
+            # ret["sc"] = sc
+            # ret["bb0"] = bb0
+            # ret["sc0"] = sc0
+            # #
+            # # build structure (2)
+            # ret["R"], ret["opr_bb"] = build_structure(
+            #     self.RIGID_OPs, batch, ret["bb"], sc=ret["sc"], stop_grad=(k + 1 < self.num_recycle)
+            # )
+            # #
+            # if k < self.num_recycle - 1:
+            #     if self.compute_loss or self.training:
+            #         n_intermediate += 1
+            #         loss["intermediate"] = loss_f(
+            #             batch,
+            #             ret,
+            #             self.structure_module_1.loss_weight,
+            #             loss_prev=loss.get("intermediate", {}),
+            #             RIGID_OPs=self.RIGID_OPs,  # only for atomic_clash
+            #         )
+            #     #
+            #     # self.update_graph(batch, ret)
 
         if self.compute_loss or self.training:
             loss["final"] = loss_f(batch, ret, self.loss_weight, RIGID_OPs=self.RIGID_OPs)
@@ -322,26 +377,6 @@ class Model(nn.Module):
 
     def update_graph(self, batch, ret):
         raise NotImplementedError
-        device = batch.f_in.device
-        #
-        pos = self.cg_model.convert_to_cg_tensor(ret["R"].detach(), batch.atomic_mass)
-        err = ret.get("err", batch.f_in[:, 15])
-        #
-        f_in = []
-        for k in range(batch.num_graphs):
-            selected = batch.batch == k
-            r = pos[selected]
-            #
-            geom_s = self.cg_model.get_geometry(
-                r, batch.continuous[selected], batch.input_atom_mask[selected], pca=False
-            )
-            f_in.append(
-                self.cg_model.geom_to_feature(geom_s, err[selected], dtype=batch.f_in.dtype)[0]
-            )
-        #
-        batch.pos = pos[batch.input_atom_mask > 0.0]
-        batch.f_in = torch.cat(f_in, axis=0)
-        return batch
 
     def calc_metrics(self, batch, ret):
         R = ret["R"]
