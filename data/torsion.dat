@@ -61,7 +61,6 @@ RESI PRO
 CHI 1   1   N   CA  CB      CG  HB1 HB2
 CHI 2   1   CA  CB  CG      CD  HG1 HG2
 CHI 3   1   CB  CG  CD      N   HD1 HD2
-#XI  3.1 1   CB  CG  CD      HD1 HD2
 
 RESI GLN
 CHI 1   1   N   CA  CB      CG  HB1 HB2

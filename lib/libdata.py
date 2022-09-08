@@ -15,7 +15,7 @@ import dgl
 
 import libcg
 from libconfig import BASE, DTYPE
-from torch_basics import v_norm
+from torch_basics import v_norm, v_size
 from residue_constants import AMINO_ACID_s, AMINO_ACID_REV_s, residue_s, ATOM_INDEX_CA
 
 
@@ -138,6 +138,9 @@ class PDBset(Dataset):
         )
         v_cntr = r_cntr - data.ndata["output_xyz"][:, ATOM_INDEX_CA]
         data.ndata["v_cntr"] = v_norm(v_cntr)
+        data.ndata["node_feat_1"] = torch.cat(
+            [data.ndata["node_feat_1"], data.ndata["v_cntr"][:, None]], dim=1
+        )
         #
         if self.get_structure_information:
             cg.get_structure_information()
