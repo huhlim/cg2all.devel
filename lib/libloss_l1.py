@@ -35,9 +35,9 @@ def loss_f(batch, ret, loss_weight, loss_prev=None, RIGID_OPs=None):
     if loss_weight.get("v_cntr", 0.0) > 0.0:
         loss["v_cntr"] = loss_f_v_cntr(batch, R) * loss_weight.v_cntr
     if loss_weight.get("FAPE_CA", 0.0) > 0.0:
-        loss["FAPE_CA"] = loss_f_FAPE_CA(batch, R, opr_bb, d_clamp=2.0) * loss_weight.FAPE_CA
+        loss["FAPE_CA"] = loss_f_FAPE_CA(batch, R, opr_bb, d_clamp=1.0) * loss_weight.FAPE_CA
     if loss_weight.get("FAPE_all", 0.0) > 0.0:
-        loss["FAPE_all"] = loss_f_FAPE_all(batch, R, opr_bb, d_clamp=2.0) * loss_weight.FAPE_all
+        loss["FAPE_all"] = loss_f_FAPE_all(batch, R, opr_bb, d_clamp=1.0) * loss_weight.FAPE_all
     if loss_weight.get("rotation_matrix", 0.0) > 0.0:
         loss["rotation_matrix"] = (
             loss_f_rotation_matrix(batch, ret["bb"], ret["bb0"]) * loss_weight.rotation_matrix
@@ -52,7 +52,7 @@ def loss_f(batch, ret, loss_weight, loss_prev=None, RIGID_OPs=None):
         loss["torsion_angle"] = (
             loss_f_torsion_angle(batch, ret["sc"], ret["sc0"]) * loss_weight.torsion_angle
         )
-    if loss_weight.get("atomic_clash", 0.0) > 0.0:  # time consuming
+    if loss_weight.get("atomic_clash", 0.0) > 0.0:
         loss["atomic_clash"] = loss_f_atomic_clash(batch, R, RIGID_OPs) * loss_weight.atomic_clash
     #
     if loss_prev is not None:
@@ -75,7 +75,10 @@ def loss_f_mse_R(batch: dgl.DGLGraph, R: torch.Tensor):
 def loss_f_v_cntr(batch: dgl.DGLGraph, R: torch.Tensor):
     r_cntr = get_residue_center_of_mass(R, batch.ndata["atomic_mass"])
     v_cntr = v_norm_safe(r_cntr - R[:, ATOM_INDEX_CA])
-    return torch.mean(torch.abs(1.0 - inner_product(v_cntr, batch.ndata["v_cntr"])))
+    loss_angle = torch.mean(torch.abs(1.0 - inner_product(v_cntr, v_norm(batch.ndata["v_cntr"]))))
+    #
+    loss_distance = torch.mean(torch.abs(v_size(v_cntr) - v_size(batch.ndata["v_cntr"])))
+    return loss_angle + loss_distance
 
 
 def loss_f_rigid_body(batch: dgl.DGLGraph, R: torch.Tensor) -> torch.Tensor:
@@ -328,7 +331,9 @@ def loss_f_torsion_angle_old(sc, sc0, sc_ref, mask, norm_weight: float = 0.01):
     return loss
 
 
-def loss_f_torsion_angle(batch: dgl.DGLGraph, sc: torch.Tensor, sc0: torch.Tensor, norm_weight: float = 0.01):
+def loss_f_torsion_angle(
+    batch: dgl.DGLGraph, sc: torch.Tensor, sc0: torch.Tensor, norm_weight: float = 0.01
+):
     sc_ref = batch.ndata["correct_torsion"]
     mask = batch.ndata["torsion_mask"]
     #

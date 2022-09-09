@@ -15,7 +15,7 @@ from residue_constants import MAX_RESIDUE_TYPE, ATOM_INDEX_CA, ATOM_INDEX_N, ATO
 
 class ResidueBasedModel(PDB):
     n_node_scalar = 16
-    n_node_vector = 5
+    n_node_vector = 4
     n_edge_scalar = 3
     n_edge_vector = 0
 

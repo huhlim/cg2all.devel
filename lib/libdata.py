@@ -25,7 +25,7 @@ class PDBset(Dataset):
         basedir: str,
         pdblist: List[str],
         cg_model,
-        radius=0.8,
+        radius=1.0,
         noise_level=0.0,
         self_loop=False,
         get_structure_information=False,
@@ -96,7 +96,7 @@ class PDBset(Dataset):
         data.edata["rel_pos"] = pos[edge_dst] - pos[edge_src]
         #
         global_frame = torch.as_tensor(geom_s["pca"], dtype=self.dtype).reshape(-1)
-        data.ndata["global_frame"] = global_frame.repeat(cg.n_residue, 1)
+        data.ndata["global_frame"] = global_frame.repeat(cg.n_residue, 1)  # shape=(N, 6)
         #
         data.ndata["chain_index"] = torch.as_tensor(cg.chain_index, dtype=torch.long)
         data.ndata["residue_type"] = torch.as_tensor(cg.residue_index, dtype=torch.long)
@@ -137,10 +137,7 @@ class PDBset(Dataset):
             data.ndata["output_xyz"], data.ndata["atomic_mass"]
         )
         v_cntr = r_cntr - data.ndata["output_xyz"][:, ATOM_INDEX_CA]
-        data.ndata["v_cntr"] = v_norm(v_cntr)
-        data.ndata["node_feat_1"] = torch.cat(
-            [data.ndata["node_feat_1"], data.ndata["v_cntr"][:, None]], dim=1
-        )
+        data.ndata["v_cntr"] = v_cntr
         #
         if self.get_structure_information:
             cg.get_structure_information()

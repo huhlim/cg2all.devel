@@ -174,7 +174,7 @@ class PDB(object):
 
     # get torsion angles for a residue
     def get_torsion_angles(self, i_res):
-        weight_s = np.array([0.1, 0.5, 1.0, 1.0, 0.5, 0.25, 0.0, 0.0])
+        # weight_s = np.array([0.1, 0.5, 1.0, 1.0, 0.5, 0.25, 0.0, 0.0])
         residue_name = self.residue_name[i_res]
         ref_res = residue_s[residue_name]
         #
