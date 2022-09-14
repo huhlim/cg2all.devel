@@ -64,7 +64,7 @@ class PDBset(Dataset):
             if pt_fn.exists():
                 data = torch.load(pt_fn)
                 if self.crop > 0:
-                    return self.subgraph(data)
+                    return self.get_subgraph(data)
                 else:
                     return data
         #
@@ -171,8 +171,16 @@ class PDBset(Dataset):
 
     def get_subgraph(self, graph):
         n_residues = graph.num_nodes()
-        begin = np.random.randint(low=0, high=n_residues - self.crop + 1)
-        sub = graph.subgraph(range(i, i + self.crop))
+        if n_residues < self.crop:
+            nodes = range(0, n_residues)
+            sub = graph.subgraph(nodes)
+            return sub
+        else:
+            begin = np.random.randint(low=0, high=n_residues - self.crop + 1)
+            nodes = range(begin, begin + self.crop)
+        #
+        sub = graph.subgraph(nodes)
+        #
         for i in range(self.crop):
             cys = sub.ndata["ssbond_index"][i]
             if cys != -1:
@@ -263,14 +271,19 @@ def test():
         cg_model,
         noise_level=0.0,
         use_pt="CA",
+        crop=128,
         random_rotation=True,
         get_structure_information=True,
     )
     train_loader = dgl.dataloading.GraphDataLoader(
-        train_set, batch_size=8, shuffle=False, num_workers=12
+        train_set, batch_size=4, shuffle=False, num_workers=1
     )
     for batch in train_loader:
         print(batch.num_nodes())
+        for i in range(batch.batch_size):
+            data = dgl.slice_batch(batch, i, store_ids=True)
+            print(data.num_nodes(), data.ndata["_ID"])
+        return
     # traj_s = create_trajectory_from_batch(batch, batch.ndata["output_xyz"], write_native=True)
     # for i,traj in enumerate(traj_s):
     #     traj.save(f"test_{i}.pdb")
@@ -309,5 +322,5 @@ def to_pt():
 
 
 if __name__ == "__main__":
-    to_pt()
-    # test()
+    # to_pt()
+    test()
