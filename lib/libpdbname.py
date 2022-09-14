@@ -340,8 +340,9 @@ def update_by_guanidium_method(R, atom_mask, i_res, ref_res):
             dep_s = [[x] for x in index_amb]
         #
         # let's swap
-        swap = np.abs(t_ang0) > np.abs(t_ang1)
-        if np.any(swap):
+        swap = np.where(np.abs(t_ang0) > np.abs(t_ang1))[0]
+        if len(swap) > 0:
             before = tuple(dep_s[0] + dep_s[1])
             after = tuple(dep_s[1] + dep_s[0])
-            R[swap, i_res, before, :] = R[swap, i_res, after, :]
+            for s in swap:
+                R[s, i_res, before, :] = R[s, i_res, after, :]

@@ -57,7 +57,7 @@ class ResidueBasedModel(PDB):
             traj.save(dcd_fn)
 
     @staticmethod
-    def get_geometry(r: torch.Tensor, continuous: torch.Tensor, mask: torch.Tensor, pca=False):
+    def get_geometry(r: torch.Tensor, continuous: torch.Tensor, pca=False):
         device = r.device
         #
         not_defined = continuous == 0.0
@@ -69,7 +69,7 @@ class ResidueBasedModel(PDB):
 
         # n_neigh
         n_neigh = torch.zeros(r.shape[0], dtype=DTYPE, device=device)
-        graph = dgl.radius_graph(r[mask > 0.0], 1.0)
+        graph = dgl.radius_graph(r, 1.0)
         n_neigh = graph.in_degrees(graph.nodes())
         geom_s["n_neigh"] = n_neigh[:, None]
 
@@ -80,7 +80,7 @@ class ResidueBasedModel(PDB):
             b_len = torch.zeros(r.shape[0] + shift, dtype=DTYPE, device=device)
             dr = torch.zeros((r.shape[0] + shift, 3), dtype=DTYPE, device=device)
             #
-            dr[shift:-shift] = r[:-shift, 0, :] - r[shift:, 0, :]
+            dr[shift:-shift] = r[:-shift, :] - r[shift:, :]
             b_len[shift:-shift] = v_size(dr[shift:-shift])
             #
             dr[shift:-shift] /= b_len[shift:-shift, None]

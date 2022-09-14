@@ -42,9 +42,8 @@ class ProcessPDB(PDB):
             t_ang0, atom_s, rigid = get_rigid_group_by_torsion(self.residue_name[i_res], "BB")
             rigid_s = translate_and_rotate(rigid, opr_bb[0], opr_bb[1])
             for atom in atom_s:
-                self.R_ideal[:, i_res, ref_res.atom_s.index(atom), :] = rigid_s[
-                    :, atom_s.index(atom), :
-                ]
+                self.R_ideal[:, i_res, ref_res.atom_s.index(atom), :] = \
+                        rigid_s[ :, atom_s.index(atom), : ]
             #
             amb = get_ambiguous_atom_list(residue_name, "BB")
             if residue_name == "GLY":

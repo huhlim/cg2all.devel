@@ -10,7 +10,6 @@ import torch
 from torch.utils.data import Dataset
 
 import e3nn
-
 import dgl
 
 import libcg
@@ -30,7 +29,8 @@ class PDBset(Dataset):
         self_loop=False,
         get_structure_information=False,
         random_rotation=False,
-        cache=False,
+        use_pt=None,
+        crop=-1,
         dtype=DTYPE,
     ):
         super().__init__()
@@ -51,21 +51,24 @@ class PDBset(Dataset):
         self.noise_level = noise_level
         self.get_structure_information = get_structure_information
         self.random_rotation = random_rotation
-        if cache:
-            self.cached = {}
-        else:
-            self.cached = None
+        self.use_pt = use_pt
+        self.crop = crop
 
     def __len__(self):
         return self.n_pdb
 
     def __getitem__(self, index):
-        if self.cached is not None and index in self.cached:
-            return self.cached[index].clone()
-        #
         pdb_id = self.pdb_s[index]
-        pdb_fn = self.basedir / f"{pdb_id}.pdb"
+        if self.use_pt is not None:
+            pt_fn = self.basedir / f"{pdb_id}_{self.use_pt}.pt"
+            if pt_fn.exists():
+                data = torch.load(pt_fn)
+                if self.crop > 0:
+                    return self.subgraph(data)
+                else:
+                    return data
         #
+        pdb_fn = self.basedir / f"{pdb_id}.pdb"
         cg = self.cg_model(pdb_fn)
         if self.random_rotation:
             cg = self.rotate_randomly(cg)
@@ -83,9 +86,10 @@ class PDBset(Dataset):
             noise_size = 0.0
         noise_size = torch.full((cg.n_residue,), noise_size)
         #
-        geom_s = cg.get_geometry(r_cg, cg.continuous, cg.atom_mask_cg, pca=True)
-        node_feat = cg.geom_to_feature(geom_s, noise_size=noise_size, dtype=self.dtype)
         pos = r_cg[cg.atom_mask_cg > 0.0]
+        geom_s = cg.get_geometry(pos, cg.continuous, pca=True)
+        #
+        node_feat = cg.geom_to_feature(geom_s, noise_size=noise_size, dtype=self.dtype)
         data = dgl.radius_graph(pos, self.radius, self_loop=self.self_loop)
         data.ndata["pos"] = pos
         data.ndata["pos0"] = pos.clone()
@@ -139,6 +143,8 @@ class PDBset(Dataset):
         v_cntr = r_cntr - data.ndata["output_xyz"][:, ATOM_INDEX_CA]
         data.ndata["v_cntr"] = v_cntr
         #
+        # data.ndata["node_feat_1"] = torch.cat([data.ndata["node_feat_1"], v_cntr[:, None]], dim=1)
+        #
         if self.get_structure_information:
             cg.get_structure_information()
             data.ndata["correct_bb"] = torch.as_tensor(cg.bb[frame_index], dtype=self.dtype)
@@ -147,10 +153,13 @@ class PDBset(Dataset):
             )
             data.ndata["torsion_mask"] = torch.as_tensor(cg.torsion_mask, dtype=self.dtype)
         #
-        if self.cached is not None:
-            self.cached[index] = data.clone()
+        if self.use_pt is not None:
+            torch.save(data, pt_fn)
         #
-        return data
+        if self.crop > 0:
+            return self.get_subgraph(data)
+        else:
+            return data
 
     def rotate_randomly(self, cg):
         random_rotation = e3nn.o3.rand_matrix().numpy()
@@ -159,6 +168,19 @@ class PDBset(Dataset):
         out.R_cg = out.R_cg @ random_rotation.T
         out.R = out.R @ random_rotation.T
         return out
+
+    def get_subgraph(self, graph):
+        n_residues = graph.num_nodes()
+        begin = np.random.randint(low=0, high=n_residues - self.crop + 1)
+        sub = graph.subgraph(range(i, i + self.crop))
+        for i in range(self.crop):
+            cys = sub.ndata["ssbond_index"][i]
+            if cys != -1:
+                cys = cys - begin
+                if cys >= self.crop:
+                    cys = -1
+                sub.ndata["ssbond_index"][i] = cys
+        return sub
 
 
 def create_topology_from_data(data: dgl.DGLGraph, write_native: bool = False) -> mdtraj.Topology:
@@ -231,21 +253,24 @@ def create_trajectory_from_batch(
 
 def test():
     base_dir = BASE / "pdb.processed"
+    base_dir = BASE / "pdb.top8000"
     pdblist = base_dir / "targets.train"
-    cg_model = libcg.ResidueBasedModel
+    cg_model = libcg.CalphaBasedModel
     #
     train_set = PDBset(
         base_dir,
         pdblist,
         cg_model,
         noise_level=0.0,
+        use_pt="CA",
         random_rotation=True,
         get_structure_information=True,
     )
     train_loader = dgl.dataloading.GraphDataLoader(
-        train_set, batch_size=2, shuffle=False, num_workers=1
+        train_set, batch_size=8, shuffle=False, num_workers=12
     )
-    batch = next(iter(train_loader))
+    for batch in train_loader:
+        print(batch.num_nodes())
     # traj_s = create_trajectory_from_batch(batch, batch.ndata["output_xyz"], write_native=True)
     # for i,traj in enumerate(traj_s):
     #     traj.save(f"test_{i}.pdb")
@@ -255,5 +280,34 @@ def test():
     #     )
 
 
+def to_pt():
+    base_dir = BASE / "pdb.processed"
+    base_dir = BASE / "pdb.pisces"
+    # base_dir = BASE / "pdb.top8000"
+    pdblist = base_dir / "targets"
+    cg_model = libcg.CalphaBasedModel
+    #
+    train_set = PDBset(
+        base_dir,
+        pdblist,
+        cg_model,
+        noise_level=0.0,
+        random_rotation=True,
+        use_pt="CA",
+        get_structure_information=True,
+    )
+    #
+    train_loader = dgl.dataloading.GraphDataLoader(
+        train_set, batch_size=8, shuffle=False, num_workers=12
+    )
+    import time
+
+    t0 = time.time()
+    for _ in train_loader:
+        print(time.time() - t0)
+        t0 = time.time()
+
+
 if __name__ == "__main__":
-    test()
+    to_pt()
+    # test()

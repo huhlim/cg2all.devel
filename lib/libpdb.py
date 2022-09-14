@@ -14,7 +14,7 @@ class PDB(object):
     def __init__(self, pdb_fn, dcd_fn=None):
         # read protein
         pdb = mdtraj.load(pdb_fn, standard_names=False)
-        load_index = pdb.top.select("protein or (resname HSD or resname HSE)")
+        load_index = pdb.top.select("protein or (resname HSD or resname HSE or resname MSE)")
         if dcd_fn is None:
             self.is_dcd = False
             self.traj = pdb.atom_slice(load_index)
@@ -97,11 +97,8 @@ class PDB(object):
             #
             for atom in residue.atoms:
                 atom_name = ATOM_NAME_ALT_s.get((residue_name, atom.name), atom.name)
-                if atom_name in [
-                    "OXT",
-                    "H2",
-                    "H3",
-                ]:  # at this moment, I ignore N/C-terminal specific atoms
+                if atom_name in ["OXT", "H2", "H3"]:
+                    # at this moment, I ignore N/C-terminal specific atoms
                     continue
                 if atom_name.startswith("D"):
                     continue
@@ -146,7 +143,14 @@ class PDB(object):
                 residue_name = AMINO_ACID_ALT_s.get(residue.name, residue.name)
                 if residue_name not in AMINO_ACID_s:
                     residue_name = "UNK"
+                if residue_name == "UNK":
                     continue
+                #
+                has_backbone = np.all(self.atom_mask_pdb[i_res, :4] > 0.0)
+                if not has_backbone:
+                    self.atom_mask_pdb[i_res, :] = 0.0
+                    continue
+                #
                 top_residue = top.add_residue(residue_name, top_chain, residue.resSeq)
                 #
                 for i_atm, atom_name in enumerate(residue_s[residue_name].atom_s):
@@ -252,7 +256,6 @@ class PDB(object):
 
 def generate_structure_from_bb_and_torsion(residue_index, bb, torsion):
     # convert from rigid body operations to coordinates
-
     n_frame = bb.shape[0]
     n_residue = bb.shape[1]
     R = np.zeros((n_frame, n_residue, MAX_ATOM, 3), dtype=np.float16)
