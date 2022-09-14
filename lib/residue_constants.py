@@ -48,7 +48,7 @@ BOND_LENGTH_DISULFIDE = 0.2029
 BOND_ANGLE0 = (np.deg2rad(120.0), np.deg2rad(116.5))
 TORSION_ANGLE0 = (np.deg2rad(0.0), np.deg2rad(180.0))
 
-AMINO_ACID_ALT_s = {"HIS": "HSD"}
+AMINO_ACID_ALT_s = {"HIS": "HSD", "MSE": "MET"}
 AMINO_ACID_REV_s = {"HSD": "HIS", "HSE": "HIS"}
 ATOM_NAME_ALT_s = {}
 with open(DATA_HOME / "rename_atoms.dat") as fp:
@@ -428,10 +428,6 @@ for i, residue_name in enumerate(AMINO_ACID_s):
         index = tuple([residue_atom_s.index(x) for x in atom_names])
         rigid_groups_tensor[i, index] = coords
         rigid_groups_dep[i, index] = tor.i
-#     print(residue_name, i)
-#     print(residue_atom_s)
-#     print(rigid_groups_dep[i, : len(residue_atom_s)])
-# %%
 
 RIGID_TRANSFORMS_TENSOR = torch.as_tensor(rigid_transforms_tensor)
 RIGID_TRANSFORMS_DEP = torch.as_tensor(rigid_transforms_dep, dtype=torch.long)
