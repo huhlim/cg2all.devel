@@ -22,7 +22,7 @@ import libmodel
 torch.multiprocessing.set_sharing_strategy("file_system")
 
 
-N_PROC = int(os.getenv("OMP_NUM_THREADS", "8"))
+N_PROC = int(os.getenv("OMP_NUM_THREADS", "12"))
 IS_DEVELOP = False
 if IS_DEVELOP:
     logger = logging.getLogger()
@@ -183,18 +183,22 @@ def main():
     pl.seed_everything(25, workers=True)
     #
     # configure
-    cg_model = CalphaBasedModel
+    config["cg_model"] = config.get("cg_model", "CalphaBasedModel")
+    if config["cg_model"] == "CalphaBasedModel":
+        cg_model = CalphaBasedModel
+    elif config["cg_model"] == "ResidueBasedModel":
+        cg_model = ResidueBasedModel
     config = libmodel.set_model_config(config, cg_model)
     #
     # set file paths
     hostname = os.getenv("HOSTNAME", "local")
     if hostname == "markov.bch.msu.edu" or hostname.startswith("gpu") and (not IS_DEVELOP):
         base_dir = pathlib.Path("./")
-        pdb_dir = base_dir / "pdb.pisces"
+        pdb_dir = base_dir / config.train.dataset
         pdblist_train = pdb_dir / "targets.train"
         pdblist_test = pdb_dir / "targets.test"
         pdblist_val = pdb_dir / "targets.valid"
-        batch_size = 8
+        batch_size = config.train.batch_size
     else:
         base_dir = pathlib.Path("./")
         pdb_dir = base_dir / "pdb.processed"
@@ -210,7 +214,7 @@ def main():
         noise_level=0.0,
         get_structure_information=True,
         random_rotation=True,
-        cache=IS_DEVELOP,
+        use_pt="CA",
     )
     _DataLoader = functools.partial(
         dgl.dataloading.GraphDataLoader, batch_size=batch_size, num_workers=N_PROC
@@ -235,8 +239,12 @@ def main():
     #     monitor="val_loss_sum",
     #     min_delta=1e-4,
     # )
+    if ckpt_fn is None:
+        max_epochs = 100
+    else:
+        max_epochs = 200
     trainer = pl.Trainer(
-        max_epochs=100,
+        max_epochs=max_epochs,
         accelerator="auto",
         gradient_clip_val=1.0,
         check_val_every_n_epoch=10 if IS_DEVELOP else 1,

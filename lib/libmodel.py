@@ -5,6 +5,7 @@ import copy
 import functools
 import logging
 import numpy as np
+from typing import Optional
 
 import torch
 import torch.nn as nn
@@ -38,6 +39,10 @@ from libconfig import DTYPE
 
 
 CONFIG = ConfigDict()
+
+CONFIG["train"] = ConfigDict()
+CONFIG["train"]["dataset"] = "pdb.pisces"
+CONFIG["train"]["batch_size"] = 4
 
 CONFIG["globals"] = ConfigDict()
 CONFIG["globals"]["num_recycle"] = 1
@@ -118,7 +123,8 @@ def set_model_config(arg: dict, cg_model) -> ConfigDict:
     config = copy.deepcopy(CONFIG)
     config.update_from_flattened_dict(arg)
     #
-    n_node_scalar = cg_model.n_node_scalar + config.embedding_module.embedding_dim
+    embedding_dim = config.embedding_module.embedding_dim
+    n_node_scalar = cg_model.n_node_scalar + embedding_dim
     #
     config.structure_module.fiber_in = []
     if n_node_scalar > 0:
@@ -131,7 +137,7 @@ def set_model_config(arg: dict, cg_model) -> ConfigDict:
             (d, config.structure_module.num_channels)
             for d in range(config.structure_module.num_degrees)
         ]
-
+    #
     config.structure_module.fiber_edge = []
     if cg_model.n_edge_scalar > 0:
         config.structure_module.fiber_edge.append((0, cg_model.n_edge_scalar))
@@ -186,12 +192,11 @@ class InteractionModule(nn.Module):
         elif config.nonlinearity == "relu":
             nonlinearity = nn.ReLU()
         #
-        self.fiber_out = Fiber(config.fiber_pass)
         self.graph_module = SE3Transformer(
             num_layers=config.num_graph_layers,
             fiber_in=Fiber(config.fiber_pass),
             fiber_hidden=Fiber(config.fiber_hidden),
-            fiber_out=self.fiber_out,
+            fiber_out=Fiber(config.fiber_pass),
             num_heads=config.num_heads,
             channels_div=config.channels_div,
             fiber_edge=Fiber(config.fiber_edge or {}),
@@ -230,6 +235,24 @@ class StructureModule(nn.Module):
 
     def forward(self, feats):
         out = self.linear_module(feats)
+        return out
+
+    def init_value(self, batch: dgl.DGLGraph):
+        n_residue = batch.num_nodes()
+        dtype = batch.ndata["pos"].dtype
+        device = batch.ndata["pos"].device
+        #
+        out = {}
+        #
+        sc = torch.zeros((n_residue, MAX_TORSION, 2), dtype=dtype, device=device)
+        sc[..., 0] = 1.0
+        out["0"] = sc.reshape(-1, MAX_TORSION * 2, 1)
+        #
+        bb = torch.zeros((n_residue, 3, 3), dtype=dtype, device=device)
+        bb[:, 0] = batch.ndata["global_frame"][:, :3]
+        bb[:, 1] = batch.ndata["global_frame"][:, 3:]
+        out["1"] = bb
+        #
         return out
 
     @staticmethod
@@ -293,6 +316,7 @@ class Model(nn.Module):
             "0": torch.cat([batch.ndata["node_feat_0"], embedding[..., None]], dim=1),
             "1": batch.ndata["node_feat_1"],
         }
+        #
         out0 = self.initialization_module(node_feats)
         #
         n_intermediate = 0
@@ -300,9 +324,10 @@ class Model(nn.Module):
             out = self.interaction_module(batch, node_feats=out0, edge_feats=edge_feats)
             for degree, out_d in out0.items():
                 out[degree] = out[degree] + out_d
-            # out0 = {degree: feat.clone() for degree, feat in out.items()}
+            out0 = {degree: feat.clone() for degree, feat in out.items()}
             #
             out = self.structure_module(out)
+            #
             bb, sc, bb0, sc0 = self.structure_module.output_to_opr(out)
             ret["bb"] = bb
             ret["sc"] = sc
@@ -353,14 +378,20 @@ class Model(nn.Module):
         return metric_s
 
 
-def combine_operations(X, Y):
+def combine_operations(X: torch.Tensor, Y: torch.Tensor) -> torch.Tensor:
     y = Y.clone()
     Y[..., :3, :] = rotate_matrix(X[..., :3, :], y[..., :3, :])
     Y[..., 3, :] = rotate_vector(X[..., :3, :], y[..., 3, :]) + X[..., 3, :]
     return Y
 
 
-def build_structure(RIGID_OPs, batch, bb, sc=None, stop_grad=False):
+def build_structure(
+    RIGID_OPs,
+    batch: dgl.DGLGraph,
+    bb: torch.Tensor,
+    sc: Optional[torch.Tensor] = None,
+    stop_grad: bool = False,
+) -> tuple[torch.Tensor, torch.Tensor]:
     dtype = bb.dtype
     device = bb.device
     residue_type = batch.ndata["residue_type"]
@@ -377,7 +408,6 @@ def build_structure(RIGID_OPs, batch, bb, sc=None, stop_grad=False):
         opr[:, 0, :3] = bb[:, :3].detach()
     else:
         opr[:, 0, :3] = bb[:, :3]
-    # opr[:, 0, 3] = bb[:, 3] + batch.ndata["pos0"]
     opr[:, 0, 3] = bb[:, 3] + batch.ndata["pos"]
 
     # sidechain operations
