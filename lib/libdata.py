@@ -235,8 +235,9 @@ def create_trajectory_from_batch(
     #
     write_native = write_native or output is None
     #
-    traj_s = []
     start = 0
+    traj_s = []
+    ssbond_s = []
     for idx, data in enumerate(dgl.unbatch(batch)):
         top = create_topology_from_data(data, write_native=write_native)
         #
@@ -248,6 +249,12 @@ def create_trajectory_from_batch(
             mask = data.ndata["output_atom_mask"].cpu().detach().numpy()
             mask = np.ones_like(mask)
         #
+        ssbond = []
+        for cys_i, cys_j in enumerate(data.ndata["ssbond_index"].cpu().detach().numpy()):
+            if cys_j != -1:
+                ssbond.append((cys_j, cys_i))
+        ssbond_s.append(sorted(ssbond))
+        #
         if output is not None:
             end = start + data.num_nodes()
             xyz.append(R[start:end][mask > 0.0])
@@ -256,12 +263,12 @@ def create_trajectory_from_batch(
         #
         traj = mdtraj.Trajectory(xyz=xyz, topology=top)
         traj_s.append(traj)
-    return traj_s
+    return traj_s, ssbond_s
 
 
 def test():
     base_dir = BASE / "pdb.processed"
-    base_dir = BASE / "pdb.top8000"
+    # base_dir = BASE / "pdb.top8000"
     pdblist = base_dir / "targets.train"
     cg_model = libcg.CalphaBasedModel
     #
@@ -271,20 +278,27 @@ def test():
         cg_model,
         noise_level=0.0,
         use_pt="CA",
-        crop=128,
         random_rotation=True,
         get_structure_information=True,
     )
-    train_loader = dgl.dataloading.GraphDataLoader(
-        train_set, batch_size=4, shuffle=False, num_workers=1
-    )
-    for batch in train_loader:
-        print(batch.num_nodes())
-        for i in range(batch.batch_size):
-            data = dgl.slice_batch(batch, i, store_ids=True)
-            print(data.num_nodes(), data.ndata["_ID"])
-        return
-    # traj_s = create_trajectory_from_batch(batch, batch.ndata["output_xyz"], write_native=True)
+
+    data = train_set[0]
+    traj_s, ssbond_s = create_trajectory_from_batch(data, data.ndata["output_xyz"], write_native=True)
+
+    ssbond_s = []
+    for cys_i, cys_j in enumerate(data.ndata["ssbond_index"].cpu().detach().numpy()):
+        if cys_j == -1:
+            continue
+        ssbond_s.append((cys_j, cys_i))
+    ssbond_s.sort()
+    #
+    traj = traj_s[0]
+    traj.save("test.pdb")
+    import libpdb
+
+    libpdb.write_SSBOND("test.pdb", traj.top, ssbond_s)
+
+    #
     # for i,traj in enumerate(traj_s):
     #     traj.save(f"test_{i}.pdb")
     # # for batch in train_loader:

@@ -61,8 +61,9 @@ class PDB(object):
                 index = self.top.select(f"chainid {chain_index} and resSeq {resSeq} and name SG")
                 if index.shape[0] == 1:
                     residue_index.append(self.top.atom(index[0]).residue.index)
-            if len(residue_index) == 2:
-                ssbond_s.append(sorted(residue_index))
+            residue_index = sorted(residue_index)
+            if len(residue_index) == 2 and residue_index not in ssbond_s:
+                ssbond_s.append(residue_index)
         self.ssbond_s = ssbond_s
 
     def to_atom(self, verbose=False):
@@ -218,27 +219,6 @@ class PDB(object):
             self.torsion_mask[i_res, :] = mask
             self.torsion[:, i_res, :] = tor_s
 
-    def write_ssbond(self, pdb_fn):
-        SSBOND = "SSBOND  %2d CYS %s %4d    CYS %s %4d\n"
-        wrt = []
-        for disu_no, ssbond in enumerate(self.ssbond_s):
-            cys_0 = self.top.residue(ssbond[0])
-            cys_1 = self.top.residue(ssbond[1])
-            wrt.append(
-                SSBOND
-                % (
-                    disu_no + 1,
-                    CHAIN_IDs[cys_0.chain.index],
-                    cys_0.resSeq,
-                    CHAIN_IDs[cys_1.chain.index],
-                    cys_1.resSeq,
-                )
-            )
-        with open(pdb_fn) as fp:
-            wrt.extend(fp.readlines())
-        with open(pdb_fn, "wt") as fout:
-            fout.writelines(wrt)
-
     def write(self, R, pdb_fn, dcd_fn=None):
         top = self.create_new_topology()
         mask = np.where(self.atom_mask_pdb)
@@ -247,11 +227,47 @@ class PDB(object):
         traj = mdtraj.Trajectory(xyz[:1], top)
         traj.save(pdb_fn)
         if len(self.ssbond_s) > 0:
-            self.write_ssbond(pdb_fn)
+            write_SSBOND(pdb_fn, self.top, self.ssbond_s)
         #
         if dcd_fn is not None:
             traj = mdtraj.Trajectory(xyz, top)
             traj.save(dcd_fn)
+
+
+def write_SSBOND(pdb_fn, top, ssbond_s):
+    SSBOND = "SSBOND  %2d CYS %s %4d    CYS %s %4d\n"
+    wrt = []
+    for disu_no, ssbond in enumerate(ssbond_s):
+        cys_0 = top.residue(ssbond[0])
+        cys_1 = top.residue(ssbond[1])
+        wrt.append(
+            SSBOND
+            % (
+                disu_no + 1,
+                CHAIN_IDs[cys_0.chain.index],
+                cys_0.resSeq,
+                CHAIN_IDs[cys_1.chain.index],
+                cys_1.resSeq,
+            )
+        )
+    #
+    model_s = [[]]
+    has_model = False
+    with open(pdb_fn) as fp:
+        for line in fp:
+            if line.startswith("MODEL"):
+                has_model = True
+                if len(model_s[-1]) > 0:
+                    model_s.append([])
+                continue
+            model_s[-1].append(line)
+
+    with open(pdb_fn, "wt") as fout:
+        for i, model in enumerate(model_s):
+            if has_model:
+                fout.write(f"MODEL   {i:5d}\n")
+            fout.writelines(wrt)
+            fout.writelines(model)
 
 
 def generate_structure_from_bb_and_torsion(residue_index, bb, torsion):

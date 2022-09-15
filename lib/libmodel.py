@@ -43,6 +43,7 @@ CONFIG = ConfigDict()
 CONFIG["train"] = ConfigDict()
 CONFIG["train"]["dataset"] = "pdb.pisces"
 CONFIG["train"]["batch_size"] = 4
+CONFIG["train"]["crop_size"] = -1
 
 CONFIG["globals"] = ConfigDict()
 CONFIG["globals"]["num_recycle"] = 1
