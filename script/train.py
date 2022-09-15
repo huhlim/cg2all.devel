@@ -7,6 +7,7 @@ import logging
 import pathlib
 import functools
 import subprocess as sp
+import argparse
 
 import numpy as np
 
@@ -17,12 +18,17 @@ import pytorch_lightning as pl
 sys.path.insert(0, "lib")
 from libdata import PDBset, create_trajectory_from_batch
 from libcg import ResidueBasedModel, CalphaBasedModel, Martini
+from libpdb import write_SSBOND
 import libmodel
+
+import warnings
+
+warnings.filterwarnings("ignore")
 
 torch.multiprocessing.set_sharing_strategy("file_system")
 
 
-N_PROC = int(os.getenv("OMP_NUM_THREADS", "12"))
+N_PROC = int(os.getenv("OMP_NUM_THREADS", "8"))
 IS_DEVELOP = False
 if IS_DEVELOP:
     logger = logging.getLogger()
@@ -35,6 +41,9 @@ class Model(pl.LightningModule):
         self.save_hyperparameters(_config.to_dict())
         self.model = libmodel.Model(_config, cg_model, compute_loss=compute_loss)
         self.memcheck = memcheck
+
+    def log(self, *arg, **kwarg):
+        super().log(*arg, **kwarg, sync_dist=True)
 
     @property
     def cg_model(self):
@@ -121,15 +130,7 @@ class Model(pl.LightningModule):
         out, loss, metric = self.forward(batch)
         loss_sum, loss_s = self.get_loss_sum(loss)
         #
-        traj_s = create_trajectory_from_batch(batch, out["R"], write_native=True)
-        log_dir = pathlib.Path(self.logger.log_dir)
-        for i, traj in enumerate(traj_s):
-            out_f = log_dir / f"test_{batch_idx}_{i}.pdb"
-            try:
-                traj.save(out_f)
-                # TODO: write_ssbond
-            except:
-                sys.stderr.write(f"Failed to write {out_f}\n")
+        self.write_pdb(batch, out, "test")
         #
         bs = batch.batch_size
         self.log("test_loss", loss_s, batch_size=bs, on_epoch=True, on_step=False)
@@ -137,53 +138,62 @@ class Model(pl.LightningModule):
         return {"loss": loss_sum, "metric": metric, "out": out}
 
     def validation_step(self, batch, batch_idx):
-        log_dir = pathlib.Path(self.logger.log_dir)
-        #
-        if self.current_epoch == 0 and batch_idx == 0:
-            if IS_DEVELOP:
-                sp.call(["cp", "lib/libmodel.py", log_dir])
-                sp.call(["cp", __file__, log_dir])
-        #
         out, loss, metric = self.forward(batch)
         loss_sum, loss_s = self.get_loss_sum(loss)
         #
         if batch_idx == 0:
-            traj_s = create_trajectory_from_batch(batch, out["R"], write_native=True)
-            for i, traj in enumerate(traj_s):
-                out_f = log_dir / f"val_{self.current_epoch}_{i}.pdb"
-                try:
-                    traj.save(out_f)
-                except:
-                    sys.stderr.write(f"Failed to write {out_f}\n")
+            self.write_pdb(batch, out, "val")
+        #
         bs = batch.batch_size
         self.log("val_loss_sum", loss_sum, batch_size=bs, on_epoch=True, on_step=False)
         self.log("val_loss", loss_s, batch_size=bs, on_epoch=True, on_step=False)
         self.log("val_metric", metric, prog_bar=True, batch_size=bs, on_epoch=True, on_step=False)
         return {"loss": loss_sum, "metric": metric, "out": out}
 
+    @pl.utilities.rank_zero_only
+    def write_pdb(self, batch, out, prefix, write_native=True):
+        log_dir = pathlib.Path(self.logger.log_dir)
+        traj_s, ssbond_s = create_trajectory_from_batch(batch, out["R"], write_native=True)
+        for i, (traj, ssbond) in enumerate(zip(traj_s, ssbond_s)):
+            out_f = log_dir / f"val_{self.current_epoch}_{i}.pdb"
+            try:
+                traj.save(out_f)
+                if len(ssbond) > 0:
+                    write_SSBOND(out_f, traj.top, ssbond)
+            except:
+                sys.stderr.write(f"Failed to write {out_f}\n")
+
 
 def main():
-    if len(sys.argv) > 1:
-        json_fn = pathlib.Path(sys.argv[1])
-        with open(json_fn) as f:
-            config = json.load(f)
-        name = json_fn.stem
+    arg = argparse.ArgumentParser(prog="cg2all")
+    arg.add_argument("--name", dest="name", default=None)
+    arg.add_argument("--config", dest="config_json_fn", default=None)
+    arg.add_argument("--ckpt", dest="ckpt_fn", default=None)
+    arg.add_argument("--epoch", dest="max_epochs", default=100, type=int)
+    arg.add_argument(
+        "--cg",
+        dest="cg_model",
+        default="CalphaBasedModel",
+        choices=["CalphaBasedModel", "ResidueBasedModel"],
+    )
+    arg.add_argument("--requeue", dest="requeue", action="store_true", default=False)
+    arg = arg.parse_args()
+    #
+    if arg.config_json_fn is not None:
+        with open(arg.config_json_fn) as fp:
+            config = json.load(fp)
     else:
         config = {}
-        name = None
-    #
-    if len(sys.argv) > 2:
-        ckpt_fn = pathlib.Path(sys.argv[2])
-    else:
-        ckpt_fn = None
-    #
-    if name is None:
-        name = "devel"
+    if arg.name is None:
+        if arg.config_json_fn is not None:
+            arg.name = pathlib.Path(arg.config_json_fn).stem
+        else:
+            arg.name = "devel"
     #
     pl.seed_everything(25, workers=True)
     #
     # configure
-    config["cg_model"] = config.get("cg_model", "CalphaBasedModel")
+    config["cg_model"] = config.get("cg_model", arg.cg_model)
     if config["cg_model"] == "CalphaBasedModel":
         cg_model = CalphaBasedModel
     elif config["cg_model"] == "ResidueBasedModel":
@@ -191,22 +201,12 @@ def main():
     config = libmodel.set_model_config(config, cg_model)
     #
     # set file paths
-    hostname = os.getenv("HOSTNAME", "local")
-    if hostname == "markov.bch.msu.edu" or hostname.startswith("gpu") and (not IS_DEVELOP):
-        base_dir = pathlib.Path("./")
-        pdb_dir = base_dir / config.train.dataset
-        pdblist_train = pdb_dir / "targets.train"
-        pdblist_test = pdb_dir / "targets.test"
-        pdblist_val = pdb_dir / "targets.valid"
-        batch_size = config.train.batch_size
-    else:
-        base_dir = pathlib.Path("./")
-        pdb_dir = base_dir / "pdb.processed"
-        pdblist_train = pdb_dir / "targets.train"
-        pdblist_test = pdb_dir / "targets.test"
-        pdblist_val = pdb_dir / "targets.valid"
-        batch_size = 4
-
+    pdb_dir = pathlib.Path(config.train.dataset)
+    pdb_dir = pathlib.Path("pdb.processed")
+    pdblist_train = pdb_dir / "targets.train"
+    pdblist_test = pdb_dir / "targets.test"
+    pdblist_val = pdb_dir / "targets.valid"
+    #
     _PDBset = functools.partial(
         PDBset,
         cg_model=cg_model,
@@ -216,11 +216,12 @@ def main():
         random_rotation=True,
         use_pt="CA",
     )
+    batch_size = config.train.batch_size
     _DataLoader = functools.partial(
         dgl.dataloading.GraphDataLoader, batch_size=batch_size, num_workers=N_PROC
     )
     # define train/val/test sets
-    train_set = _PDBset(pdb_dir, pdblist_train)
+    train_set = _PDBset(pdb_dir, pdblist_train, crop=config.train.crop_size)
     train_loader = _DataLoader(train_set, shuffle=True)
     val_set = _PDBset(pdb_dir, pdblist_val)
     val_loader = _DataLoader(val_set, shuffle=False)
@@ -230,28 +231,28 @@ def main():
     # define model
     model = Model(config, cg_model, compute_loss=True, memcheck=True)
     #
-    logger = pl.loggers.TensorBoardLogger("lightning_logs", name=name)
-    checkpointing = pl.callbacks.ModelCheckpoint(
-        dirpath=logger.log_dir,
-        monitor="val_loss_sum",
+    trainer_kwargs = {}
+    trainer_kwargs["max_epochs"] = arg.max_epochs
+    trainer_kwargs["gradient_clip_val"] = 1.0
+    trainer_kwargs["check_val_every_n_epoch"] = 10 if IS_DEVELOP else 1
+    trainer_kwargs["logger"] = pl.loggers.TensorBoardLogger("lightning_logs", name=arg.name)
+    trainer_kwargs["callbacks"] = [
+        pl.callbacks.ModelCheckpoint(
+            dirpath=trainer_kwargs["logger"].log_dir, monitor="val_loss_sum"
+        )
+    ]
+    trainer_kwargs["plugins"] = (
+        [pl.plugins.environments.SLURMEnvironment(auto_requeue=True)] if arg.requeue else []
     )
-    # early_stopping = pl.callbacks.EarlyStopping(
-    #     monitor="val_loss_sum",
-    #     min_delta=1e-4,
-    # )
-    if ckpt_fn is None:
-        max_epochs = 100
-    else:
-        max_epochs = 200
-    trainer = pl.Trainer(
-        max_epochs=max_epochs,
-        accelerator="auto",
-        gradient_clip_val=1.0,
-        check_val_every_n_epoch=10 if IS_DEVELOP else 1,
-        logger=logger,
-        callbacks=[checkpointing],  # , early_stopping],
-    )
-    trainer.fit(model, train_loader, val_loader, ckpt_path=ckpt_fn)
+    #
+    n_gpu = torch.cuda.device_count()
+    trainer_kwargs["accelerator"] = "gpu" if n_gpu > 0 else "cpu"
+    if n_gpu >= 2:
+        trainer_kwargs["strategy"] = pl.strategies.DDPStrategy(static_graph=True)
+        trainer_kwargs["devices"] = n_gpu
+    #
+    trainer = pl.Trainer(**trainer_kwargs)
+    trainer.fit(model, train_loader, val_loader, ckpt_path=arg.ckpt_fn)
     trainer.test(model, test_loader)
 
 
