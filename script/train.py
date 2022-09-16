@@ -55,6 +55,10 @@ class Model(pl.LightningModule):
     def on_fit_start(self):
         self.model.set_rigid_operations(self.device, dtype=self.dtype)
 
+    def on_test_start(self):
+        if not hasattr(self.model, "RIGID_OPs"):
+            self.model.set_rigid_operations(self.device, dtype=self.dtype)
+
     def on_train_batch_start(self, batch, batch_idx):
         if self.device.type == "cuda":
             torch.cuda.empty_cache()
@@ -130,7 +134,7 @@ class Model(pl.LightningModule):
         out, loss, metric = self.forward(batch)
         loss_sum, loss_s = self.get_loss_sum(loss)
         #
-        self.write_pdb(batch, out, "test")
+        self.write_pdb(batch, out, f"test_{batch_idx}")
         #
         bs = batch.batch_size
         self.log("test_loss", loss_s, batch_size=bs, on_epoch=True, on_step=False)
@@ -142,7 +146,7 @@ class Model(pl.LightningModule):
         loss_sum, loss_s = self.get_loss_sum(loss)
         #
         if batch_idx == 0:
-            self.write_pdb(batch, out, "val")
+            self.write_pdb(batch, out, f"val_{self.current_epoch}")
         #
         bs = batch.batch_size
         self.log("val_loss_sum", loss_sum, batch_size=bs, on_epoch=True, on_step=False)
@@ -155,7 +159,7 @@ class Model(pl.LightningModule):
         log_dir = pathlib.Path(self.logger.log_dir)
         traj_s, ssbond_s = create_trajectory_from_batch(batch, out["R"], write_native=True)
         for i, (traj, ssbond) in enumerate(zip(traj_s, ssbond_s)):
-            out_f = log_dir / f"val_{self.current_epoch}_{i}.pdb"
+            out_f = log_dir / f"{prefix}_{i}.pdb"
             try:
                 traj.save(out_f)
                 if len(ssbond) > 0:
@@ -202,7 +206,7 @@ def main():
     #
     # set file paths
     pdb_dir = pathlib.Path(config.train.dataset)
-    pdb_dir = pathlib.Path("pdb.processed")
+    # pdb_dir = pathlib.Path("pdb.processed")
     pdblist_train = pdb_dir / "targets.train"
     pdblist_test = pdb_dir / "targets.test"
     pdblist_val = pdb_dir / "targets.valid"
