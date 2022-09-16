@@ -113,32 +113,6 @@ def loss_f_rotation_matrix(
         return loss_bb
 
 
-def loss_f_FAPE_CA_old(
-    batch: dgl.DGLGraph, R: torch.Tensor, bb: torch.Tensor, d_clamp: float = 2.0
-) -> torch.Tensor:
-    first = 0
-    loss = torch.zeros(batch.batch_size, device=R.device, dtype=DTYPE)
-    for batch_index, data in enumerate(dgl.unbatch(batch)):
-        n_residue = data.num_nodes()
-        last = first + n_residue
-        #
-        _R = R[first:last, ATOM_INDEX_CA]
-        _bb = bb[first:last]
-        R_ref = data.ndata["output_xyz"][:, ATOM_INDEX_CA]
-        bb_ref = data.ndata["correct_bb"]
-        #
-        for i in range(n_residue):
-            r = rotate_vector_inv(_bb[i, :3], _R - _bb[i, 3])
-            r_ref = rotate_vector_inv(bb_ref[i, :3], R_ref - bb_ref[i, 3])
-            dr = r - r_ref
-            d = torch.clamp(torch.sqrt(torch.pow(dr, 2).sum(dim=-1) + EPS**2), max=d_clamp)
-            loss[batch_index] = loss[batch_index] + torch.mean(d)
-        #
-        first = last
-        #
-    return torch.mean(loss / batch.batch_num_nodes())
-
-
 def loss_f_FAPE_CA(
     batch: dgl.DGLGraph, R: torch.Tensor, bb: torch.Tensor, d_clamp: float = 2.0
 ) -> torch.Tensor:
@@ -198,34 +172,6 @@ def loss_f_FAPE_all(
         first = last
         #
     return loss / batch.batch_size
-
-
-def loss_f_FAPE_all_old(
-    batch: dgl.DGLGraph, R: torch.Tensor, bb: torch.Tensor, d_clamp: float = 2.0
-) -> torch.Tensor:
-    #
-    first = 0
-    loss = torch.zeros(batch.batch_size, device=R.device, dtype=DTYPE)
-    for batch_index, data in enumerate(dgl.unbatch(batch)):
-        n_residue = data.num_nodes()
-        last = first + n_residue
-        #
-        mask = data.ndata["pdb_atom_mask"] > 0.0
-        _R = R[first:last]
-        _bb = bb[first:last]
-        R_ref = data.ndata["output_xyz"]
-        bb_ref = data.ndata["correct_bb"]
-        #
-        for i in range(n_residue):
-            r = rotate_vector_inv(_bb[i, :3], _R - _bb[i, 3])
-            r_ref = rotate_vector_inv(bb_ref[i, :3], R_ref - bb_ref[i, 3])
-            dr = (r - r_ref)[mask]
-            d = torch.clamp(torch.sqrt(torch.pow(dr, 2).sum(dim=-1) + EPS**2), max=d_clamp)
-            loss[batch_index] = loss[batch_index] + torch.mean(d)
-        #
-        first = last
-        #
-    return torch.mean(loss / batch.batch_num_nodes())
 
 
 # Bonded energy penalties
