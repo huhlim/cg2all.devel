@@ -187,6 +187,8 @@ class PDB(object):
         torsion_angle_s = np.zeros(
             (self.n_frame, MAX_TORSION), dtype=np.float16
         )  # this is a list of torsion angles to rotate rigid bodies
+        torsion_shift_s = np.zeros(MAX_TORSION, dtype=np.float16)
+        tor_param_s = np.zeros((MAX_TORSION, 6, 2), dtype=np.float16)  # (k_phi, phi0)
         for tor in torsion_s[self.residue_name[i_res]]:
             if tor is None or tor.name in ["BB"]:
                 continue
@@ -201,13 +203,18 @@ class PDB(object):
             # torsion_mask[tor.i - 1] = weight_s[tor.i - 1]
             torsion_mask[tor.i - 1] = 1.0
             torsion_angle_s[:, tor.i - 1] = t_ang
-        return torsion_mask, torsion_angle_s
+            torsion_shift_s[tor.i - 1] = t_ang0
+            #
+            tor_param_s[tor.i - 1] = tor.par
+        return torsion_mask, torsion_angle_s, torsion_shift_s, tor_param_s
 
     def get_structure_information(self):
         # get rigid body operations, backbone_orientations and torsion angles
         self.bb_mask = np.zeros(self.n_residue, dtype=float)
         self.bb = np.zeros((self.n_frame, self.n_residue, 4, 3), dtype=float)
         self.torsion_mask = np.zeros((self.n_residue, MAX_TORSION), dtype=float)
+        self.torsion_shift = np.zeros((self.n_residue, MAX_TORSION), dtype=float)
+        self.torsion_param = np.zeros((self.n_residue, MAX_TORSION, 6, 2), dtype=float)
         self.torsion = np.zeros((self.n_frame, self.n_residue, MAX_TORSION), dtype=float)
         for i_res in range(self.n_residue):
             mask, opr_s = self.get_backbone_orientation(i_res)
@@ -215,9 +222,11 @@ class PDB(object):
             self.bb[:, i_res, :3, :] = opr_s[0]  # rotation matrix
             self.bb[:, i_res, 3, :] = opr_s[1]  # translation vector
             #
-            mask, tor_s = self.get_torsion_angles(i_res)
+            mask, tor_s, tor_shift_s, tor_param_s = self.get_torsion_angles(i_res)
             self.torsion_mask[i_res, :] = mask
             self.torsion[:, i_res, :] = tor_s
+            self.torsion_shift[i_res, :] = tor_shift_s
+            self.torsion_param[i_res, :] = tor_param_s
 
     def write(self, R, pdb_fn, dcd_fn=None):
         top = self.create_new_topology()
@@ -320,6 +329,7 @@ def generate_structure_from_bb_and_torsion(residue_index, bb, torsion):
 if __name__ == "__main__":
     # pdb = PDB("../db/pisces/pdb1/1ab1_A.pdb")
     pdb = PDB("pdb.processed/val_native.pdb")
+    pdb.get_structure_information()
     # pdb = PDB("pdb.processed/3PBL.pdb")
     # pdb.get_structure_information()
     # R = generate_structure_from_bb_and_torsion(pdb.residue_index, pdb.bb, pdb.torsion)

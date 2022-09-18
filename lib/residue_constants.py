@@ -1,5 +1,3 @@
-# %%
-# load modules
 import os
 import json
 import numpy as np
@@ -8,7 +6,6 @@ from collections import namedtuple
 
 from libconfig import DATA_HOME
 
-# %%
 AMINO_ACID_s = (
     "ALA",
     "CYS",
@@ -66,7 +63,8 @@ MAX_TORSION_CHI = 4
 MAX_TORSION_XI = 2
 MAX_TORSION = MAX_TORSION_CHI + MAX_TORSION_XI + 2  # =8 ; 2 for bb/phi/psi
 MAX_RIGID = MAX_TORSION + 1
-# %%
+
+
 class Torsion(object):
     def __init__(self, i, name, index, sub_index, index_prev, atom_s, periodic=1):
         self.i = i
@@ -100,6 +98,26 @@ class Torsion(object):
                 alt_s[k].append(atom)
                 i += 1
         return alt_s
+
+    def append_param(self, par_dihed_s, residue):
+        type_s = []
+        for atom in self.atom_s[:4]:
+            type_s.append(residue.atom_type_s[residue.atom_s.index(atom)])
+        type_s = tuple(type_s)
+        type_rev_s = type_s[::-1]
+        type_x = tuple(["X", type_s[1], type_s[2], "X"])
+        type_rev_x = type_x[::-1]
+        if type_s in par_dihed_s:
+            par = par_dihed_s[type_s]
+        elif type_rev_s in par_dihed_s:
+            par = par_dihed_s[type_rev_s]
+        elif type_x in par_dihed_s:
+            par = par_dihed_s[type_x]
+        elif type_rev_x in par_dihed_s:
+            par = par_dihed_s[type_rev_x]
+        else:
+            par = []
+        self.par = par
 
 
 # read TORSION.dat file
@@ -158,7 +176,8 @@ def read_torsion(fn):
 
 
 torsion_s = read_torsion(DATA_HOME / "torsion.dat")
-# %%
+
+
 class Residue(object):
     def __init__(self, residue_name: str) -> None:
         self.residue_name = residue_name
@@ -269,8 +288,6 @@ class Residue(object):
             self.atomic_radius[i] = radius_s[atom_type]
 
 
-# %%
-# read CHARMM topology file
 def read_CHARMM_rtf(fn):
     residue_s = {}
     with open(fn) as fp:
@@ -313,6 +330,26 @@ def read_CHARMM_prm(fn):
             else:
                 content_s.append(line)
     #
+    par_dihedrals = {}
+    read = False
+    for line in content_s:
+        if line.startswith("DIHEDRALS"):
+            read = True
+            continue
+        if line.startswith("END") or line.startswith("IMPROPER"):
+            read = False
+        if not read:
+            continue
+        x = line.strip().split()
+        if len(x) == 0:
+            continue
+        atom_type_s = tuple(x[:4])
+        multi = int(x[5]) - 1
+        par = np.array([x[4], x[6]], dtype=float)
+        if atom_type_s not in par_dihedrals:
+            par_dihedrals[atom_type_s] = np.zeros((6, 2), dtype=float)
+        par_dihedrals[atom_type_s][multi] = par
+    #
     radius_s = {}
     read = False
     for line in content_s:
@@ -329,20 +366,25 @@ def read_CHARMM_prm(fn):
         epsilon_14 = float(x[2])
         r_min_14 = float(x[3]) * 0.1
         radius_s[x[0]] = np.array([[epsilon, r_min], [epsilon_14, r_min_14]])
-    return radius_s
+    return radius_s, par_dihedrals
 
 
 residue_s = read_CHARMM_rtf(DATA_HOME / "toppar/top_all36_prot.rtf")
 ATOM_INDEX_PRO_CD = residue_s["PRO"].atom_s.index("CD")
 ATOM_INDEX_CYS_SG = residue_s["CYS"].atom_s.index("SG")
 
-radius_s = read_CHARMM_prm(DATA_HOME / "toppar/par_all36m_prot.prm")
+radius_s, par_dihed_s = read_CHARMM_prm(DATA_HOME / "toppar/par_all36m_prot.prm")
+for residue_name, torsion in torsion_s.items():
+    residue = residue_s[residue_name]
+    for tor in torsion:
+        if tor is None:
+            continue
+        tor.append_param(par_dihed_s, residue)
 
 for residue_name, residue in residue_s.items():
     residue.add_torsion_info(torsion_s[residue_name])
     residue.add_radius_info(radius_s)
 
-# %%
 if os.path.exists(DATA_HOME / "rigid_groups.json") and os.path.exists(
     DATA_HOME / "rigid_body_transformation_between_frames.json"
 ):
@@ -356,7 +398,8 @@ for residue_name, residue in residue_s.items():
     residue.add_rigid_group_info(
         rigid_groups[residue_name], rigid_group_transformations[residue_name]
     )
-# %%
+
+
 def get_rigid_group_by_torsion(residue_name, tor_name, index=-1, sub_index=-1):
     rigid_group = [[], []]  # atom_name, coord
     for X in rigid_groups[residue_name]:
@@ -373,7 +416,6 @@ def get_rigid_group_by_torsion(residue_name, tor_name, index=-1, sub_index=-1):
     return t_ang, rigid_group[0], rigid_group[1]
 
 
-# %%
 def get_rigid_transform_by_torsion(residue_name, tor_name, index, sub_index=-1):
     rigid_transform = None
     for X, Y, tR in rigid_group_transformations[residue_name]:
@@ -383,7 +425,6 @@ def get_rigid_transform_by_torsion(residue_name, tor_name, index, sub_index=-1):
     return Y, rigid_transform
 
 
-# %%
 rigid_transforms_tensor = np.zeros((MAX_RESIDUE_TYPE, MAX_RIGID, 4, 3), dtype=np.float32)
 rigid_transforms_tensor[:, :, :3, :3] = np.eye(3)
 rigid_transforms_dep = np.full((MAX_RESIDUE_TYPE, MAX_RIGID), -1, dtype=np.int16)
@@ -408,7 +449,6 @@ for i, residue_name in enumerate(AMINO_ACID_s):
             dep = 0
         rigid_transforms_dep[i, tor.i] = dep
 
-# %%
 rigid_groups_tensor = np.zeros((MAX_RESIDUE_TYPE, MAX_ATOM, 3), dtype=np.float32)
 rigid_groups_dep = np.full((MAX_RESIDUE_TYPE, MAX_ATOM), -1, dtype=np.int16)
 for i, residue_name in enumerate(AMINO_ACID_s):
