@@ -114,7 +114,7 @@ class Model(pl.LightningModule):
             log_dir = pathlib.Path(self.logger.log_dir)
             torch.save(
                 {
-                    "model": self.model,
+                    "model": self.model.state_dict(),
                     "batch": batch,
                     "out": out,
                     "loss_s": loss_s,
