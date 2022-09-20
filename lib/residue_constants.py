@@ -99,26 +99,6 @@ class Torsion(object):
                 i += 1
         return alt_s
 
-    def append_param(self, par_dihed_s, residue):
-        type_s = []
-        for atom in self.atom_s[:4]:
-            type_s.append(residue.atom_type_s[residue.atom_s.index(atom)])
-        type_s = tuple(type_s)
-        type_rev_s = type_s[::-1]
-        type_x = tuple(["X", type_s[1], type_s[2], "X"])
-        type_rev_x = type_x[::-1]
-        if type_s in par_dihed_s:
-            par = par_dihed_s[type_s]
-        elif type_rev_s in par_dihed_s:
-            par = par_dihed_s[type_rev_s]
-        elif type_x in par_dihed_s:
-            par = par_dihed_s[type_x]
-        elif type_rev_x in par_dihed_s:
-            par = par_dihed_s[type_rev_x]
-        else:
-            par = []
-        self.par = par
-
 
 # read TORSION.dat file
 def read_torsion(fn):
@@ -196,9 +176,9 @@ class Residue(object):
         self.torsion_chi_periodic = np.zeros((MAX_TORSION_CHI, 3), dtype=float)
         self.torsion_xi_periodic = np.zeros((MAX_TORSION_XI, 3), dtype=float)
 
-        self.atomic_radius = np.zeros(
-            (MAX_ATOM, 2, 2), dtype=float
-        )  # (normal/1-4, epsilon/r_min)
+        self.atomic_radius = np.zeros((MAX_ATOM, 2, 2), dtype=float)  # (normal/1-4, epsilon/r_min)
+
+        self.bonded_pair_s = {2: []}
 
     def __str__(self):
         return self.residue_name
@@ -216,6 +196,12 @@ class Residue(object):
         else:
             i = BACKBONE_ATOM_s.index(atom_name)
             self.atom_type_s[i] = atom_type
+
+    def append_bond(self, pair):
+        if not (pair[0][0] == "+" or pair[1][0] == "+"):
+            i = self.atom_s.index(pair[0])
+            j = self.atom_s.index(pair[1])
+            self.bonded_pair_s[2].append(sorted([i, j]))
 
     def append_ic(self, atom_s, param_s):
         is_improper = atom_s[2][0] == "*"
@@ -287,6 +273,32 @@ class Residue(object):
         for i, atom_type in enumerate(self.atom_type_s):
             self.atomic_radius[i] = radius_s[atom_type]
 
+    def find_1_N_pair(self, N: int):
+        if N in self.bonded_pair_s:
+            return self.bonded_pair_s[N]
+        #
+        pair_prev_s = self.find_1_N_pair(N - 1)
+        #
+        pair_s = []
+        for prev in pair_prev_s:
+            for bond in self.bonded_pair_s[2]:
+                pair = None
+                if prev[-1] == bond[0] and prev[-2] != bond[1]:
+                    pair = prev + [bond[1]]
+                elif prev[-1] == bond[1] and prev[-2] != bond[0]:
+                    pair = prev + [bond[0]]
+                elif prev[0] == bond[1] and prev[1] != bond[0]:
+                    pair = [bond[0]] + prev
+                elif prev[0] == bond[0] and prev[1] != bond[1]:
+                    pair = [bond[1]] + prev
+                #
+                if pair is not None:
+                    if pair not in pair_s and (pair[::-1] not in pair_s):
+                        pair_s.append(pair)
+
+        self.bonded_pair_s[N] = pair_s
+        return pair_s
+
 
 def read_CHARMM_rtf(fn):
     residue_s = {}
@@ -309,6 +321,11 @@ def read_CHARMM_rtf(fn):
                 atom_name = x[1]
                 atom_type = x[2]
                 residue.append_atom(atom_name, atom_type)
+            elif line.startswith("BOND") or line.startswith("DOUBLE"):
+                x = line.strip().split()[1:]
+                for i in range(len(x) // 2):
+                    residue.append_bond([x[2 * i], x[2 * i + 1]])
+
             elif line.startswith("IC"):
                 x = line.strip().split()
                 atom_s = x[1:5]
@@ -344,12 +361,10 @@ def read_CHARMM_prm(fn):
         if len(x) == 0:
             continue
         atom_type_s = tuple(x[:4])
-        multi = int(x[5])
-        multi_index = {6: 4}.get(multi, multi - 1)
-        par = np.array([x[4], np.deg2rad(float(x[6]))], dtype=float)
+        par = np.array([x[4], x[5], np.deg2rad(float(x[6]))], dtype=float)
         if atom_type_s not in par_dihedrals:
-            par_dihedrals[atom_type_s] = np.zeros((5, 2), dtype=float)
-        par_dihedrals[atom_type_s][multi_index] = par
+            par_dihedrals[atom_type_s] = []
+        par_dihedrals[atom_type_s].append(par)
     #
     radius_s = {}
     read = False
@@ -380,7 +395,6 @@ for residue_name, torsion in torsion_s.items():
     for tor in torsion:
         if tor is None:
             continue
-        tor.append_param(par_dihed_s, residue)
 
 for residue_name, residue in residue_s.items():
     residue.add_torsion_info(torsion_s[residue_name])
@@ -426,9 +440,9 @@ def get_rigid_transform_by_torsion(residue_name, tor_name, index, sub_index=-1):
     return Y, rigid_transform
 
 
-rigid_transforms_tensor = np.zeros((MAX_RESIDUE_TYPE, MAX_RIGID, 4, 3), dtype=np.float32)
+rigid_transforms_tensor = np.zeros((MAX_RESIDUE_TYPE, MAX_RIGID, 4, 3), dtype=float)
 rigid_transforms_tensor[:, :, :3, :3] = np.eye(3)
-rigid_transforms_dep = np.full((MAX_RESIDUE_TYPE, MAX_RIGID), -1, dtype=np.int16)
+rigid_transforms_dep = np.full((MAX_RESIDUE_TYPE, MAX_RIGID), -1, dtype=int)
 for i, residue_name in enumerate(AMINO_ACID_s):
     if residue_name == "UNK":
         continue
@@ -450,8 +464,8 @@ for i, residue_name in enumerate(AMINO_ACID_s):
             dep = 0
         rigid_transforms_dep[i, tor.i] = dep
 
-rigid_groups_tensor = np.zeros((MAX_RESIDUE_TYPE, MAX_ATOM, 3), dtype=np.float32)
-rigid_groups_dep = np.full((MAX_RESIDUE_TYPE, MAX_ATOM), -1, dtype=np.int16)
+rigid_groups_tensor = np.zeros((MAX_RESIDUE_TYPE, MAX_ATOM, 3), dtype=float)
+rigid_groups_dep = np.full((MAX_RESIDUE_TYPE, MAX_ATOM), -1, dtype=int)
 for i, residue_name in enumerate(AMINO_ACID_s):
     if residue_name == "UNK":
         continue
@@ -476,3 +490,22 @@ RIGID_TRANSFORMS_DEP[RIGID_TRANSFORMS_DEP == -1] = MAX_RIGID - 1
 RIGID_GROUPS_TENSOR = torch.as_tensor(rigid_groups_tensor)
 RIGID_GROUPS_DEP = torch.as_tensor(rigid_groups_dep, dtype=torch.long)
 RIGID_GROUPS_DEP[RIGID_GROUPS_DEP == -1] = MAX_RIGID - 1
+
+MAX_TORSION_ENERGY = 46
+MAX_TORSION_ENERGY_TERM = 3
+torsion_energy_tensor = np.zeros(
+    (MAX_RESIDUE_TYPE, MAX_TORSION_ENERGY, MAX_TORSION_ENERGY_TERM, 3), dtype=float
+)
+torsion_energy_dep = np.tile(np.array([0, 1, 2, 3]), [MAX_RESIDUE_TYPE, MAX_TORSION_ENERGY, 1])
+if os.path.exists(DATA_HOME / "torsion_energy_terms.json"):
+    with open(DATA_HOME / "torsion_energy_terms.json") as fp:
+        X = json.load(fp)
+    for i, residue_name in enumerate(AMINO_ACID_s):
+        if residue_name == "UNK":
+            continue
+        n = len(X[residue_name][0])
+        if n > 0:
+            torsion_energy_dep[i, :n] = np.array(X[residue_name][0])
+            torsion_energy_tensor[i, :n] = np.array(X[residue_name][1])
+TORSION_ENERGY_TENSOR = torch.as_tensor(torsion_energy_tensor)
+TORSION_ENERGY_DEP = torch.as_tensor(torsion_energy_dep, dtype=torch.long)

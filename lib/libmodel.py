@@ -30,6 +30,8 @@ from residue_constants import (
     RIGID_TRANSFORMS_DEP,
     RIGID_GROUPS_TENSOR,
     RIGID_GROUPS_DEP,
+    TORSION_ENERGY_TENSOR,
+    TORSION_ENERGY_DEP,
 )
 from libloss import loss_f
 from torch_basics import v_size, v_norm_safe, inner_product, rotate_matrix, rotate_vector
@@ -293,19 +295,24 @@ class Model(nn.Module):
         self.interaction_module = InteractionModule(_config.structure_module)
         self.structure_module = StructureModule(_config.structure_module)
 
-    def set_rigid_operations(self, device, dtype=DTYPE):
+    def set_constant_tensors(self, device, dtype=DTYPE):
         _RIGID_TRANSFORMS_TENSOR = RIGID_TRANSFORMS_TENSOR.to(device)
         _RIGID_GROUPS_TENSOR = RIGID_GROUPS_TENSOR.to(device)
+        _TORSION_ENERGY_TENSOR = TORSION_ENERGY_TENSOR.to(device)
         if dtype != DTYPE:
             _RIGID_TRANSFORMS_TENSOR = _RIGID_TRANSFORMS_TENSOR.type(dtype)
             _RIGID_GROUPS_TENSOR = _RIGID_GROUPS_TENSOR.type(dtype)
+            _TORSION_ENERGY_TENSOR = _TORSION_ENERGY_TENSOR.type(dtype)
         _RIGID_TRANSFORMS_DEP = RIGID_TRANSFORMS_DEP.to(device)
         _RIGID_GROUPS_DEP = RIGID_GROUPS_DEP.to(device)
+        _TORSION_ENERGY_DEP = TORSION_ENERGY_DEP.to(device)
         #
         self.RIGID_OPs = (
             (_RIGID_TRANSFORMS_TENSOR, _RIGID_GROUPS_TENSOR),
             (_RIGID_TRANSFORMS_DEP, _RIGID_GROUPS_DEP),
         )
+        #
+        self.TORSION_PARs = (_TORSION_ENERGY_TENSOR, _TORSION_ENERGY_DEP)
 
     def forward(self, batch: dgl.DGLGraph):
         loss = {}
@@ -349,11 +356,18 @@ class Model(nn.Module):
                         ret,
                         self.structure_module.loss_weight,
                         loss_prev=loss.get("intermediate", {}),
-                        RIGID_OPs=self.RIGID_OPs,  # only for atomic_clash
+                        RIGID_OPs=self.RIGID_OPs,  # for atomic_clash
+                        TORSION_PARs=self.TORSION_PARs,  # for torsion_energy
                     )
 
         if self.compute_loss or self.training:
-            loss["final"] = loss_f(batch, ret, self.loss_weight, RIGID_OPs=self.RIGID_OPs)
+            loss["final"] = loss_f(
+                batch,
+                ret,
+                self.loss_weight,
+                RIGID_OPs=self.RIGID_OPs,
+                TORSION_PARs=self.TORSION_PARs,
+            )
             if "intermediate" in loss:
                 for k, v in loss["intermediate"].items():
                     loss["intermediate"][k] = v / n_intermediate

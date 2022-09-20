@@ -38,12 +38,12 @@ def angle_sign(x):
     return s
 
 
-def torsion_angle(R) -> torch.Tensor:
+def torsion_angle(R: torch.Tensor) -> torch.Tensor:
     torsion_axis = v_norm(R[..., 2, :] - R[..., 1, :])
     v0 = v_norm(R[..., 0, :] - R[..., 1, :])
     v1 = v_norm(R[..., 3, :] - R[..., 2, :])
-    n0 = v_norm(torch.cross(v0, torsion_axis))
-    n1 = v_norm(torch.cross(v1, torsion_axis))
+    n0 = v_norm_safe(torch.cross(v0, torsion_axis))
+    n1 = v_norm_safe(torch.cross(v1, torsion_axis))
     angle = torch.acos(torch.clamp(inner_product(n0, n1), -1.0, 1.0))
     sign = angle_sign(inner_product(v0, n1))
     return angle * sign

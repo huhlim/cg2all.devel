@@ -1,8 +1,6 @@
 """
 This application defines rigid bodies and transformations between frames
 """
-# %%
-# load modules
 import sys
 import numpy as np
 from typing import List
@@ -14,7 +12,7 @@ import json
 
 from libconfig import DATA_HOME
 
-# %%
+
 def build_structure_from_ic(residue):
     def rotate(v, axis=None, angle=0.0):
         # make sure v is normalized
@@ -62,10 +60,6 @@ def build_structure_from_ic(residue):
     return R
 
 
-for residue in residue_s.values():
-    residue.R = build_structure_from_ic(residue)
-
-# %%
 # define rigid bodies
 #  - second atom at the origin
 #  - align the rotation axis to the x-axis
@@ -138,8 +132,6 @@ def get_rigid_groups(residue_s, tor_s):
     return rigid_groups
 
 
-rigid_group_s = get_rigid_groups(residue_s, torsion_s)
-# %%
 # define rigid body transformations between frames
 # this function evaluates T_{i->j}^{lit} in the Algorithm 24 in the AF2 paper.
 #  - OMEGA/PHI/PSI -> BB
@@ -233,5 +225,61 @@ def get_rigid_body_transformation_between_frames(rigid_group_s):
         fout.write(json.dumps(to_json, indent=2))
 
 
-get_rigid_body_transformation_between_frames(rigid_group_s)
-# %%
+def build_torsion_energy_table(residue_s, par_dihed_s):
+    MAX_TORSION_ENERGY = 46  # for Lys
+    MAX_TORSION_ENERGY_TERM = 3
+    #
+    table_s = {}
+    for residue_index, residue_name in enumerate(AMINO_ACID_s):
+        if residue_name == "UNK":
+            continue
+        #
+        table_s[residue_name] = [[], []]
+        #
+        residue = residue_s[residue_name]
+        for torsion_atom_index in residue.find_1_N_pair(N=4):
+            atom_s = [residue.atom_s[atom_index] for atom_index in torsion_atom_index]
+            if atom_s[-1] == "O":  # is not purely dependent on a residue's atoms
+                continue
+            #
+            rigid_group_index = rigid_groups_dep[residue_index, torsion_atom_index]
+            if rigid_group_index[0] == rigid_group_index[-1]:  # is rigid
+                continue
+            #
+            type_s = tuple([residue.atom_type_s[atom_index] for atom_index in torsion_atom_index])
+            type_rev_s = type_s[::-1]
+            type_x = tuple(["X", type_s[1], type_s[2], "X"])
+            type_rev_x = type_x[::-1]
+            if type_s in par_dihed_s:
+                par = par_dihed_s[type_s]
+            elif type_rev_s in par_dihed_s:
+                par = par_dihed_s[type_rev_s]
+            elif type_x in par_dihed_s:
+                par = par_dihed_s[type_x]
+            elif type_rev_x in par_dihed_s:
+                par = par_dihed_s[type_rev_x]
+            else:
+                raise KeyError(type_s)
+            #
+            par = np.concatenate(
+                [np.array(par, dtype=float), np.zeros((3 - len(par), 3), dtype=float)]
+            )
+            if par[:, 0].sum() > 0.0:
+                table_s[residue_name][0].append(torsion_atom_index)
+                table_s[residue_name][1].append(par.tolist())
+    #
+    with open(DATA_HOME / "torsion_energy_terms.json", "wt") as fout:
+        fout.write(json.dumps(table_s, indent=2))
+
+
+def main():
+    # for residue in residue_s.values():
+    #     residue.R = build_structure_from_ic(residue)
+    #
+    # rigid_group_s = get_rigid_groups(residue_s, torsion_s)
+    # get_rigid_body_transformation_between_frames(rigid_group_s)
+    build_torsion_energy_table(residue_s, par_dihed_s)
+
+
+if __name__ == "__main__":
+    main()

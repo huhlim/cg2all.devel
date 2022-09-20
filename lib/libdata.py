@@ -152,8 +152,6 @@ class PDBset(Dataset):
                 cg.torsion[frame_index], dtype=self.dtype
             )
             data.ndata["torsion_mask"] = torch.as_tensor(cg.torsion_mask, dtype=self.dtype)
-            data.ndata["torsion_shift"] = torch.as_tensor(cg.torsion_shift, dtype=self.dtype)
-            data.ndata["torsion_param"] = torch.as_tensor(cg.torsion_param, dtype=self.dtype)
         #
         if self.use_pt is not None:
             torch.save(data, pt_fn)

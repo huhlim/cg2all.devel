@@ -54,11 +54,11 @@ class Model(pl.LightningModule):
         return self.model.forward(batch)
 
     def on_fit_start(self):
-        self.model.set_rigid_operations(self.device, dtype=self.dtype)
+        self.model.set_constant_tensors(self.device, dtype=self.dtype)
 
     def on_test_start(self):
         if not hasattr(self.model, "RIGID_OPs"):
-            self.model.set_rigid_operations(self.device, dtype=self.dtype)
+            self.model.set_constant_tensors(self.device, dtype=self.dtype)
 
     def on_train_batch_start(self, batch, batch_idx):
         if self.device.type == "cuda":

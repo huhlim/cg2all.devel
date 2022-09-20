@@ -187,15 +187,11 @@ class PDB(object):
         #
         torsion_mask = np.zeros(MAX_TORSION, dtype=float)
         torsion_angle_s = np.zeros((self.n_frame, MAX_TORSION), dtype=float)
-        torsion_shift_s = np.zeros(MAX_TORSION, dtype=float)
-        tor_param_s = np.zeros((MAX_TORSION, 5, 2), dtype=float)  # (k_phi, phi0)
         for tor in torsion_s[self.residue_name[i_res]]:
             if tor is None or tor.name in ["BB"]:
                 continue
             #
             t_ang0, atom_s, rigid = get_rigid_group_by_torsion(residue_name, tor.name, tor.index)
-            torsion_shift_s[tor.i - 1] = t_ang0
-            tor_param_s[tor.i - 1] = tor.par
             #
             index = [ref_res.atom_s.index(atom) for atom in tor.atom_s[:4]]
             mask = self.atom_mask_pdb[i_res, index]
@@ -206,7 +202,7 @@ class PDB(object):
             # torsion_mask[tor.i - 1] = weight_s[tor.i - 1]
             torsion_mask[tor.i - 1] = 1.0
             torsion_angle_s[:, tor.i - 1] = t_ang
-        return torsion_mask, torsion_angle_s, torsion_shift_s, tor_param_s
+        return torsion_mask, torsion_angle_s
 
     def get_structure_information(self):
         # get rigid body operations, backbone_orientations and torsion angles
@@ -222,11 +218,9 @@ class PDB(object):
             self.bb[:, i_res, :3, :] = opr_s[0]  # rotation matrix
             self.bb[:, i_res, 3, :] = opr_s[1]  # translation vector
             #
-            mask, tor_s, tor_shift_s, tor_param_s = self.get_torsion_angles(i_res)
+            mask, tor_s = self.get_torsion_angles(i_res)
             self.torsion_mask[i_res, :] = mask
             self.torsion[:, i_res, :] = tor_s
-            self.torsion_shift[i_res, :] = tor_shift_s
-            self.torsion_param[i_res, :] = tor_param_s
 
     def write(self, R, pdb_fn, dcd_fn=None):
         top = self.create_new_topology()

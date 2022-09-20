@@ -18,15 +18,22 @@ from residue_constants import (
     BOND_LENGTH_DISULFIDE,
     BOND_ANGLE0,
     TORSION_ANGLE0,
-    RIGID_GROUPS_DEP,
 )
 
 from libconfig import DTYPE, EPS
 from libcg import get_residue_center_of_mass
-from torch_basics import v_size, v_norm, v_norm_safe, inner_product, rotate_vector_inv, pi
+from torch_basics import (
+    v_size,
+    v_norm,
+    v_norm_safe,
+    inner_product,
+    rotate_vector_inv,
+    pi,
+    torsion_angle,
+)
 
 
-def loss_f(batch, ret, loss_weight, loss_prev=None, RIGID_OPs=None):
+def loss_f(batch, ret, loss_weight, loss_prev=None, RIGID_OPs=None, TORSION_PARs=None):
     R = ret["R"]
     opr_bb = ret["opr_bb"]
     #
@@ -57,7 +64,7 @@ def loss_f(batch, ret, loss_weight, loss_prev=None, RIGID_OPs=None):
         ) * loss_weight.torsion_angle
     if loss_weight.get("torsion_energy", 0.0) > 0.0:
         loss["torsion_energy"] = (
-            loss_f_torsion_energy(batch, ret["sc"]) * loss_weight.torsion_energy
+            loss_f_torsion_energy(batch, R, TORSION_PARs) * loss_weight.torsion_energy
         )
     if loss_weight.get("atomic_clash", 0.0) > 0.0:
         loss["atomic_clash"] = loss_f_atomic_clash(batch, R, RIGID_OPs) * loss_weight.atomic_clash
@@ -311,7 +318,6 @@ def loss_f_torsion_angle(
         loss_norm = torch.sum(torch.abs(norm - 1.0) * mask)
         loss = loss + loss_norm * norm_weight
     loss = loss / mask.sum()
-    loss = loss_norm / mask.sum()  # TODO: DEBUG
     # loss = loss / sc.size(0)
     return loss
 
@@ -409,40 +415,18 @@ def loss_f_torsion_angle_class(batch: dgl.DGLGraph, sc: torch.Tensor, width=15.0
     return loss
 
 
-def loss_f_torsion_energy(batch, sc):
-    device = sc.device
-    multi = torch.as_tensor([1.0, 2.0, 3.0, 4.0, 6.0], device=device)
+def loss_f_torsion_energy(batch: dgl.DGLGraph, R: torch.Tensor, TORSION_PARs):
+    residue_type = batch.ndata["residue_type"]
+    n_residue = residue_type.size(0)
+    par = TORSION_PARs[0][residue_type]
+    atom_index = TORSION_PARs[1][residue_type]
     #
-    delta = (
-        batch.ndata["torsion_shift"][:, :, None] * multi[None, None, :]
-        - batch.ndata["torsion_param"][..., 1]
-    )
-    cos_delta = torch.cos(delta)
-    sin_delta = torch.sin(delta)
+    r = torch.take_along_dim(R, atom_index.view(n_residue, -1, 1), 1).view(n_residue, -1, 4, 3)
+    t_ang = torsion_angle(r)
     #
-    cs = torch.zeros_like(batch.ndata["torsion_param"], device=device)
-    # n=1
-    cs[:, :, 0, :] = sc
-    c = sc[..., 0]
-    s = sc[..., 1]
-    # n=2
-    cs[:, :, 1, 0] = c**2 - s**2
-    cs[:, :, 1, 1] = 2.0 * c * s
-    c2 = cs[:, :, 1, 0].clone()
-    s2 = cs[:, :, 1, 1].clone()
-    # n=3
-    cs[:, :, 2, 0] = 4.0 * c**3 - 3.0 * c
-    cs[:, :, 2, 1] = -(4.0 * s**3 - 3.0 * s)
-    # n=4
-    cs[:, :, 3, 0] = c2**2 - s2**2
-    cs[:, :, 3, 1] = 2.0 * c2 * s2
-    # n=6
-    cs[:, :, 4, 0] = 4.0 * c2**3 - 3.0 * c2
-    cs[:, :, 4, 1] = -(4.0 * s2**3 - 3.0 * s2)
-    #
-    cos_angle = cs[..., 0] * cos_delta - cs[..., 1] * sin_delta
-    torsion_energy = ((1.0 + cos_angle) * batch.ndata["torsion_param"][..., 0]).sum(dim=(1, 2))
-    return torch.mean(torsion_energy)
+    t_ang = t_ang[..., None] * par[..., 1] - par[..., 2]
+    energy = par[..., 0] * (1.0 + torch.cos(t_ang))
+    return torch.sum(energy) / n_residue
 
 
 def test():
@@ -450,7 +434,7 @@ def test():
     from libconfig import BASE
     import libcg
     import functools
-    from libdata import PDBset
+    from libdata import PDBset, create_trajectory_from_batch
 
     base_dir = BASE / "pdb.processed"
     pdblist = base_dir / "loss_test"
@@ -466,7 +450,7 @@ def test():
     train_loader = dgl.dataloading.GraphDataLoader(
         train_set, batch_size=2, shuffle=False, num_workers=1
     )
-    cuda = False
+    cuda = True
     batch = next(iter(train_loader))
     if cuda:
         batch = batch.to("cuda")
@@ -487,65 +471,15 @@ def test():
         RIGID_TRANSFORMS_DEP,
         RIGID_GROUPS_TENSOR,
         RIGID_GROUPS_DEP,
+        TORSION_ENERGY_TENSOR,
+        TORSION_ENERGY_DEP,
     )
 
     RIGID_OPs = (
         (RIGID_TRANSFORMS_TENSOR.to(device), RIGID_GROUPS_TENSOR.to(device)),
         (RIGID_TRANSFORMS_DEP.to(device), RIGID_GROUPS_DEP.to(device)),
     )
-    #
-    # sc = native.ndata["correct_torsion"]
-    # sc = torch.stack([torch.cos(sc), torch.sin(sc)], dim=-1)
-    # t0 = time.time()
-    # print("torsion_angle", loss_f_torsion_angle(native, sc))
-    # print(time.time() - t0)
-    # t0 = time.time()
-    # print("torsion_energy", loss_f_torsion_energy(native, sc))
-    # print(time.time() - t0)
-    # t0 = time.time()
-    # print("atomic_clash", loss_f_atomic_clash(native, R_ref, RIGID_OPs))
-    # print(time.time() - t0)
-    # t0 = time.time()
-    # print("rigid_body", loss_f_rigid_body(native, R_ref))
-    # print(time.time() - t0)
-    # t0 = time.time()
-    # print("FAPE_CA", loss_f_FAPE_CA(native, R_ref, bb_ref))
-    # print(time.time() - t0)
-    #
-    sc = native.ndata["correct_torsion"]
-    sc = v_norm(torch.stack([torch.cos(sc), torch.sin(sc)], dim=-1))
-    cos_sc = sc[:, 2, 0]
-    sin_sc = sc[:, 2, 1]
-    theta = torch.acos(cos_sc) * torch.sign(sin_sc) / 3.141592 * 180
-    print(theta.detach().numpy().round(2))
-    for i in range(1000):
-        sc.requires_grad_(True)
-        loss_torsion_energy = loss_f_torsion_energy(native, sc)
-        loss_torsion_energy.backward()
-        if i % 100 == 99:
-            print(i, loss_torsion_energy)
-        with torch.no_grad():
-            sc = v_norm(sc - sc.grad * (1000 - i) / 1000)
-    cos_sc = sc[:, 2, 0]
-    sin_sc = sc[:, 2, 1]
-    theta = torch.acos(cos_sc) * torch.sign(sin_sc) / 3.141592 * 180
-    print(theta.detach().numpy().round(2))
-
-    # t0 = time.time()
-    # print("torsion_angle", loss_f_torsion_angle(native, sc))
-    # print(time.time() - t0)
-    # t0 = time.time()
-    # print("torsion_energy", loss_f_torsion_energy(native, sc))
-    # print(time.time() - t0)
-    # t0 = time.time()
-    # print("atomic_clash", loss_f_atomic_clash(native, R_model, RIGID_OPs))
-    # print(time.time() - t0)
-    # t0 = time.time()
-    # print("rigid_body", loss_f_rigid_body(native, R_model))
-    # print(time.time() - t0)
-    # t0 = time.time()
-    # print("FAPE_CA", loss_f_FAPE_CA(native, R_model, bb_model))
-    # print(time.time() - t0)
+    TORSION_PARs = (TORSION_ENERGY_TENSOR.to(device), TORSION_ENERGY_DEP.to(device))
 
 
 if __name__ == "__main__":
