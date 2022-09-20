@@ -29,7 +29,7 @@ class ResidueBasedModel(PDB):
         self.bead_index = self.residue_index[:, None]
         #
         self.R_cg = np.zeros((self.n_frame, self.n_residue, 1, 3))
-        self.atom_mask_cg = np.zeros((self.n_residue, 1), dtype=np.float16)
+        self.atom_mask_cg = np.zeros((self.n_residue, 1), dtype=float)
         #
         mass_weighted_R = self.R * self.atomic_mass[None, ..., None]
         R_cg = mass_weighted_R.sum(axis=-2) / self.atomic_mass.sum(axis=-1)[None, ..., None]

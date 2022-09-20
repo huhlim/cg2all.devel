@@ -38,6 +38,7 @@ if IS_DEVELOP:
 class Model(pl.LightningModule):
     def __init__(self, _config, cg_model, compute_loss=False, memcheck=False):
         super().__init__()
+        self._config = _config
         self.save_hyperparameters(_config.to_dict())
         self.model = libmodel.Model(_config, cg_model, compute_loss=compute_loss)
         self.memcheck = memcheck
@@ -79,7 +80,7 @@ class Model(pl.LightningModule):
         if IS_DEVELOP:
             optimizer = torch.optim.Adam(self.parameters(), lr=0.01)
         else:
-            optimizer = torch.optim.Adam(self.parameters(), lr=1e-3)
+            optimizer = torch.optim.Adam(self.parameters(), lr=self._config.train.lr)
         lr_scheduler = torch.optim.lr_scheduler.SequentialLR(
             optimizer,
             [
@@ -206,7 +207,6 @@ def main():
     #
     # set file paths
     pdb_dir = pathlib.Path(config.train.dataset)
-    # pdb_dir = pathlib.Path("pdb.processed")
     pdblist_train = pdb_dir / "targets.train"
     pdblist_test = pdb_dir / "targets.test"
     pdblist_val = pdb_dir / "targets.valid"
@@ -238,7 +238,7 @@ def main():
     trainer_kwargs = {}
     trainer_kwargs["max_epochs"] = arg.max_epochs
     trainer_kwargs["gradient_clip_val"] = 1.0
-    trainer_kwargs["check_val_every_n_epoch"] = 10 if IS_DEVELOP else 1
+    trainer_kwargs["check_val_every_n_epoch"] = 10 if (IS_DEVELOP or len(train_set) < 20) else 1
     trainer_kwargs["logger"] = pl.loggers.TensorBoardLogger("lightning_logs", name=arg.name)
     trainer_kwargs["callbacks"] = [
         pl.callbacks.ModelCheckpoint(

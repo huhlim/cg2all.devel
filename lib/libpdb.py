@@ -9,6 +9,8 @@ from string import ascii_uppercase as CHAIN_IDs
 from numpy_basics import *
 from residue_constants import *
 
+np.set_printoptions(suppress=True)
+
 # %%
 class PDB(object):
     def __init__(self, pdb_fn, dcd_fn=None):
@@ -74,10 +76,10 @@ class PDB(object):
         #   - residue_index
 
         self.R = np.zeros((self.n_frame, self.n_residue, MAX_ATOM, 3))
-        self.atom_mask = np.zeros((self.n_residue, MAX_ATOM), dtype=np.float16)
-        self.atom_mask_pdb = np.zeros((self.n_residue, MAX_ATOM), dtype=np.float16)
-        self.atomic_radius = np.zeros((self.n_residue, MAX_ATOM, 2, 2), dtype=np.float16)
-        self.atomic_mass = np.zeros((self.n_residue, MAX_ATOM), dtype=np.float16)
+        self.atom_mask = np.zeros((self.n_residue, MAX_ATOM), dtype=float)
+        self.atom_mask_pdb = np.zeros((self.n_residue, MAX_ATOM), dtype=float)
+        self.atomic_radius = np.zeros((self.n_residue, MAX_ATOM, 2, 2), dtype=float)
+        self.atomic_mass = np.zeros((self.n_residue, MAX_ATOM), dtype=float)
         #
         if len(self.ssbond_s) > 0:
             ssbond_s = np.concatenate(self.ssbond_s, dtype=int)
@@ -183,17 +185,18 @@ class PDB(object):
         residue_name = self.residue_name[i_res]
         ref_res = residue_s[residue_name]
         #
-        torsion_mask = np.zeros(MAX_TORSION, dtype=np.float16)
-        torsion_angle_s = np.zeros(
-            (self.n_frame, MAX_TORSION), dtype=np.float16
-        )  # this is a list of torsion angles to rotate rigid bodies
-        torsion_shift_s = np.zeros(MAX_TORSION, dtype=np.float16)
-        tor_param_s = np.zeros((MAX_TORSION, 6, 2), dtype=np.float16)  # (k_phi, phi0)
+        torsion_mask = np.zeros(MAX_TORSION, dtype=float)
+        torsion_angle_s = np.zeros((self.n_frame, MAX_TORSION), dtype=float)
+        torsion_shift_s = np.zeros(MAX_TORSION, dtype=float)
+        tor_param_s = np.zeros((MAX_TORSION, 5, 2), dtype=float)  # (k_phi, phi0)
         for tor in torsion_s[self.residue_name[i_res]]:
             if tor is None or tor.name in ["BB"]:
                 continue
             #
             t_ang0, atom_s, rigid = get_rigid_group_by_torsion(residue_name, tor.name, tor.index)
+            torsion_shift_s[tor.i - 1] = t_ang0
+            tor_param_s[tor.i - 1] = tor.par
+            #
             index = [ref_res.atom_s.index(atom) for atom in tor.atom_s[:4]]
             mask = self.atom_mask_pdb[i_res, index]
             if not np.all(mask):  # if any of the atoms are missing, skip this torsion
@@ -203,9 +206,6 @@ class PDB(object):
             # torsion_mask[tor.i - 1] = weight_s[tor.i - 1]
             torsion_mask[tor.i - 1] = 1.0
             torsion_angle_s[:, tor.i - 1] = t_ang
-            torsion_shift_s[tor.i - 1] = t_ang0
-            #
-            tor_param_s[tor.i - 1] = tor.par
         return torsion_mask, torsion_angle_s, torsion_shift_s, tor_param_s
 
     def get_structure_information(self):
@@ -214,7 +214,7 @@ class PDB(object):
         self.bb = np.zeros((self.n_frame, self.n_residue, 4, 3), dtype=float)
         self.torsion_mask = np.zeros((self.n_residue, MAX_TORSION), dtype=float)
         self.torsion_shift = np.zeros((self.n_residue, MAX_TORSION), dtype=float)
-        self.torsion_param = np.zeros((self.n_residue, MAX_TORSION, 6, 2), dtype=float)
+        self.torsion_param = np.zeros((self.n_residue, MAX_TORSION, 5, 2), dtype=float)
         self.torsion = np.zeros((self.n_frame, self.n_residue, MAX_TORSION), dtype=float)
         for i_res in range(self.n_residue):
             mask, opr_s = self.get_backbone_orientation(i_res)
@@ -283,7 +283,7 @@ def generate_structure_from_bb_and_torsion(residue_index, bb, torsion):
     # convert from rigid body operations to coordinates
     n_frame = bb.shape[0]
     n_residue = bb.shape[1]
-    R = np.zeros((n_frame, n_residue, MAX_ATOM, 3), dtype=np.float16)
+    R = np.zeros((n_frame, n_residue, MAX_ATOM, 3), dtype=float)
     #
     def rotate_matrix(R, X):
         return np.einsum("...ij,...jk->...ik", R, X)
@@ -327,12 +327,8 @@ def generate_structure_from_bb_and_torsion(residue_index, bb, torsion):
 
 
 if __name__ == "__main__":
-    # pdb = PDB("../db/pisces/pdb1/1ab1_A.pdb")
-    pdb = PDB("pdb.processed/val_native.pdb")
+    # pdb = PDB("pdb.processed/1ab1_A.pdb")
+    pdb = PDB("pdb.processed/1UBQ.pdb")
     pdb.get_structure_information()
-    # pdb = PDB("pdb.processed/3PBL.pdb")
-    # pdb.get_structure_information()
-    # R = generate_structure_from_bb_and_torsion(pdb.residue_index, pdb.bb, pdb.torsion)
-    # pdb.write(R, "test.pdb")
 
 # %%

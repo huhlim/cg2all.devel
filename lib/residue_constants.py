@@ -191,13 +191,13 @@ class Residue(object):
         self.torsion_bb_atom = []
         self.torsion_chi_atom = []
         self.torsion_xi_atom = []
-        self.torsion_chi_mask = np.zeros(MAX_TORSION_CHI, dtype=np.float16)
-        self.torsion_xi_mask = np.zeros(MAX_TORSION_XI, dtype=np.float16)
-        self.torsion_chi_periodic = np.zeros((MAX_TORSION_CHI, 3), dtype=np.float16)
-        self.torsion_xi_periodic = np.zeros((MAX_TORSION_XI, 3), dtype=np.float16)
+        self.torsion_chi_mask = np.zeros(MAX_TORSION_CHI, dtype=float)
+        self.torsion_xi_mask = np.zeros(MAX_TORSION_XI, dtype=float)
+        self.torsion_chi_periodic = np.zeros((MAX_TORSION_CHI, 3), dtype=float)
+        self.torsion_xi_periodic = np.zeros((MAX_TORSION_XI, 3), dtype=float)
 
         self.atomic_radius = np.zeros(
-            (MAX_ATOM, 2, 2), dtype=np.float16
+            (MAX_ATOM, 2, 2), dtype=float
         )  # (normal/1-4, epsilon/r_min)
 
     def __str__(self):
@@ -344,11 +344,12 @@ def read_CHARMM_prm(fn):
         if len(x) == 0:
             continue
         atom_type_s = tuple(x[:4])
-        multi = int(x[5]) - 1
-        par = np.array([x[4], x[6]], dtype=float)
+        multi = int(x[5])
+        multi_index = {6: 4}.get(multi, multi - 1)
+        par = np.array([x[4], np.deg2rad(float(x[6]))], dtype=float)
         if atom_type_s not in par_dihedrals:
-            par_dihedrals[atom_type_s] = np.zeros((6, 2), dtype=float)
-        par_dihedrals[atom_type_s][multi] = par
+            par_dihedrals[atom_type_s] = np.zeros((5, 2), dtype=float)
+        par_dihedrals[atom_type_s][multi_index] = par
     #
     radius_s = {}
     read = False

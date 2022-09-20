@@ -152,6 +152,8 @@ class PDBset(Dataset):
                 cg.torsion[frame_index], dtype=self.dtype
             )
             data.ndata["torsion_mask"] = torch.as_tensor(cg.torsion_mask, dtype=self.dtype)
+            data.ndata["torsion_shift"] = torch.as_tensor(cg.torsion_shift, dtype=self.dtype)
+            data.ndata["torsion_param"] = torch.as_tensor(cg.torsion_param, dtype=self.dtype)
         #
         if self.use_pt is not None:
             torch.save(data, pt_fn)
@@ -283,7 +285,9 @@ def test():
     )
 
     data = train_set[0]
-    traj_s, ssbond_s = create_trajectory_from_batch(data, data.ndata["output_xyz"], write_native=True)
+    traj_s, ssbond_s = create_trajectory_from_batch(
+        data, data.ndata["output_xyz"], write_native=True
+    )
 
     ssbond_s = []
     for cys_i, cys_j in enumerate(data.ndata["ssbond_index"].cpu().detach().numpy()):
@@ -308,9 +312,9 @@ def test():
 
 
 def to_pt():
-    base_dir = BASE / "pdb.processed"
+    # base_dir = BASE / "pdb.processed"
     base_dir = BASE / "pdb.pisces"
-    # base_dir = BASE / "pdb.top8000"
+    base_dir = BASE / "pdb.top8000"
     pdblist = base_dir / "targets"
     cg_model = libcg.CalphaBasedModel
     #
@@ -336,5 +340,5 @@ def to_pt():
 
 
 if __name__ == "__main__":
-    # to_pt()
-    test()
+    to_pt()
+    # test()

@@ -31,7 +31,7 @@ from residue_constants import (
     RIGID_GROUPS_TENSOR,
     RIGID_GROUPS_DEP,
 )
-from libloss_l1 import loss_f
+from libloss import loss_f
 from torch_basics import v_size, v_norm_safe, inner_product, rotate_matrix, rotate_vector
 from libmetric import rmsd_CA, rmsd_rigid, rmsd_all, rmse_bonded
 from libcg import get_residue_center_of_mass, get_backbone_angles
@@ -44,6 +44,7 @@ CONFIG["train"] = ConfigDict()
 CONFIG["train"]["dataset"] = "pdb.pisces"
 CONFIG["train"]["batch_size"] = 4
 CONFIG["train"]["crop_size"] = -1
+CONFIG["train"]["lr"] = 1e-3
 
 CONFIG["globals"] = ConfigDict()
 CONFIG["globals"]["num_recycle"] = 1
@@ -60,6 +61,7 @@ CONFIG["globals"]["loss_weight"].update(
         "distance_matrix": 0.0,
         "rotation_matrix": 1.0,
         "torsion_angle": 2.0,
+        "torsion_energy": 0.1,
         "atomic_clash": 1.0,
     }
 )
