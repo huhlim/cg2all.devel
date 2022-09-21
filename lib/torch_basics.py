@@ -44,6 +44,7 @@ def torsion_angle(R: torch.Tensor) -> torch.Tensor:
     v1 = v_norm(R[..., 3, :] - R[..., 2, :])
     n0 = v_norm_safe(torch.linalg.cross(v0, torsion_axis, dim=-1))
     n1 = v_norm_safe(torch.linalg.cross(v1, torsion_axis, dim=-1))
+    # torch.acos is unstable around -1 and 1 -> added EPS
     angle = torch.acos(torch.clamp(inner_product(n0, n1), -1.0+EPS, 1.0-EPS))
     sign = angle_sign(inner_product(v0, n1))
     return angle * sign

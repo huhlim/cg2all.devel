@@ -43,7 +43,6 @@ def rmse_bonded(R, is_continuous):
 
     # bond angles in radians
     def bond_angle(v1, v2):
-        # torch.acos is unstable around -1 and 1 -> added EPS
         return torch.acos(torch.clamp(inner_product(v1, v2), -1.0, 1.0))
 
     a01 = bond_angle(-v0, v1)

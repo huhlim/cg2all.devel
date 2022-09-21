@@ -1,0 +1,17 @@
+{
+  "globals.loss_weight.atomic_clash": 5.0,
+  "structure_module.fiber_pass": [
+    [
+      0,
+      64
+    ],
+    [
+      1,
+      32
+    ]
+  ],
+  "structure_module.num_channels": 32,
+  "train.batch_size": 4,
+  "train.crop_size": 512,
+  "train.dataset": "pdb.top8000"
+}
