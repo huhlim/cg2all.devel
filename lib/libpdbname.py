@@ -285,8 +285,7 @@ def update_by_glycine_backbone_method(R, i_res, ref_res, amb, atom_s, rigid_s):
         apply_closest_rule(ref_res, amb, periodic_s, atom_s, rigid_s[k], R[k, i_res, :, :])
 
 
-def update_by_special_method(R, atom_mask, i_res, ref_res):
-    amb = get_ambiguous_atom_list(ref_res.residue_name, "special")
+def update_by_special_method(R, atom_mask, i_res, ref_res, amb):
     index_amb = [ref_res.atom_s.index(atom) for atom in amb.atom_s]
     index_tor = [ref_res.atom_s.index(atom) for atom in amb.torsion_atom_s]
     if not np.all(atom_mask[i_res, index_amb]):
@@ -313,7 +312,11 @@ def update_by_guanidium_method(R, atom_mask, i_res, ref_res):
         index_amb = [ref_res.atom_s.index(atom) for atom in amb.atom_s]
         index_tor = [ref_res.atom_s.index(atom) for atom in amb.torsion_atom_s]
         if not np.all(atom_mask[i_res, index_amb]):
-            return
+            if i == 0:
+                for ia, atom in enumerate(ref_res.atom_s):
+                    if atom.startswith("HH"):
+                        atom_mask[i_res, ia] = 0.0
+            atom_mask[i_res, index_amb] = 0.0
         if not np.all(atom_mask[i_res, index_tor]):
             return
 
@@ -344,5 +347,6 @@ def update_by_guanidium_method(R, atom_mask, i_res, ref_res):
         if len(swap) > 0:
             before = tuple(dep_s[0] + dep_s[1])
             after = tuple(dep_s[1] + dep_s[0])
+            atom_mask[i_res, before] = atom_mask[i_res, after]
             for s in swap:
                 R[s, i_res, before, :] = R[s, i_res, after, :]

@@ -4,8 +4,6 @@ This application renames atom names to make a consistent orientations
 for permutable atoms
 """
 
-# %%
-# load modules
 import sys
 from numpy_basics import *
 from residue_constants import *
@@ -16,10 +14,19 @@ import warnings
 
 warnings.filterwarnings("ignore")
 
-# %%
+
 class ProcessPDB(PDB):
     def __init__(self, *arg, **kwarg):
         super().__init__(*arg, **kwarg)
+
+    def check_amb_valid(self, i_res, amb, ref_res):
+        atom_index_s = [ref_res.atom_s.index(atom) for atom in amb.atom_s]
+        mask = self.atom_mask_pdb[i_res, atom_index_s]
+        if np.all(mask):
+            return True
+        else:
+            self.atom_mask_pdb[i_res, atom_index_s] = 0.0
+            return False
 
     def make_atom_names_consistent(self):
         self.R_ideal = self.R.copy()
@@ -42,11 +49,12 @@ class ProcessPDB(PDB):
             t_ang0, atom_s, rigid = get_rigid_group_by_torsion(self.residue_name[i_res], "BB")
             rigid_s = translate_and_rotate(rigid, opr_bb[0], opr_bb[1])
             for atom in atom_s:
-                self.R_ideal[:, i_res, ref_res.atom_s.index(atom), :] = \
-                        rigid_s[ :, atom_s.index(atom), : ]
+                self.R_ideal[:, i_res, ref_res.atom_s.index(atom), :] = rigid_s[
+                    :, atom_s.index(atom), :
+                ]
             #
             amb = get_ambiguous_atom_list(residue_name, "BB")
-            if residue_name == "GLY":
+            if residue_name == "GLY" and self.check_amb_valid(i_res, amb, ref_res):
                 update_by_glycine_backbone_method(self.R, i_res, ref_res, amb, atom_s, rigid_s)
             #
             # update side chain atom names
@@ -57,6 +65,12 @@ class ProcessPDB(PDB):
                     continue
                 #
                 amb = get_ambiguous_atom_list(residue_name, tor.name, tor.index)
+                #
+                # check if all ambiguous atoms are present
+                if amb is not None:
+                    if not self.check_amb_valid(i_res, amb, ref_res):
+                        continue
+                #
                 if amb is None or amb.method == "closest":
                     opr_sc, atom_s, rigid_s = update_by_closest_method(
                         self.R, self.atom_mask_pdb, i_res, ref_res, tor, amb, opr_s
@@ -71,20 +85,24 @@ class ProcessPDB(PDB):
                     )
                 else:
                     raise ValueError("Unknown ambiguous method: %s" % amb.method)
+                #
                 if atom_s is None:
                     continue
                 #
                 opr_s[(tor.name, tor.index)] = opr_sc
                 for atom in atom_s:
-                    self.R_ideal[:, i_res, ref_res.atom_s.index(atom), :] = rigid_s[
-                        :, atom_s.index(atom), :
-                    ]
+                    atom_index = ref_res.atom_s.index(atom)
+                    self.R_ideal[:, i_res, atom_index, :] = rigid_s[:, atom_s.index(atom), :]
             #
             # special torsion angles, only for Asn, Gln, Arg
             if residue_name in ["ASN", "GLN"]:
-                update_by_special_method(self.R, self.atom_mask_pdb, i_res, ref_res)
+                amb = get_ambiguous_atom_list(ref_res.residue_name, "special")
+                if self.check_amb_valid(i_res, amb, ref_res):
+                    update_by_special_method(self.R, self.atom_mask_pdb, i_res, ref_res, amb)
             elif residue_name == "ARG":
-                update_by_guanidium_method(self.R, self.atom_mask_pdb, i_res, ref_res)
+                update_by_guanidium_method(
+                    self.R, self.atom_mask_pdb, i_res, ref_res
+                )
 
 
 def main():
