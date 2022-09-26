@@ -44,6 +44,7 @@ CONFIG = ConfigDict()
 
 CONFIG["train"] = ConfigDict()
 CONFIG["train"]["dataset"] = "pdb.pisces"
+CONFIG["train"]["md_frame"] = -1
 CONFIG["train"]["batch_size"] = 4
 CONFIG["train"]["crop_size"] = -1
 CONFIG["train"]["lr"] = 1e-3

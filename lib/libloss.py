@@ -4,7 +4,7 @@ import torch
 
 torch.autograd.set_detect_anomaly(True)
 import dgl
-from typing import Optional
+from typing import Optional, List
 
 from residue_constants import (
     PROLINE_INDEX,
@@ -54,7 +54,8 @@ def loss_f(batch, ret, loss_weight, loss_prev=None, RIGID_OPs=None, TORSION_PARs
         )
     if loss_weight.get("bonded_energy", 0.0) > 0.0:
         loss["bonded_energy"] = (
-            loss_f_bonded_energy(batch, R) + loss_f_bonded_energy_aux(batch, R)
+            loss_f_bonded_energy(batch, R, weight_s=(1.0, 1.0, 0.0))
+            + loss_f_bonded_energy_aux(batch, R)
         ) * loss_weight.bonded_energy
     if loss_weight.get("distance_matrix", 0.0) > 0.0:
         loss["distance_matrix"] = loss_f_distance_matrix(batch, R) * loss_weight.distance_matrix
@@ -304,13 +305,17 @@ def loss_f_torsion_angle(
     batch: dgl.DGLGraph,
     sc: torch.Tensor,
     sc0: Optional[torch.Tensor] = None,
-    norm_weight: float = 0.01,
+    norm_weight: Optional[float] = 0.01,
 ):
+    #                      phi  psi  chi1 chi2 chi3 chi4 xi_1 xi_2
+    # weight = torch.tensor([1.0, 1.0, 1.0, 1.5, 2.0, 2.0, 0.5, 0.5], device=sc.device)
+    #
     sc_ref = batch.ndata["correct_torsion"]
     mask = batch.ndata["torsion_mask"]
     #
     sc_cos = torch.cos(sc_ref)
     sc_sin = torch.sin(sc_ref)
+    # (1.0 - ((sc[..., 0] * sc_cos) + (sc[..., 1] * sc_sin))) * weight[None, :] * mask
     loss = torch.sum((1.0 - ((sc[..., 0] * sc_cos) + (sc[..., 1] * sc_sin))) * mask)
     #
     if sc0 is not None and norm_weight > 0.0:
@@ -318,7 +323,6 @@ def loss_f_torsion_angle(
         loss_norm = torch.sum(torch.abs(norm - 1.0) * mask)
         loss = loss + loss_norm * norm_weight
     loss = loss / mask.sum()
-    # loss = loss / sc.size(0)
     return loss
 
 
@@ -356,13 +360,14 @@ def loss_f_atomic_clash(batch: dgl.DGLGraph, R: torch.Tensor, RIGID_OPs, lj=Fals
         mask_j = data.ndata["pdb_atom_mask"][j] > 0.0
         mask = mask_j[:, :, None] & mask_i[:, None, :]
         #
-        y = i == j + 1
+        # y = i == j + 1
         curr_residue_type = data.ndata["residue_type"][i]
         prev_residue_type = data.ndata["residue_type"][j]
         curr_bb = _RIGID_GROUPS_DEP[curr_residue_type] < 3
         curr_bb[curr_residue_type == PROLINE_INDEX, :7] = True
         prev_bb = _RIGID_GROUPS_DEP[prev_residue_type] < 3
         bb_pair = prev_bb[:, :, None] & curr_bb[:, None, :]
+        #
         bb_pair[i != j + 1] = False
         mask = mask & (~bb_pair)
         #
@@ -372,21 +377,20 @@ def loss_f_atomic_clash(batch: dgl.DGLGraph, R: torch.Tensor, RIGID_OPs, lj=Fals
         dr = _R[j][:, :, None] - _R[i][:, None, :]
         dist = v_size(dr)[mask]
         #
+        epsilon_i = data.ndata["atomic_radius"][i, :, 0, 0]
+        epsilon_j = data.ndata["atomic_radius"][j, :, 0, 0]
+        epsilon = torch.sqrt(epsilon_j[:, :, None] * epsilon_i[:, None, :])[mask]
+        #
         radius_i = data.ndata["atomic_radius"][i, :, 0, 1]
         radius_j = data.ndata["atomic_radius"][j, :, 0, 1]
         radius_sum = (radius_j[:, :, None] + radius_i[:, None, :])[mask]
-        delta = torch.clamp(dist - radius_sum, max=0.0)
-        index = torch.argsort(delta)
         #
         if lj:
-            epsilon_i = data.ndata["atomic_radius"][i, :, 0, 0]
-            epsilon_j = data.ndata["atomic_radius"][j, :, 0, 0]
-            epsilon = torch.sqrt(epsilon_j[:, :, None] * epsilon_i[:, None, :])[mask]
-            #
             x = torch.pow(radius_sum / dist, 6)
-            energy_ij = epsilon * (x**2 - 2 * x).sum()
+            energy_ij = (epsilon * (x**2 - 2 * x)).sum()
         else:
-            energy_ij = torch.pow(-torch.clamp(dist - radius_sum, max=0.0), 2).sum()
+            x = -torch.clamp(dist - radius_sum, max=0.0)
+            energy_ij = 10.0 * (epsilon * torch.pow(x, 2)).sum()
         energy = energy + energy_ij
     energy = energy / R.size(0)
     return energy
@@ -480,6 +484,9 @@ def test():
         (RIGID_TRANSFORMS_DEP.to(device), RIGID_GROUPS_DEP.to(device)),
     )
     TORSION_PARs = (TORSION_ENERGY_TENSOR.to(device), TORSION_ENERGY_DEP.to(device))
+    #
+    print(loss_f_atomic_clash(native, R_ref, RIGID_OPs))
+    print(loss_f_atomic_clash(native, R_model, RIGID_OPs))
 
 
 if __name__ == "__main__":
