@@ -13,7 +13,7 @@ np.set_printoptions(suppress=True)
 
 # %%
 class PDB(object):
-    def __init__(self, pdb_fn, dcd_fn=None):
+    def __init__(self, pdb_fn, dcd_fn=None, stride=1, frame_index=None):
         # read protein
         pdb = mdtraj.load(pdb_fn, standard_names=False)
         load_index = pdb.top.select("protein or (resname HSD or resname HSE or resname MSE)")
@@ -22,7 +22,10 @@ class PDB(object):
             self.traj = pdb.atom_slice(load_index)
         else:
             self.is_dcd = True
-            self.traj = mdtraj.load(dcd_fn, top=pdb.top, atom_indices=load_index)
+            if frame_index is None:
+                self.traj = mdtraj.load(dcd_fn, top=pdb.top, atom_indices=load_index, stride=stride)
+            else:
+                self.traj = mdtraj.load_frame(dcd_fn, frame_index, top=pdb.top, atom_indices=load_index, stride=stride)
         self.top = self.traj.top
         #
         self.n_frame = self.traj.n_frames
@@ -322,7 +325,10 @@ def generate_structure_from_bb_and_torsion(residue_index, bb, torsion):
 
 if __name__ == "__main__":
     # pdb = PDB("pdb.processed/1ab1_A.pdb")
-    pdb = PDB("pdb.processed/1UBQ.pdb")
-    pdb.get_structure_information()
+    # pdb = PDB("pdb.processed/1UBQ.pdb")
+    # pdb.get_structure_information()
+    #
+    job = "../dyna/run/1a2p_B"
+    pdb = PDB(f"{job}/init/solute.pdb", dcd_fn=f"{job}/prod/0/0/solute.dcd")
 
 # %%

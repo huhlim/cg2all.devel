@@ -31,6 +31,8 @@ class PDBset(Dataset):
         random_rotation=False,
         use_pt=None,
         crop=-1,
+        use_md=False,
+        n_frame=1,
         dtype=DTYPE,
     ):
         super().__init__()
@@ -53,14 +55,24 @@ class PDBset(Dataset):
         self.random_rotation = random_rotation
         self.use_pt = use_pt
         self.crop = crop
+        #
+        self.use_md = use_md
+        self.n_frame = n_frame
 
     def __len__(self):
-        return self.n_pdb
+        return self.n_pdb * self.n_frame
 
     def __getitem__(self, index):
-        pdb_id = self.pdb_s[index]
+        pdb_index = index // self.n_frame
+        frame_index = index % self.n_frame
+        pdb_id = self.pdb_s[pdb_index]
+        #
         if self.use_pt is not None:
-            pt_fn = self.basedir / f"{pdb_id}_{self.use_pt}.pt"
+            if self.use_md:
+                pt_fn = self.basedir / f"{pdb_id}_{self.use_pt}.{frame_index}.pt"
+            else:
+                pt_fn = self.basedir / f"{pdb_id}_{self.use_pt}.pt"
+            #
             if pt_fn.exists():
                 data = torch.load(pt_fn)
                 if self.crop > 0:
@@ -69,12 +81,15 @@ class PDBset(Dataset):
                     return data
         #
         pdb_fn = self.basedir / f"{pdb_id}.pdb"
-        cg = self.cg_model(pdb_fn)
+        if self.use_md:
+            dcd_fn = self.basedir / f"{pdb_id}.dcd"
+            cg = self.cg_model(pdb_fn, dcd_fn=dcd_fn, frame_index=frame_index)
+        else:
+            cg = self.cg_model(pdb_fn)
         if self.random_rotation:
             cg = self.rotate_randomly(cg)
-        frame_index = np.random.randint(cg.n_frame)
         #
-        r_cg = torch.as_tensor(cg.R_cg[frame_index], dtype=self.dtype)
+        r_cg = torch.as_tensor(cg.R_cg[0], dtype=self.dtype)
         if self.noise_level > 0.0:
             noise_size = torch.randn(1).item() * (self.noise_level / 2.0) + self.noise_level
             if noise_size > 0.0:
@@ -86,7 +101,7 @@ class PDBset(Dataset):
             noise_size = 0.0
         noise_size = torch.full((cg.n_residue,), noise_size)
         #
-        pos = r_cg[cg.atom_mask_cg > 0.0]
+        pos = r_cg[cg.atom_mask_cg > 0.0, :]
         geom_s = cg.get_geometry(pos, cg.continuous, pca=True)
         #
         node_feat = cg.geom_to_feature(geom_s, noise_size=noise_size, dtype=self.dtype)
@@ -135,7 +150,7 @@ class PDBset(Dataset):
         data.ndata["input_atom_mask"] = torch.as_tensor(cg.atom_mask_cg, dtype=self.dtype)
         data.ndata["output_atom_mask"] = torch.as_tensor(cg.atom_mask, dtype=self.dtype)
         data.ndata["pdb_atom_mask"] = torch.as_tensor(cg.atom_mask_pdb, dtype=self.dtype)
-        data.ndata["output_xyz"] = torch.as_tensor(cg.R[frame_index], dtype=self.dtype)
+        data.ndata["output_xyz"] = torch.as_tensor(cg.R[0], dtype=self.dtype)
         #
         r_cntr = libcg.get_residue_center_of_mass(
             data.ndata["output_xyz"], data.ndata["atomic_mass"]
@@ -147,10 +162,8 @@ class PDBset(Dataset):
         #
         if self.get_structure_information:
             cg.get_structure_information()
-            data.ndata["correct_bb"] = torch.as_tensor(cg.bb[frame_index], dtype=self.dtype)
-            data.ndata["correct_torsion"] = torch.as_tensor(
-                cg.torsion[frame_index], dtype=self.dtype
-            )
+            data.ndata["correct_bb"] = torch.as_tensor(cg.bb[0], dtype=self.dtype)
+            data.ndata["correct_torsion"] = torch.as_tensor(cg.torsion[0], dtype=self.dtype)
             data.ndata["torsion_mask"] = torch.as_tensor(cg.torsion_mask, dtype=self.dtype)
         #
         if self.use_pt is not None:
@@ -300,19 +313,12 @@ def test():
 
     libpdb.write_SSBOND("test.pdb", traj.top, ssbond_s)
 
-    #
-    # for i,traj in enumerate(traj_s):
-    #     traj.save(f"test_{i}.pdb")
-    # # for batch in train_loader:
-    #     traj_s = create_trajectory_from_batch(
-    #         batch, batch.output_xyz, write_native=True
-    #     )
-
 
 def to_pt():
     # base_dir = BASE / "pdb.processed"
-    base_dir = BASE / "pdb.pisces"
-    base_dir = BASE / "pdb.top8000"
+    # base_dir = BASE / "pdb.pisces"
+    base_dir = BASE / "pdb.cath"
+    # base_dir = BASE / "md.pisces"
     pdblist = base_dir / "targets"
     cg_model = libcg.CalphaBasedModel
     #

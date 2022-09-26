@@ -19,8 +19,8 @@ class ResidueBasedModel(PDB):
     n_edge_scalar = 3
     n_edge_vector = 0
 
-    def __init__(self, pdb_fn, dcd_fn=None):
-        super().__init__(pdb_fn, dcd_fn)
+    def __init__(self, pdb_fn, dcd_fn=None, **kwarg):
+        super().__init__(pdb_fn, dcd_fn, **kwarg)
         self.max_bead_type = MAX_RESIDUE_TYPE
         self.convert_to_cg()
 
@@ -150,8 +150,8 @@ class ResidueBasedModel(PDB):
 
 
 class CalphaBasedModel(ResidueBasedModel):
-    def __init__(self, pdb_fn, dcd_fn=None):
-        super().__init__(pdb_fn, dcd_fn)
+    def __init__(self, pdb_fn, dcd_fn=None, **kwarg):
+        super().__init__(pdb_fn, dcd_fn, **kwarg)
 
     def convert_to_cg(self):
         # r: (n_frame, n_residue, MAX_ATOM, 3)

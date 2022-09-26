@@ -5,7 +5,7 @@ import sys
 import pathlib
 import torch
 
-BASE = pathlib.Path(__file__).parents[1]
+BASE = pathlib.Path(__file__).parents[1].resolve()
 LIB_HOME = BASE / "lib"
 DATA_HOME = BASE / "data"
 

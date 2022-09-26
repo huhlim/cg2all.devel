@@ -211,6 +211,13 @@ def main():
     pdblist_test = pdb_dir / "targets.test"
     pdblist_val = pdb_dir / "targets.valid"
     #
+    if config.train.md_frame > 0:
+        use_md=True
+        n_frame = config.train.md_frame
+    else:
+        use_md=False
+        n_frame=1
+    #
     _PDBset = functools.partial(
         PDBset,
         cg_model=cg_model,
@@ -219,6 +226,8 @@ def main():
         get_structure_information=True,
         random_rotation=True,
         use_pt="CA",
+        use_md=use_md,
+        n_frame=n_frame,
     )
     batch_size = config.train.batch_size
     _DataLoader = functools.partial(
