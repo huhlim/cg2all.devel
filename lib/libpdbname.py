@@ -302,7 +302,11 @@ def update_by_special_method(R, atom_mask, i_res, ref_res, amb):
     # let's swap
     swap = np.abs(t_ang0) > np.abs(t_ang1)
     if np.any(swap):
-        R[swap, i_res, (index_amb[1], index_amb[0]), :] = R[swap, i_res, index_amb, :]
+        before = (index_amb[0], index_amb[1])
+        after = (index_amb[1], index_amb[0])
+        for i,s in enumerate(swap):
+            if s:
+                R[i, i_res, before, :] = R[i, i_res, after, :]
 
 
 def update_by_guanidium_method(R, atom_mask, i_res, ref_res):
