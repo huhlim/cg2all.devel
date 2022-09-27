@@ -491,10 +491,10 @@ RIGID_GROUPS_TENSOR = torch.as_tensor(rigid_groups_tensor)
 RIGID_GROUPS_DEP = torch.as_tensor(rigid_groups_dep, dtype=torch.long)
 RIGID_GROUPS_DEP[RIGID_GROUPS_DEP == -1] = MAX_RIGID - 1
 
-MAX_TORSION_ENERGY = 46
-MAX_TORSION_ENERGY_TERM = 3
+MAX_TORSION_ENERGY = 5
+MAX_TORSION_ENERGY_TERM = 17
 torsion_energy_tensor = np.zeros(
-    (MAX_RESIDUE_TYPE, MAX_TORSION_ENERGY, MAX_TORSION_ENERGY_TERM, 3), dtype=float
+    (MAX_RESIDUE_TYPE, MAX_TORSION_ENERGY, MAX_TORSION_ENERGY_TERM, 5), dtype=float
 )
 torsion_energy_dep = np.tile(np.array([0, 1, 2, 3]), [MAX_RESIDUE_TYPE, MAX_TORSION_ENERGY, 1])
 if os.path.exists(DATA_HOME / "torsion_energy_terms.json"):
@@ -503,9 +503,9 @@ if os.path.exists(DATA_HOME / "torsion_energy_terms.json"):
     for i, residue_name in enumerate(AMINO_ACID_s):
         if residue_name == "UNK":
             continue
-        n = len(X[residue_name][0])
-        if n > 0:
-            torsion_energy_dep[i, :n] = np.array(X[residue_name][0])
-            torsion_energy_tensor[i, :n] = np.array(X[residue_name][1])
+        for j in range(len(X[residue_name][0])):
+            torsion_energy_dep[i, j] = np.array(X[residue_name][0][j])
+            for k, term in enumerate(X[residue_name][1][j]):
+                torsion_energy_tensor[i, j, k] = np.array(term)
 TORSION_ENERGY_TENSOR = torch.as_tensor(torsion_energy_tensor)
 TORSION_ENERGY_DEP = torch.as_tensor(torsion_energy_dep, dtype=torch.long)

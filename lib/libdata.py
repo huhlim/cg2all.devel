@@ -5,10 +5,13 @@ import numpy as np
 import pathlib
 import mdtraj
 from typing import List
+import warnings
+warnings.filterwarnings("ignore")
 
 import torch
 from torch.utils.data import Dataset
 
+import tqdm
 import e3nn
 import dgl
 
@@ -338,9 +341,10 @@ def to_pt():
     import time
 
     t0 = time.time()
-    for _ in train_loader:
-        print(time.time() - t0)
-        t0 = time.time()
+    for _ in tqdm.tqdm(train_loader):
+        pass
+        # print(time.time() - t0)
+        # t0 = time.time()
 
 
 if __name__ == "__main__":

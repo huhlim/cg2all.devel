@@ -419,7 +419,7 @@ def loss_f_torsion_angle_class(batch: dgl.DGLGraph, sc: torch.Tensor, width=15.0
     return loss
 
 
-def loss_f_torsion_energy(batch: dgl.DGLGraph, R: torch.Tensor, TORSION_PARs):
+def loss_f_torsion_energy(batch: dgl.DGLGraph, R: torch.Tensor, TORSION_PARs, energy_clamp=0.0):
     residue_type = batch.ndata["residue_type"]
     n_residue = residue_type.size(0)
     par = TORSION_PARs[0][residue_type]
@@ -428,8 +428,9 @@ def loss_f_torsion_energy(batch: dgl.DGLGraph, R: torch.Tensor, TORSION_PARs):
     r = torch.take_along_dim(R, atom_index.view(n_residue, -1, 1), 1).view(n_residue, -1, 4, 3)
     t_ang = torsion_angle(r)
     #
-    t_ang = t_ang[..., None] * par[..., 1] - par[..., 2]
-    energy = par[..., 0] * (1.0 + torch.cos(t_ang))
+    t_ang = (t_ang[..., None] + par[..., 3]) * par[..., 1] - par[..., 2]
+    energy = (par[..., 0] * (1.0 + torch.cos(t_ang))).sum(-1) - par[..., 0, 4]
+    energy = torch.clamp(energy - energy_clamp, min=0.0)
     return torch.sum(energy) / n_residue
 
 
@@ -454,7 +455,7 @@ def test():
     train_loader = dgl.dataloading.GraphDataLoader(
         train_set, batch_size=2, shuffle=False, num_workers=1
     )
-    cuda = True
+    cuda = False
     batch = next(iter(train_loader))
     if cuda:
         batch = batch.to("cuda")
@@ -485,8 +486,14 @@ def test():
     )
     TORSION_PARs = (TORSION_ENERGY_TENSOR.to(device), TORSION_ENERGY_DEP.to(device))
     #
-    print(loss_f_atomic_clash(native, R_ref, RIGID_OPs))
-    print(loss_f_atomic_clash(native, R_model, RIGID_OPs))
+    # print(loss_f_atomic_clash(native, R_ref, RIGID_OPs))
+    # print(loss_f_atomic_clash(native, R_model, RIGID_OPs))
+    print(loss_f_torsion_energy(native, R_ref, TORSION_PARs, energy_clamp=0.0))
+    print(loss_f_torsion_energy(native, R_model, TORSION_PARs, energy_clamp=0.0))
+    print(loss_f_torsion_energy(native, R_ref, TORSION_PARs, energy_clamp=0.6))
+    print(loss_f_torsion_energy(native, R_model, TORSION_PARs, energy_clamp=0.6))
+    print(loss_f_torsion_energy(native, R_ref, TORSION_PARs, energy_clamp=1.0))
+    print(loss_f_torsion_energy(native, R_model, TORSION_PARs, energy_clamp=1.0))
 
 
 if __name__ == "__main__":

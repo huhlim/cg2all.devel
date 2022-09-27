@@ -226,8 +226,14 @@ def get_rigid_body_transformation_between_frames(rigid_group_s):
 
 
 def build_torsion_energy_table(residue_s, par_dihed_s):
-    MAX_TORSION_ENERGY = 46  # for Lys
-    MAX_TORSION_ENERGY_TERM = 3
+    def get_min_value(p):
+        if len(p) < 2:
+            return 0.0
+        t_ang = np.linspace(-np.pi, np.pi, 36001)
+        x = t_ang[..., None] * p[..., 1] - p[..., 2]
+        energy = (p[..., 0] * (1.0 + np.cos(x))).sum(-1)
+        return energy.min()
+
     #
     table_s = {}
     for residue_index, residue_name in enumerate(AMINO_ACID_s):
@@ -239,11 +245,13 @@ def build_torsion_energy_table(residue_s, par_dihed_s):
         residue = residue_s[residue_name]
         for torsion_atom_index in residue.find_1_N_pair(N=4):
             atom_s = [residue.atom_s[atom_index] for atom_index in torsion_atom_index]
-            if atom_s[-1] == "O":  # is not purely dependent on a residue's atoms
-                continue
-            #
             rigid_group_index = rigid_groups_dep[residue_index, torsion_atom_index]
-            if rigid_group_index[0] == rigid_group_index[-1]:  # is rigid
+            if np.all(rigid_group_index < 3):  # is not purely dependent on a residue's atoms
+                continue
+            rigid_group_unique = np.unique(rigid_group_index, return_counts=True)
+            rigid_group_leaf = max(rigid_group_unique[0])
+            n_leaf = rigid_group_unique[1][rigid_group_unique[0] == rigid_group_leaf]
+            if n_leaf >= 2:
                 continue
             #
             type_s = tuple([residue.atom_type_s[atom_index] for atom_index in torsion_atom_index])
@@ -265,6 +273,9 @@ def build_torsion_energy_table(residue_s, par_dihed_s):
                 [np.array(par, dtype=float), np.zeros((3 - len(par), 3), dtype=float)]
             )
             if par[:, 0].sum() > 0.0:
+                energy_min = get_min_value(par)
+                energy_min = [[energy_min], [0], [0]]
+                par = np.concatenate([par, energy_min], axis=1)
                 table_s[residue_name][0].append(torsion_atom_index)
                 table_s[residue_name][1].append(par.tolist())
     #
@@ -272,13 +283,109 @@ def build_torsion_energy_table(residue_s, par_dihed_s):
         fout.write(json.dumps(table_s, indent=2))
 
 
+def build_torsion_energy_table_new(residue_s, par_dihed_s):
+    def get_min_value(p):
+        t_ang = np.linspace(-np.pi, np.pi, 36001)
+        x = (t_ang[..., None] + p[..., 3]) * p[..., 1] - p[..., 2]
+        energy = (p[..., 0] * (1.0 + np.cos(x))).sum(-1)
+        return energy.min()
+
+    table_s = {}
+    for residue_index, residue_name in enumerate(AMINO_ACID_s):
+        if residue_name == "UNK":
+            continue
+        #
+        table_s[residue_name] = [[], []]
+        #
+        residue = residue_s[residue_name]
+        R = residue.R
+        #
+        axes = {}
+        for torsion_atom_index in residue.find_1_N_pair(N=4):
+            atom_s = [residue.atom_s[atom_index] for atom_index in torsion_atom_index]
+            rigid_group_index = rigid_groups_dep[residue_index, torsion_atom_index]
+            if np.all(rigid_group_index < 3):  # is not purely dependent on a residue's atoms
+                continue
+            rigid_group_unique = np.unique(rigid_group_index, return_counts=True)
+            rigid_group_leaf = max(rigid_group_unique[0])
+            n_leaf = rigid_group_unique[1][rigid_group_unique[0] == rigid_group_leaf]
+            if n_leaf >= 2:
+                continue
+            if rigid_group_index[0] > rigid_group_index[-1]:
+                torsion_atom_index = torsion_atom_index[::-1]
+                atom_s = atom_s[::-1]
+                rigid_group_index = rigid_group_index[::-1]
+            #
+            axes_atom = tuple(atom_s[1:3])
+            if axes_atom not in axes:
+                axes[axes_atom] = []
+            #
+            type_s = tuple([residue.atom_type_s[atom_index] for atom_index in torsion_atom_index])
+            type_rev_s = type_s[::-1]
+            type_x = tuple(["X", type_s[1], type_s[2], "X"])
+            type_rev_x = type_x[::-1]
+            if type_s in par_dihed_s:
+                par = par_dihed_s[type_s]
+            elif type_rev_s in par_dihed_s:
+                par = par_dihed_s[type_rev_s]
+            elif type_x in par_dihed_s:
+                par = par_dihed_s[type_x]
+            elif type_rev_x in par_dihed_s:
+                par = par_dihed_s[type_rev_x]
+            else:
+                raise KeyError(type_s)
+            #
+            axes[axes_atom].append((atom_s, par))
+        #
+        for axes_atom, value_s in axes.items():
+            tor_axes = None
+            for tor in torsion_s[residue_name][3:]:
+                if tor.atom_s[1:3] == list(axes_atom):
+                    tor_axes = tor.atom_s[:4]
+                    break
+
+            r = []
+            tor_ref = -1
+            for ii, (atom_s, _) in enumerate(value_s):
+                if tor_ref < 0 and (tor_axes is None or tor_axes == atom_s):
+                    tor_ref = ii
+                r.append([R.get(atom) for atom in atom_s])
+            r = np.array(r)
+            t_ang_s = torsion_angle(r)
+            t_ang_s -= t_ang_s[tor_ref]
+            #
+            _par_s = []
+            for t_ang, (_, par) in zip(t_ang_s, value_s):
+                for p in par:
+                    # p[0] * (1+cos(p[1] * (x + p[-1]) - p[2]))
+                    p = p.tolist() + [t_ang]
+                    _par_s.append(p)
+            #
+            torsion_atom_index = [residue.atom_s.index(atom) for atom in value_s[tor_ref][0]]
+            #
+            energy_min = get_min_value(np.array(_par_s))
+            par_s = []
+            for ii, par in enumerate(_par_s):
+                if ii == 0:
+                    par_s.append(par + [energy_min])
+                else:
+                    par_s.append(par + [0.0])
+            #
+            table_s[residue_name][0].append(torsion_atom_index)
+            table_s[residue_name][1].append(par_s)
+
+    with open(DATA_HOME / "torsion_energy_terms.json", "wt") as fout:
+        fout.write(json.dumps(table_s, indent=2))
+
+
 def main():
-    # for residue in residue_s.values():
-    #     residue.R = build_structure_from_ic(residue)
+    for residue in residue_s.values():
+        residue.R = build_structure_from_ic(residue)
     #
     # rigid_group_s = get_rigid_groups(residue_s, torsion_s)
     # get_rigid_body_transformation_between_frames(rigid_group_s)
-    build_torsion_energy_table(residue_s, par_dihed_s)
+    # build_torsion_energy_table(residue_s, par_dihed_s)
+    build_torsion_energy_table_new(residue_s, par_dihed_s)
 
 
 if __name__ == "__main__":
