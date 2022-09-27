@@ -42,7 +42,7 @@ BOND_LENGTH0 = 0.1345
 BOND_LENGTH_PROLINE_RING = 0.1455
 BOND_LENGTH_DISULFIDE = 0.2029
 
-BOND_ANGLE0 = (np.deg2rad(120.0), np.deg2rad(116.5))
+BOND_ANGLE0 = (np.deg2rad(116.5), np.deg2rad(120.0))
 TORSION_ANGLE0 = (np.deg2rad(0.0), np.deg2rad(180.0))
 
 AMINO_ACID_ALT_s = {"HIS": "HSD", "MSE": "MET"}

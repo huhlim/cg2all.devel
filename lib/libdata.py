@@ -6,6 +6,7 @@ import pathlib
 import mdtraj
 from typing import List
 import warnings
+
 warnings.filterwarnings("ignore")
 
 import torch
