@@ -36,7 +36,7 @@ if IS_DEVELOP:
 
 
 class Model(pl.LightningModule):
-    def __init__(self, _config, cg_model, compute_loss=False, memcheck=False):
+    def __init__(self, _config={}, cg_model=CalphaBasedModel, compute_loss=False, memcheck=False):
         super().__init__()
         self._config = _config
         self.save_hyperparameters(_config.to_dict())
@@ -59,6 +59,9 @@ class Model(pl.LightningModule):
     def on_test_start(self):
         if not hasattr(self.model, "RIGID_OPs"):
             self.model.set_constant_tensors(self.device, dtype=self.dtype)
+
+    def on_predict_start(self):
+        self.on_test_start()
 
     def on_train_batch_start(self, batch, batch_idx):
         if self.device.type == "cuda":
@@ -142,6 +145,10 @@ class Model(pl.LightningModule):
         self.log("test_metric", metric, prog_bar=True, batch_size=bs, on_epoch=True, on_step=False)
         return {"loss": loss_sum, "metric": metric, "out": out}
 
+    def predict_step(self, batch, batch_idx):
+        out, loss, metric = self.forward(batch)
+        self.write_pdb(batch, out, f"test_{batch_idx}", log_dir=self.output_dir)
+
     def validation_step(self, batch, batch_idx):
         out, loss, metric = self.forward(batch)
         loss_sum, loss_s = self.get_loss_sum(loss)
@@ -156,8 +163,9 @@ class Model(pl.LightningModule):
         return {"loss": loss_sum, "metric": metric, "out": out}
 
     @pl.utilities.rank_zero_only
-    def write_pdb(self, batch, out, prefix, write_native=True):
-        log_dir = pathlib.Path(self.logger.log_dir)
+    def write_pdb(self, batch, out, prefix, write_native=True, log_dir=None):
+        if log_dir is None:
+            log_dir = pathlib.Path(self.logger.log_dir)
         traj_s, ssbond_s = create_trajectory_from_batch(batch, out["R"], write_native=True)
         for i, (traj, ssbond) in enumerate(zip(traj_s, ssbond_s)):
             out_f = log_dir / f"{prefix}_{i}.pdb"
@@ -212,11 +220,11 @@ def main():
     pdblist_val = pdb_dir / "targets.valid"
     #
     if config.train.md_frame > 0:
-        use_md=True
+        use_md = True
         n_frame = config.train.md_frame
     else:
-        use_md=False
-        n_frame=1
+        use_md = False
+        n_frame = 1
     #
     _PDBset = functools.partial(
         PDBset,
@@ -230,8 +238,9 @@ def main():
         n_frame=n_frame,
     )
     batch_size = config.train.batch_size
+    n_runner = max(1, torch.cuda.device_count())
     _DataLoader = functools.partial(
-        dgl.dataloading.GraphDataLoader, batch_size=batch_size, num_workers=N_PROC
+        dgl.dataloading.GraphDataLoader, batch_size=batch_size, num_workers=(N_PROC // n_runner)
     )
     # define train/val/test sets
     train_set = _PDBset(pdb_dir, pdblist_train, crop=config.train.crop_size)
