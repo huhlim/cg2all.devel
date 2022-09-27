@@ -249,8 +249,8 @@ def loss_f_bonded_energy_aux(batch: dgl.DGLGraph, R: torch.Tensor):
         R_pro_N = R[proline, ATOM_INDEX_N]
         R_pro_CD = R[proline, ATOM_INDEX_PRO_CD]
         d_pro = v_size(R_pro_N - R_pro_CD)
-        bond_energy_pro = torch.mean(torch.abs(d_pro - BOND_LENGTH_PROLINE_RING))
-        # bond_energy_pro = torch.sum(torch.abs(d_pro - BOND_LENGTH_PROLINE_RING)) / R.size(0)
+        # bond_energy_pro = torch.mean(torch.abs(d_pro - BOND_LENGTH_PROLINE_RING))
+        bond_energy_pro = torch.sum(torch.abs(d_pro - BOND_LENGTH_PROLINE_RING)) / R.size(0)
     else:
         bond_energy_pro = 0.0
 
@@ -269,10 +269,10 @@ def loss_f_bonded_energy_aux(batch: dgl.DGLGraph, R: torch.Tensor):
         R_cys_0 = _R[cys_0_index, ATOM_INDEX_CYS_SG]
         R_cys_1 = _R[cys_1_index, ATOM_INDEX_CYS_SG]
         d_ssbond = v_size(R_cys_1 - R_cys_0)
-        bond_energy_ssbond = bond_energy_ssbond + torch.mean(
-            torch.abs(d_ssbond - BOND_LENGTH_DISULFIDE)
-        )
-        # bond_energy_ssbond = bond_energy_ssbond + torch.sum(torch.abs(d_ssbond - BOND_LENGTH_DISULFIDE)) / R.size(0)
+        # bond_energy_ssbond = bond_energy_ssbond + torch.mean(
+        #     torch.abs(d_ssbond - BOND_LENGTH_DISULFIDE)
+        # )
+        bond_energy_ssbond = bond_energy_ssbond + torch.sum(torch.abs(d_ssbond - BOND_LENGTH_DISULFIDE)) / R.size(0)
 
     return bond_energy_pro + bond_energy_ssbond
 
