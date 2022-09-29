@@ -15,7 +15,10 @@ import torch
 import dgl
 import pytorch_lightning as pl
 
-sys.path.insert(0, "lib")
+BASE = pathlib.Path(__file__).parents[1].resolve()
+LIB_HOME = str(BASE / "lib")
+sys.path.insert(0, LIB_HOME)
+
 from libdata import PDBset, create_trajectory_from_batch
 from libcg import ResidueBasedModel, CalphaBasedModel, Martini
 from libpdb import write_SSBOND
@@ -24,6 +27,7 @@ import libmodel
 import warnings
 
 warnings.filterwarnings("ignore")
+# torch.autograd.set_detect_anomaly(True)
 
 torch.multiprocessing.set_sharing_strategy("file_system")
 
@@ -119,14 +123,24 @@ class Model(pl.LightningModule):
                 {
                     "model": self.model.state_dict(),
                     "batch": batch,
-                    "out": out,
                     "loss_s": loss_s,
                     "metric": metric,
                 },
                 log_dir / "error.pt",
             )
-            raise ValueError(out, loss_s, metric)
-        #
+            raise ValueError(loss_s, metric)
+        # else:
+        #     log_dir = pathlib.Path(self.logger.log_dir)
+        #     torch.save(
+        #         {
+        #             "model": self.model.state_dict(),
+        #             "batch": batch,
+        #             "loss_s": loss_s,
+        #             "metric": metric,
+        #         },
+        #         log_dir / "normal.pt",
+        #     )
+        # #
         bs = batch.batch_size
         self.log("train_loss", loss_s, batch_size=bs, on_epoch=True, on_step=False)
         self.log(
@@ -162,13 +176,15 @@ class Model(pl.LightningModule):
         self.log("val_metric", metric, prog_bar=True, batch_size=bs, on_epoch=True, on_step=False)
         return {"loss": loss_sum, "metric": metric, "out": out}
 
-    @pl.utilities.rank_zero_only
     def write_pdb(self, batch, out, prefix, write_native=True, log_dir=None):
         if log_dir is None:
             log_dir = pathlib.Path(self.logger.log_dir)
         traj_s, ssbond_s = create_trajectory_from_batch(batch, out["R"], write_native=True)
         for i, (traj, ssbond) in enumerate(zip(traj_s, ssbond_s)):
-            out_f = log_dir / f"{prefix}_{i}.pdb"
+            try:
+                out_f = log_dir / f"{prefix}_{self.global_rank}_{i}.pdb"
+            except:
+                out_f = log_dir / f"{prefix}_{i}.pdb"
             try:
                 traj.save(out_f)
                 if len(ssbond) > 0:

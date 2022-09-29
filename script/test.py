@@ -15,7 +15,10 @@ import torch
 import dgl
 import pytorch_lightning as pl
 
-sys.path.insert(0, "lib")
+BASE = pathlib.Path(__file__).parents[1].resolve()
+LIB_HOME = str(BASE / "lib")
+sys.path.insert(0, LIB_HOME)
+
 from libdata import PDBset, create_trajectory_from_batch
 from libcg import ResidueBasedModel, CalphaBasedModel, Martini
 from libpdb import write_SSBOND
