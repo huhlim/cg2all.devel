@@ -19,26 +19,39 @@ class PDB(object):
         load_index = pdb.top.select("protein or (resname HSD or resname HSE or resname MSE)")
         if dcd_fn is None:
             self.is_dcd = False
-            self.traj = pdb.atom_slice(load_index)
+            traj = pdb.atom_slice(load_index)
         else:
             self.is_dcd = True
             if frame_index is None:
-                self.traj = mdtraj.load(dcd_fn, top=pdb.top, atom_indices=load_index, stride=stride)
+                traj = mdtraj.load(dcd_fn, top=pdb.top, atom_indices=load_index, stride=stride)
             else:
-                self.traj = mdtraj.load_frame(dcd_fn, frame_index, top=pdb.top, atom_indices=load_index, stride=stride)
-        self.top = self.traj.top
+                traj = mdtraj.load_frame(
+                    dcd_fn, frame_index, top=pdb.top, atom_indices=load_index, stride=stride
+                )
+        self.process(traj, pdb_fn)
+
+    def process(self, traj, pdb_fn):
+        self.traj = traj
+        self.top = traj.top
         #
         self.n_frame = self.traj.n_frames
         self.n_chain = self.top.n_chains
         self.n_residue = self.top.n_residues
-        self.chain_index = np.array([r.chain.index for r in self.top.residues], dtype=np.int16)
+        self.chain_index = np.array([r.chain.index for r in self.top.residues], dtype=int)
         self.residue_name = []
-        self.residue_index = np.zeros(self.n_residue, dtype=np.int16)
+        self.residue_index = np.zeros(self.n_residue, dtype=int)
         #
         self.detect_ssbond(pdb_fn)
         #
         self.to_atom()
         self.get_continuity()
+        #
+        is_valid, valid_index = self.check_validity()
+        if is_valid:
+            return
+        else:
+            traj_valid = traj.atom_slice(valid_index)
+            self.process(traj_valid, pdb_fn)
 
     def detect_ssbond(self, pdb_fn):
         chain_s = []
@@ -134,7 +147,25 @@ class PDB(object):
         dr = self.R[:, 1:, ATOM_INDEX_N] - self.R[:, :-1, ATOM_INDEX_C]
         d = v_size(dr).mean(axis=0)
         self.continuous[d > BOND_LENGTH0 * 2.0] = 0.0
+        #
+        has_backbone = np.all(self.atom_mask_pdb[:, :4] > 0.0, axis=-1)
+        self.continuous[~has_backbone[:-1]] = 0.0
+
         self.continuous = np.concatenate([[0], self.continuous])
+
+    def check_validity(self):
+        valid = np.zeros_like(self.continuous, dtype=bool)
+        valid[self.continuous > 0.0] = True
+        valid[:-1][self.continuous[1:] > 0.0] = True
+        #
+        if np.all(valid):
+            return True, None
+        else:
+            valid_s = []
+            for i_res in np.where(valid > 0.0)[0]:
+                valid_s.extend([atom.index for atom in self.top.residue(i_res).atoms])
+            valid_s = np.array(valid_s)
+            return False, valid_s
 
     # create a new topology based on the standard residue definitions
     def create_new_topology(self):
