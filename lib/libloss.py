@@ -28,6 +28,7 @@ from torch_basics import (
     v_norm_safe,
     inner_product,
     rotate_vector_inv,
+    acos_safe,
     pi,
     torsion_angle,
 )
@@ -54,7 +55,7 @@ def loss_f(batch, ret, loss_weight, loss_prev=None, RIGID_OPs=None, TORSION_PARs
         )
     if loss_weight.get("bonded_energy", 0.0) > 0.0:
         loss["bonded_energy"] = (
-            loss_f_bonded_energy(batch, R, weight_s=(1.0, 1.0, 0.0))
+            loss_f_bonded_energy(batch, R, weight_s=(1.0, 0.5, 0.0))
             + loss_f_bonded_energy_aux(batch, R)
         ) * loss_weight.bonded_energy
     if loss_weight.get("distance_matrix", 0.0) > 0.0:
@@ -215,8 +216,7 @@ def loss_f_bonded_energy(batch: dgl.DGLGraph, R: torch.Tensor, weight_s=(1.0, 0.
     #
     # bond angles
     def bond_angle(v1, v2):
-        # torch.acos is unstable around -1 and 1 -> added EPS
-        return torch.acos(torch.clamp(inner_product(v1, v2), -1.0 + EPS, 1.0 - EPS))
+        return acos_safe(inner_product(v1, v2))
 
     v0 = v0 / d0[..., None]
     v1 = v1 / d1[..., None]
@@ -272,34 +272,11 @@ def loss_f_bonded_energy_aux(batch: dgl.DGLGraph, R: torch.Tensor):
         # bond_energy_ssbond = bond_energy_ssbond + torch.mean(
         #     torch.abs(d_ssbond - BOND_LENGTH_DISULFIDE)
         # )
-        bond_energy_ssbond = bond_energy_ssbond + torch.sum(torch.abs(d_ssbond - BOND_LENGTH_DISULFIDE)) / R.size(0)
+        bond_energy_ssbond = bond_energy_ssbond + torch.sum(
+            torch.abs(d_ssbond - BOND_LENGTH_DISULFIDE)
+        ) / R.size(0)
 
     return bond_energy_pro + bond_energy_ssbond
-
-
-def loss_f_torsion_angle_old(
-    batch: dgl.DGLGraph,
-    sc: torch.Tensor,
-    sc0: Optional[torch.Tensor] = None,
-    norm_weight: float = 0.01,
-):
-    sc_ref = batch.ndata["correct_torsion"]
-    mask = batch.ndata["torsion_mask"]
-    #
-    sc_cos = torch.cos(sc_ref)
-    sc_sin = torch.sin(sc_ref)
-    #
-    loss_cos = torch.sum(torch.abs(sc[:, :, 0] - sc_cos) * mask)
-    loss_sin = torch.sum(torch.abs(sc[:, :, 1] - sc_sin) * mask)
-
-    if sc0 is not None and norm_weight > 0.0:
-        norm = v_size(sc0)
-        loss_norm = torch.sum(torch.abs(norm - 1.0) * mask)
-        loss = loss_cos + loss_sin + loss_norm * norm_weight
-    else:
-        loss = loss_cos + loss_sin
-    loss = loss / sc.size(0)
-    return loss
 
 
 def loss_f_torsion_angle(

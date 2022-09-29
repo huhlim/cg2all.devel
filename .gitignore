@@ -6,6 +6,8 @@ pdb/*.dat
 pdb.processed/*.dat
 pdb.pisces
 pdb.top8000
+pdb.29k
+md.pisces
 lightning_logs
 logs
 .DS_Store

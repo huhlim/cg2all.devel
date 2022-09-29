@@ -38,13 +38,17 @@ def angle_sign(x):
     return s
 
 
+def acos_safe(x, eps=EPS):
+    # torch.acos is unstable around -1 and 1 -> added EPS
+    return torch.acos(torch.clamp(x, -1.0 + eps, 1.0 - eps))
+
+
 def torsion_angle(R: torch.Tensor) -> torch.Tensor:
     torsion_axis = v_norm(R[..., 2, :] - R[..., 1, :])
-    v0 = v_norm(R[..., 0, :] - R[..., 1, :])
-    v1 = v_norm(R[..., 3, :] - R[..., 2, :])
-    n0 = v_norm_safe(torch.linalg.cross(v0, torsion_axis, dim=-1))
-    n1 = v_norm_safe(torch.linalg.cross(v1, torsion_axis, dim=-1))
-    # torch.acos is unstable around -1 and 1 -> added EPS
-    angle = torch.acos(torch.clamp(inner_product(n0, n1), -1.0+EPS, 1.0-EPS))
+    v0 = v_norm_safe(R[..., 0, :] - R[..., 1, :], index=0)
+    v1 = v_norm_safe(R[..., 3, :] - R[..., 2, :], index=1)
+    n0 = v_norm_safe(torch.linalg.cross(v0, torsion_axis, dim=-1), index=0)
+    n1 = v_norm_safe(torch.linalg.cross(v1, torsion_axis, dim=-1), index=1)
+    angle = acos_safe(inner_product(n0, n1))
     sign = angle_sign(inner_product(v0, n1))
     return angle * sign
