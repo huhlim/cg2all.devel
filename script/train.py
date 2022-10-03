@@ -279,15 +279,16 @@ def main():
             dirpath=trainer_kwargs["logger"].log_dir, monitor="val_loss_sum"
         )
     ]
-    trainer_kwargs["plugins"] = (
-        [pl.plugins.environments.SLURMEnvironment(auto_requeue=True)] if arg.requeue else []
-    )
     #
     n_gpu = torch.cuda.device_count()
     trainer_kwargs["accelerator"] = "gpu" if n_gpu > 0 else "cpu"
     if n_gpu >= 2:
         trainer_kwargs["strategy"] = pl.strategies.DDPStrategy(static_graph=True)
         trainer_kwargs["devices"] = n_gpu
+    else:
+        trainer_kwargs["plugins"] = (
+            [pl.plugins.environments.SLURMEnvironment(auto_requeue=True)] if arg.requeue else []
+        )
     #
     trainer = pl.Trainer(**trainer_kwargs)
     trainer.fit(model, train_loader, val_loader, ckpt_path=arg.ckpt_fn)

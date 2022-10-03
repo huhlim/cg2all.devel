@@ -215,7 +215,6 @@ class PDB(object):
 
     # get torsion angles for a residue
     def get_torsion_angles(self, i_res):
-        # weight_s = np.array([0.1, 0.5, 1.0, 1.0, 0.5, 0.25, 0.0, 0.0])
         residue_name = self.residue_name[i_res]
         ref_res = residue_s[residue_name]
         #
@@ -233,7 +232,6 @@ class PDB(object):
                 continue
             #
             t_ang = torsion_angle(self.R[:, i_res, index, :]) - t_ang0
-            # torsion_mask[tor.i - 1] = weight_s[tor.i - 1]
             torsion_mask[tor.i - 1] = 1.0
             torsion_angle_s[:, tor.i - 1] = t_ang
         return torsion_mask, torsion_angle_s
@@ -243,8 +241,6 @@ class PDB(object):
         self.bb_mask = np.zeros(self.n_residue, dtype=float)
         self.bb = np.zeros((self.n_frame, self.n_residue, 4, 3), dtype=float)
         self.torsion_mask = np.zeros((self.n_residue, MAX_TORSION), dtype=float)
-        self.torsion_shift = np.zeros((self.n_residue, MAX_TORSION), dtype=float)
-        self.torsion_param = np.zeros((self.n_residue, MAX_TORSION, 5, 2), dtype=float)
         self.torsion = np.zeros((self.n_frame, self.n_residue, MAX_TORSION), dtype=float)
         for i_res in range(self.n_residue):
             mask, opr_s = self.get_backbone_orientation(i_res)
@@ -355,11 +351,11 @@ def generate_structure_from_bb_and_torsion(residue_index, bb, torsion):
 
 
 if __name__ == "__main__":
-    # pdb = PDB("pdb.processed/1ab1_A.pdb")
+    pdb = PDB("pdb.processed/1ab1_A.pdb")
     # pdb = PDB("pdb.processed/1UBQ.pdb")
-    # pdb.get_structure_information()
+    pdb.get_structure_information()
     #
-    job = "../dyna/run/1a2p_B"
-    pdb = PDB(f"{job}/init/solute.pdb", dcd_fn=f"{job}/prod/0/0/solute.dcd")
+    # job = "../dyna/run/1a2p_B"
+    # pdb = PDB(f"{job}/init/solute.pdb", dcd_fn=f"{job}/prod/0/0/solute.dcd")
 
 # %%

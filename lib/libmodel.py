@@ -63,8 +63,9 @@ CONFIG["globals"]["loss_weight"].update(
         "bonded_energy": 1.0,
         "distance_matrix": 0.0,
         "rotation_matrix": 1.0,
-        "torsion_angle": 2.0,
-        "torsion_energy": 0.05,
+        "backbone_torsion": 0.0,
+        "torsion_angle": 5.0,
+        "torsion_energy": 0.1,
         "atomic_clash": 1.0,
     }
 )
@@ -82,7 +83,7 @@ STRUCTURE_MODULE["num_graph_layers"] = 4
 STRUCTURE_MODULE["num_linear_layers"] = 4
 STRUCTURE_MODULE["num_heads"] = 8  # number of attention heads
 STRUCTURE_MODULE["norm"] = [True, True]  # norm between attention blocks / within attention blocks
-STRUCTURE_MODULE["nonlinearity"] = "relu"
+STRUCTURE_MODULE["nonlinearity"] = "elu"
 
 # fiber_in: is determined by input features
 STRUCTURE_MODULE["fiber_in"] = None

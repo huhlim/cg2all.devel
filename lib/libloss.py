@@ -17,7 +17,6 @@ from residue_constants import (
     BOND_LENGTH_PROLINE_RING,
     BOND_LENGTH_DISULFIDE,
     BOND_ANGLE0,
-    TORSION_ANGLE0,
 )
 
 from libconfig import DTYPE, EPS
@@ -51,18 +50,20 @@ def loss_f(batch, ret, loss_weight, loss_prev=None, RIGID_OPs=None, TORSION_PARs
         loss["FAPE_all"] = loss_f_FAPE_all(batch, R, opr_bb, d_clamp=1.0) * loss_weight.FAPE_all
     if loss_weight.get("rotation_matrix", 0.0) > 0.0:
         loss["rotation_matrix"] = (
-            loss_f_rotation_matrix(batch, ret["bb"], ret["bb0"]) * loss_weight.rotation_matrix
+            loss_f_rotation_matrix(batch, ret["bb"], ret.get("bb0", None))
+            * loss_weight.rotation_matrix
         )
     if loss_weight.get("bonded_energy", 0.0) > 0.0:
         loss["bonded_energy"] = (
-            loss_f_bonded_energy(batch, R, weight_s=(1.0, 0.5, 0.0))
-            + loss_f_bonded_energy_aux(batch, R)
+            loss_f_bonded_energy(batch, R, weight_s=(1.0, 0.5)) + loss_f_bonded_energy_aux(batch, R)
         ) * loss_weight.bonded_energy
     if loss_weight.get("distance_matrix", 0.0) > 0.0:
         loss["distance_matrix"] = loss_f_distance_matrix(batch, R) * loss_weight.distance_matrix
+    if loss_weight.get("backbone_torsion", 0.0) > 0.0:
+        loss["backbone_torsion"] = loss_f_backbone_torsion(batch, R) * loss_weight.backbone_torsion
     if loss_weight.get("torsion_angle", 0.0) > 0.0:
         loss["torsion_angle"] = (
-            loss_f_torsion_angle(batch, ret["sc"], sc0=ret["sc0"])
+            loss_f_torsion_angle(batch, ret["sc"], sc0=ret.get("sc0", None))
         ) * loss_weight.torsion_angle
     if loss_weight.get("torsion_energy", 0.0) > 0.0:
         loss["torsion_energy"] = (
@@ -70,7 +71,7 @@ def loss_f(batch, ret, loss_weight, loss_prev=None, RIGID_OPs=None, TORSION_PARs
             * loss_weight.torsion_energy
         )
     if loss_weight.get("atomic_clash", 0.0) > 0.0:
-        loss["atomic_clash"] = loss_f_atomic_clash(batch, R, RIGID_OPs) * loss_weight.atomic_clash
+        loss["atomic_clash"] = loss_f_atomic_clash(batch, R, RIGID_OPs, vdw_scale=0.95) * loss_weight.atomic_clash
     #
     if loss_prev is not None:
         for k, v in loss_prev.items():
@@ -190,26 +191,32 @@ def loss_f_FAPE_all(
 
 
 # Bonded energy penalties
-def loss_f_bonded_energy(batch: dgl.DGLGraph, R: torch.Tensor, weight_s=(1.0, 0.0, 0.0)):
+def loss_f_bonded_energy(batch: dgl.DGLGraph, R: torch.Tensor, weight_s=(1.0, 0.0)):
     if weight_s[0] == 0.0:
         return 0.0
 
+    R_ref = batch.ndata["output_xyz"]
     bonded = batch.ndata["continuous"][1:]
     n_bonded = torch.sum(bonded)
 
     # vector: -C -> N
     v1 = R[1:, ATOM_INDEX_N, :] - R[:-1, ATOM_INDEX_C, :]
+    v1_ref = R_ref[1:, ATOM_INDEX_N, :] - R_ref[:-1, ATOM_INDEX_C, :]
     #
     # bond lengths
     d1 = v_size(v1)
-    bond_energy = torch.sum(torch.abs(d1 - BOND_LENGTH0) * bonded) / n_bonded
+    d1_ref = v_size(v1_ref)
+    bond_energy = torch.sum(torch.abs(d1 - d1_ref) * bonded) / n_bonded
+    # bond_energy = torch.sum(torch.abs(d1 - BOND_LENGTH0) * bonded) / n_bonded
     if weight_s[1] == 0.0:
         return bond_energy * weight_s[0]
     #
     # vector: -CA -> -C
     v0 = R[:-1, ATOM_INDEX_C, :] - R[:-1, ATOM_INDEX_CA, :]
+    v0_ref = R_ref[:-1, ATOM_INDEX_C, :] - R_ref[:-1, ATOM_INDEX_CA, :]
     # vector: N -> CA
     v2 = R[1:, ATOM_INDEX_CA, :] - R[1:, ATOM_INDEX_N, :]
+    v2_ref = R_ref[1:, ATOM_INDEX_CA, :] - R_ref[1:, ATOM_INDEX_N, :]
     #
     d0 = v_size(v0)
     d2 = v_size(v2)
@@ -218,28 +225,23 @@ def loss_f_bonded_energy(batch: dgl.DGLGraph, R: torch.Tensor, weight_s=(1.0, 0.
     def bond_angle(v1, v2):
         return acos_safe(inner_product(v1, v2))
 
-    v0 = v0 / d0[..., None]
+    v0 = v_norm(v0)
     v1 = v1 / d1[..., None]
-    v2 = v2 / d2[..., None]
+    v2 = v_norm(v2)
     a01 = bond_angle(-v0, v1)
     a12 = bond_angle(-v1, v2)
-    angle_energy = torch.abs(a01 - BOND_ANGLE0[0]) + torch.abs(a12 - BOND_ANGLE0[1])
-    angle_energy = torch.sum(angle_energy * bonded) / n_bonded
-
-    if weight_s[2] == 0.0:
-        return bond_energy * weight_s[0] + angle_energy * weight_s[1]
     #
-    # torsion angles without their signs
-    def torsion_angle_without_sign(v0, v1, v2):
-        n0 = v_norm(torch.cross(v2, v1))
-        n1 = v_norm(torch.cross(-v0, v1))
-        angle = bond_angle(n0, n1)
-        return angle  # between 0 and pi
-
-    t_ang = torsion_angle_without_sign(v0, v1, v2)
-    d_ang = torch.minimum(t_ang - TORSION_ANGLE0[0], TORSION_ANGLE0[1] - t_ang)
-    torsion_energy = torch.sum(torch.abs(d_ang) * bonded) / n_bonded
-    return bond_energy * weight_s[0] + angle_energy * weight_s[1] + torsion_energy * weight_s[2]
+    v0_ref = v_norm(v0_ref)
+    v1_ref = v1_ref / d1_ref[..., None]
+    v2_ref = v_norm(v2_ref)
+    a01_ref = bond_angle(-v0_ref, v1_ref)
+    a12_ref = bond_angle(-v1_ref, v2_ref)
+    #
+    angle_energy = torch.abs(a01 - a01_ref) + torch.abs(a12 - a12_ref)
+    # angle_energy = torch.abs(a01 - BOND_ANGLE0[0]) + torch.abs(a12 - BOND_ANGLE0[1])
+    angle_energy = torch.sum(angle_energy * bonded) / n_bonded
+    #
+    return bond_energy * weight_s[0] + angle_energy * weight_s[1]
 
 
 def loss_f_bonded_energy_aux(batch: dgl.DGLGraph, R: torch.Tensor):
@@ -315,7 +317,7 @@ def loss_f_distance_matrix(batch: dgl.DGLGraph, R: torch.Tensor, radius=1.0):
     return loss
 
 
-def loss_f_atomic_clash(batch: dgl.DGLGraph, R: torch.Tensor, RIGID_OPs, lj=False):
+def loss_f_atomic_clash(batch: dgl.DGLGraph, R: torch.Tensor, RIGID_OPs, lj=False, vdw_scale=1.0):
     # c ~ average number of edges per node
     # time: O(Nxc) vs. O(N^2) for loss_f_atomic_clash_old
     # memory: O(Nxc) vs. O(N) for loss_f_atomic_clash_old
@@ -367,6 +369,7 @@ def loss_f_atomic_clash(batch: dgl.DGLGraph, R: torch.Tensor, RIGID_OPs, lj=Fals
             x = torch.pow(radius_sum / dist, 6)
             energy_ij = (epsilon * (x**2 - 2 * x)).sum()
         else:
+            radius_sum = radius_sum * vdw_scale
             x = -torch.clamp(dist - radius_sum, max=0.0)
             energy_ij = 10.0 * (epsilon * torch.pow(x, 2)).sum()
         energy = energy + energy_ij
@@ -412,6 +415,43 @@ def loss_f_torsion_energy(batch: dgl.DGLGraph, R: torch.Tensor, TORSION_PARs, en
     return torch.sum(energy) / n_residue
 
 
+def loss_f_backbone_torsion(batch: dgl.DGLGraph, R: torch.Tensor):
+    bonded = batch.ndata["continuous"][1:] > 0.0
+    #
+    r_N = R[:, (ATOM_INDEX_N,), :]
+    r_CA = R[:, (ATOM_INDEX_CA,), :]
+    r_C = R[:, (ATOM_INDEX_C,), :]
+    r = torch.stack(
+        [
+            torch.cat([r_C[:-1], r_N[1:], r_CA[1:], r_C[1:]], dim=1),
+            torch.cat([r_N[:-1], r_CA[:-1], r_C[:-1], r_N[1:]], dim=1),
+            torch.cat([r_CA[:-1], r_C[:-1], r_N[1:], r_CA[1:]], dim=1),
+        ],
+        dim=1,
+    )[bonded]
+    angle = torsion_angle(r)
+    #
+    R_ref = batch.ndata["output_xyz"]
+    r_N_ref = R_ref[:, (ATOM_INDEX_N,), :]
+    r_CA_ref = R_ref[:, (ATOM_INDEX_CA,), :]
+    r_C_ref = R_ref[:, (ATOM_INDEX_C,), :]
+    r_ref = torch.stack(
+        [
+            torch.cat([r_C_ref[:-1], r_N_ref[1:], r_CA_ref[1:], r_C_ref[1:]], dim=1),
+            torch.cat([r_N_ref[:-1], r_CA_ref[:-1], r_C_ref[:-1], r_N_ref[1:]], dim=1),
+            torch.cat([r_CA_ref[:-1], r_C_ref[:-1], r_N_ref[1:], r_CA_ref[1:]], dim=1),
+        ],
+        dim=1,
+    )[bonded]
+    angle_ref = torsion_angle(r_ref)
+    #
+    loss = torch.sum(
+        1.0 - (torch.cos(angle) * torch.cos(angle_ref)) - (torch.sin(angle) * torch.sin(angle_ref))
+    )
+    loss = loss / angle.size(0)
+    return loss
+
+
 def test():
     import time
     from libconfig import BASE
@@ -433,7 +473,7 @@ def test():
     train_loader = dgl.dataloading.GraphDataLoader(
         train_set, batch_size=2, shuffle=False, num_workers=1
     )
-    cuda = False
+    cuda = torch.cuda.device_count() > 0
     batch = next(iter(train_loader))
     if cuda:
         batch = batch.to("cuda")
@@ -464,14 +504,20 @@ def test():
     )
     TORSION_PARs = (TORSION_ENERGY_TENSOR.to(device), TORSION_ENERGY_DEP.to(device))
     #
-    # print(loss_f_atomic_clash(native, R_ref, RIGID_OPs))
-    # print(loss_f_atomic_clash(native, R_model, RIGID_OPs))
-    print(loss_f_torsion_energy(native, R_ref, TORSION_PARs, energy_clamp=0.0))
-    print(loss_f_torsion_energy(native, R_model, TORSION_PARs, energy_clamp=0.0))
-    print(loss_f_torsion_energy(native, R_ref, TORSION_PARs, energy_clamp=0.6))
-    print(loss_f_torsion_energy(native, R_model, TORSION_PARs, energy_clamp=0.6))
-    print(loss_f_torsion_energy(native, R_ref, TORSION_PARs, energy_clamp=1.0))
-    print(loss_f_torsion_energy(native, R_model, TORSION_PARs, energy_clamp=1.0))
+    import time
+
+    R_ref.requires_grad_(True)
+    R_model.requires_grad_(True)
+    #
+    t0 = time.time()
+    l = loss_f_backbone_torsion(native, R_ref)
+    print(time.time() - t0)
+    l.backward()
+    t0 = time.time()
+    l = loss_f_backbone_torsion(native, R_model)
+    print(time.time() - t0)
+    l.backward()
+    print(R_model.grad)
 
 
 if __name__ == "__main__":

@@ -319,10 +319,7 @@ def test():
 
 
 def to_pt():
-    # base_dir = BASE / "pdb.processed"
-    # base_dir = BASE / "pdb.pisces"
-    base_dir = BASE / "pdb.top8000"
-    # base_dir = BASE / "md.pisces"
+    base_dir = BASE / "pdb.27k"
     pdblist = base_dir / "targets"
     cg_model = libcg.CalphaBasedModel
     #

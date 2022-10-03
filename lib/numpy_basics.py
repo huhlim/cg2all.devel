@@ -2,10 +2,26 @@
 # load modules
 import numpy as np
 
+EPS = 1e-6
+
 # %%
 # Some basic functions
 v_size = lambda v: np.linalg.norm(v, axis=-1)
 v_norm = lambda v: v / v_size(v)[..., None]
+
+
+def v_nonzero(v, index=0):
+    safe = np.zeros(3, dtype=v.dtype)
+    safe[index] = 1.0
+    #
+    s = np.where(v_size(v) < EPS)
+    u = v.copy()
+    u[s] = safe
+    return u
+
+
+def v_norm_safe_alt(v, index=0):
+    return v_norm(v_nonzero(v, index=index))
 
 
 def inner_product(v1, v2):
@@ -46,6 +62,19 @@ def torsion_angle(R) -> float:
     angle = np.arccos(np.clip(inner_product(n0, n1), -1.0, 1.0))
     sign = angle_sign(inner_product(v0, n1))
     return angle * sign
+
+
+def torsion_angle_alt(R) -> float:
+    b1 = v_norm_safe_alt(R[..., 1, :] - R[..., 0, :])
+    b2 = v_norm_safe_alt(R[..., 2, :] - R[..., 1, :])
+    b3 = v_norm_safe_alt(R[..., 3, :] - R[..., 2, :])
+    #
+    c1 = v_nonzero(np.cross(b2, b3))
+    c2 = np.cross(b1, b2)
+    #
+    p1 = inner_product(b1, c1)
+    p2 = inner_product(c1, c2)
+    return np.arctan2(p1, p2)
 
 
 # %%
