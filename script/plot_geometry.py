@@ -32,7 +32,7 @@ class Data(object):
         #
         self.resName.append(x[2].strip().split()[-1])
         self.ss.append(["HELIX", "SHEET", "COIL"].index(x[3].strip()))
-        self.b_len.append(x[4])
+        self.b_len.append(x[4].split())
         self.b_ang.append(x[5].split())
         self.t_ang.append(x[6].split())
         self.c_ang.append(x[7].split())
@@ -246,27 +246,26 @@ def main():
         for i in range(2):
             data[i].join(dat[i])
     #
-    plot_1d(
-        log_dir / f"{keyword}.b_len.png", (1.2, 1.5), 60, data[0].ss, data[0].b_len, data[1].b_len
-    )
-    plot_1d(
-        log_dir / f"{keyword}.b_ang0.png",
-        (105, 135),
-        60,
-        data[0].ss,
-        data[0].b_ang[:, 0],
-        data[1].b_ang[:, 0],
-    )
-    plot_1d(
-        log_dir / f"{keyword}.b_ang1.png",
-        (105, 135),
-        60,
-        data[0].ss,
-        data[0].b_ang[:, 1],
-        data[1].b_ang[:, 1],
-    )
+    for i, xr in enumerate([(1.2, 1.5), (1.3, 1.6), (1.4, 1.7)]):
+        plot_1d(
+            log_dir / f"{keyword}.b_len{i}.png",
+            xr,
+            60,
+            data[0].ss,
+            data[0].b_len[:, i],
+            data[1].b_len[:, i],
+        )
+    for i, xr in enumerate([(105, 135), (105, 135), (95, 125)]):
+        plot_1d(
+            log_dir / f"{keyword}.b_ang{i}.png",
+            xr,
+            60,
+            data[0].ss,
+            data[0].b_ang[:, i],
+            data[1].b_ang[:, i],
+        )
 
-    plot_omega(log_dir / f"{keyword}.t_ang2.png", data[0], data[1])
+    plot_omega(log_dir / f"{keyword}.omega.png", data[0], data[1])
 
     plot_2d(log_dir / f"{keyword}.rama_all.png", data[0].t_ang[:, :2], data[1].t_ang[:, :2])
     for i, name in enumerate(["helix", "sheet", "coil"]):

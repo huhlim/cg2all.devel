@@ -13,7 +13,35 @@ import json
 from libconfig import DATA_HOME
 
 
-def build_structure_from_ic(residue):
+def override_ic(residue_s):
+    ic_dat_fn = DATA_HOME / "ic.dat"
+    ic_s = {}
+    with open(ic_dat_fn) as fp:
+        for line in fp:
+            x = line.strip().split()
+            resName = x[0]
+            ic_type = {"BOND": 0, "ANGLE": 1, "TORSION": 2}[x[1]]
+            atom_s = tuple(x[2 : 4 + ic_type])
+            par = np.array(x[4 + ic_type :], dtype=float)
+            #
+            if resName not in ic_s:
+                ic_s[resName] = [{}, {}, {}]
+            ic_s[resName][ic_type][atom_s] = par.reshape(3, 4)
+    #
+    for resName, residue in residue_s.items():
+        if resName != "HSE":
+            ic = ic_s[resName]
+        else:
+            ic = ic_s["HSD"]
+        #
+        for i in range(3):
+            for key in residue.ic_s[i]:
+                x = ic[i].get(key, None)
+                if x is not None:
+                    residue.ic_s[i][key] = x[1]
+
+
+def build_structure_from_ic(residue, ss_index=0):
     def rotate(v, axis=None, angle=0.0):
         # make sure v is normalized
         v = v_norm(v)
@@ -29,13 +57,13 @@ def build_structure_from_ic(residue):
     #
     # build N, index=0
     atom_name = "N"
-    b0 = residue.get_bond_parameter(("-C", atom_name))
+    b0 = residue.get_bond_parameter(("-C", atom_name))[ss_index]
     R[atom_name] = R["-C"] + b0 * np.array([1, 0, 0], dtype=float)
     #
     # build CA, index=1
     atom_name = "CA"
-    b0 = residue.get_bond_parameter(("N", atom_name))
-    a0 = residue.get_angle_parameter(("-C", "N", atom_name))
+    b0 = residue.get_bond_parameter(("N", atom_name))[ss_index]
+    a0 = residue.get_angle_parameter(("-C", "N", atom_name))[ss_index]
     v = R["N"] - R["-C"]
     v = rotate(v, angle=np.pi - a0)
     R[atom_name] = R["N"] + b0 * v
@@ -43,9 +71,9 @@ def build_structure_from_ic(residue):
     # build the rest
     for atom_s in residue.build_ic:
         atom_name = atom_s[-1]
-        b0 = residue.get_bond_parameter(atom_s[-2:])
-        a0 = residue.get_angle_parameter(atom_s[-3:])
-        t0 = residue.get_torsion_parameter(atom_s)
+        b0 = residue.get_bond_parameter(atom_s[-2:])[ss_index]
+        a0 = residue.get_angle_parameter(atom_s[-3:])[ss_index]
+        t0 = residue.get_torsion_parameter(atom_s)[ss_index]
         r = [R.get(atom_name, None) for atom_name in atom_s[:-1]]
         if True in [np.any(np.isnan(ri)) for ri in r]:
             raise ValueError("Cannot get coordinates for atom", atom_s, r)
@@ -64,7 +92,7 @@ def build_structure_from_ic(residue):
 #  - second atom at the origin
 #  - align the rotation axis to the x-axis
 #  - last atom on the xy-plane
-def get_rigid_groups(residue_s, tor_s):
+def get_rigid_groups(residue_s, tor_s, ss_index=0):
     X_axis = np.array([1.0, 0.0, 0.0])
     Y_axis = np.array([0.0, 1.0, 0.0])
     Z_axis = np.array([0.0, 0.0, 1.0])
@@ -127,7 +155,8 @@ def get_rigid_groups(residue_s, tor_s):
                     tuple(R.tolist()),
                 ]
             )
-    with open(DATA_HOME / "rigid_groups.json", "wt") as fout:
+    ss = ["", "_H", "_E", "_C"][ss_index]
+    with open(DATA_HOME / f"rigid_groups{ss}.json", "wt") as fout:
         fout.write(json.dumps(to_json, indent=2))
     return rigid_groups
 
@@ -138,7 +167,7 @@ def get_rigid_groups(residue_s, tor_s):
 #  - CHI1 -> BB
 #  - CHI[2-4] -> CHI[1-3]
 #  - XI[i] -> CHI[i-1]
-def get_rigid_body_transformation_between_frames(rigid_group_s):
+def get_rigid_body_transformation_between_frames(rigid_group_s, ss_index=0):
     def get_prev_frame(tor_name, tor_index, rigid_group):
         for tor in rigid_group:
             if tor[0].name == tor_name and tor[0].index == tor_index:
@@ -221,69 +250,13 @@ def get_rigid_body_transformation_between_frames(rigid_group_s):
                     (translation.tolist(), rotation.tolist()),
                 ]
             )
-    with open(DATA_HOME / "rigid_body_transformation_between_frames.json", "wt") as fout:
+
+    ss = ["", "_H", "_E", "_C"][ss_index]
+    with open(DATA_HOME / f"rigid_body_transformation_between_frames{ss}.json", "wt") as fout:
         fout.write(json.dumps(to_json, indent=2))
 
 
 def build_torsion_energy_table(residue_s, par_dihed_s):
-    def get_min_value(p):
-        if len(p) < 2:
-            return 0.0
-        t_ang = np.linspace(-np.pi, np.pi, 36001)
-        x = t_ang[..., None] * p[..., 1] - p[..., 2]
-        energy = (p[..., 0] * (1.0 + np.cos(x))).sum(-1)
-        return energy.min()
-
-    #
-    table_s = {}
-    for residue_index, residue_name in enumerate(AMINO_ACID_s):
-        if residue_name == "UNK":
-            continue
-        #
-        table_s[residue_name] = [[], []]
-        #
-        residue = residue_s[residue_name]
-        for torsion_atom_index in residue.find_1_N_pair(N=4):
-            atom_s = [residue.atom_s[atom_index] for atom_index in torsion_atom_index]
-            rigid_group_index = rigid_groups_dep[residue_index, torsion_atom_index]
-            if np.all(rigid_group_index < 3):  # is not purely dependent on a residue's atoms
-                continue
-            rigid_group_unique = np.unique(rigid_group_index, return_counts=True)
-            rigid_group_leaf = max(rigid_group_unique[0])
-            n_leaf = rigid_group_unique[1][rigid_group_unique[0] == rigid_group_leaf]
-            if n_leaf >= 2:
-                continue
-            #
-            type_s = tuple([residue.atom_type_s[atom_index] for atom_index in torsion_atom_index])
-            type_rev_s = type_s[::-1]
-            type_x = tuple(["X", type_s[1], type_s[2], "X"])
-            type_rev_x = type_x[::-1]
-            if type_s in par_dihed_s:
-                par = par_dihed_s[type_s]
-            elif type_rev_s in par_dihed_s:
-                par = par_dihed_s[type_rev_s]
-            elif type_x in par_dihed_s:
-                par = par_dihed_s[type_x]
-            elif type_rev_x in par_dihed_s:
-                par = par_dihed_s[type_rev_x]
-            else:
-                raise KeyError(type_s)
-            #
-            par = np.concatenate(
-                [np.array(par, dtype=float), np.zeros((3 - len(par), 3), dtype=float)]
-            )
-            if par[:, 0].sum() > 0.0:
-                energy_min = get_min_value(par)
-                energy_min = [[energy_min], [0], [0]]
-                par = np.concatenate([par, energy_min], axis=1)
-                table_s[residue_name][0].append(torsion_atom_index)
-                table_s[residue_name][1].append(par.tolist())
-    #
-    with open(DATA_HOME / "torsion_energy_terms.json", "wt") as fout:
-        fout.write(json.dumps(table_s, indent=2))
-
-
-def build_torsion_energy_table_new(residue_s, par_dihed_s):
     def get_min_value(p):
         t_ang = np.linspace(-np.pi, np.pi, 36001)
         x = (t_ang[..., None] + p[..., 3]) * p[..., 1] - p[..., 2]
@@ -379,13 +352,16 @@ def build_torsion_energy_table_new(residue_s, par_dihed_s):
 
 
 def main():
-    for residue in residue_s.values():
-        residue.R = build_structure_from_ic(residue)
+    override_ic(residue_s)
+
+    for ss_index in [0, 1, 2, 3]:
+        for residue in residue_s.values():
+            residue.R = build_structure_from_ic(residue, ss_index=ss_index)
+        #
+        rigid_group_s = get_rigid_groups(residue_s, torsion_s, ss_index=ss_index)
+        get_rigid_body_transformation_between_frames(rigid_group_s, ss_index=ss_index)
     #
-    # rigid_group_s = get_rigid_groups(residue_s, torsion_s)
-    # get_rigid_body_transformation_between_frames(rigid_group_s)
     # build_torsion_energy_table(residue_s, par_dihed_s)
-    build_torsion_energy_table_new(residue_s, par_dihed_s)
 
 
 if __name__ == "__main__":

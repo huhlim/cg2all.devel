@@ -41,6 +41,11 @@ class PDB(object):
         self.residue_name = []
         self.residue_index = np.zeros(self.n_residue, dtype=int)
         #
+        ss = mdtraj.compute_dssp(traj, simplified=True)
+        self.ss = np.full_like(ss, 2, dtype=int)
+        self.ss[ss == "H"] = 0
+        self.ss[ss == "E"] = 1
+        #
         self.detect_ssbond(pdb_fn)
         #
         self.to_atom()

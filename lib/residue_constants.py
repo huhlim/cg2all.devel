@@ -228,18 +228,24 @@ class Residue(object):
         b0 = self.ic_s[0].get(atom_name_s, None)
         if b0 is None:
             raise ValueError("bond parameter not found", atom_name_s)
+        if isinstance(b0, float):
+            b0 = np.ones(4) * b0
         return b0
 
     def get_angle_parameter(self, atom_name_s) -> float:
         a0 = self.ic_s[1].get(atom_name_s, None)
         if a0 is None:
             raise ValueError("angle parameter not found", atom_name_s)
+        if isinstance(a0, float):
+            a0 = np.ones(4) * a0
         return a0
 
     def get_torsion_parameter(self, atom_name_s) -> float:
         t0 = self.ic_s[2].get(atom_name_s, None)
         if t0 is None:
             raise ValueError("torsion parameter not found", atom_name_s)
+        if isinstance(t0, float):
+            t0 = np.ones(4) * t0
         return t0
 
     def add_torsion_info(self, tor_s):
