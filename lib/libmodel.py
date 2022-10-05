@@ -131,7 +131,10 @@ def set_model_config(arg: dict, cg_model) -> ConfigDict:
     config.update_from_flattened_dict(arg)
     #
     embedding_dim = config.embedding_module.embedding_dim
-    n_node_scalar = cg_model.n_node_scalar + embedding_dim
+    if embedding_dim > 0:
+        n_node_scalar = cg_model.n_node_scalar + embedding_dim
+    else:
+        n_node_scalar = cg_model.n_node_scalar + config.embedding_module.num_embeddings
     #
     config.structure_module.fiber_in = []
     if n_node_scalar > 0:
@@ -158,10 +161,18 @@ class EmbeddingModule(nn.Module):
     def __init__(self, config):
         super().__init__()
         #
-        self.layer = nn.Embedding(config.num_embeddings, config.embedding_dim)
+        if config.embedding_dim > 0:
+            self.use_embedding = True
+            self.layer = nn.Embedding(config.num_embeddings, config.embedding_dim)
+        else:
+            self.use_embedding = False
+            self.register_buffer("one_hot_encoding", torch.eye(config.num_embeddings))
 
     def forward(self, batch: dgl.DGLGraph):
-        return self.layer(batch.ndata["residue_type"])
+        if self.use_embedding:
+            return self.layer(batch.ndata["residue_type"])
+        else:
+            return self.one_hot_encoding[batch.ndata["residue_type"]]
 
 
 class InitializationModule(nn.Module):
