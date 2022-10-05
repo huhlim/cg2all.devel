@@ -134,6 +134,8 @@ class PDBset(torch.utils.data.Dataset):
 def run(pdb_fn, batch, RIGID_OPs, TORSION_PARs):
     pdb_fn = pathlib.Path(pdb_fn)
     out_f = pdb_fn.parents[0] / f"rigid.{pdb_fn.stem}.pdb"
+    if os.path.exists(out_f):
+        return
 
     ret = {}
     rot0 = batch.ndata["input_rot"].clone()
@@ -200,7 +202,7 @@ def main():
     TORSION_PARs = (TORSION_ENERGY_TENSOR.to(device), TORSION_ENERGY_DEP.to(device))
     #
     pdb_s = PDBset(cg_model, arg.pdb_fn_s, input_index=0)
-    for pdb_fn, batch in pdb_s:
+    for pdb_fn, batch in tqdm.tqdm(pdb_s):
         run(pdb_fn, batch, RIGID_OPs, TORSION_PARs)
 
 

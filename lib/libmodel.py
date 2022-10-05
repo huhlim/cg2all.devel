@@ -91,13 +91,13 @@ STRUCTURE_MODULE["fiber_in"] = None
 # - degree 0: cosine/sine values of torsion angles
 # - degree 1: two for BB rigid body rotation matrix and one for CA translation
 STRUCTURE_MODULE["fiber_out"] = [(0, MAX_TORSION * 2), (1, 3)]
-STRUCTURE_MODULE["fiber_pass"] = [(0, 32), (1, 16)]
+STRUCTURE_MODULE["fiber_pass"] = [(0, 64), (1, 32)]
 # num_degrees and num_channels are for fiber_hidden
 # - they will be converted to Fiber using Fiber.create(num_degrees, num_channels)
 # - which is {degree: num_channels for degree in range(num_degrees)}
 STRUCTURE_MODULE["fiber_hidden"] = None
 STRUCTURE_MODULE["num_degrees"] = 3
-STRUCTURE_MODULE["num_channels"] = 16
+STRUCTURE_MODULE["num_channels"] = 32
 STRUCTURE_MODULE["channels_div"] = 2  # no idea... # of channels is divided by this number
 STRUCTURE_MODULE["fiber_edge"] = None
 #

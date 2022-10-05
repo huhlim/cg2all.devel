@@ -167,8 +167,8 @@ class Model(pl.LightningModule):
         out, loss, metric = self.forward(batch)
         loss_sum, loss_s = self.get_loss_sum(loss)
         #
-        if batch_idx == 0:
-            self.write_pdb(batch, out, f"val_{self.current_epoch}")
+        if self.current_epoch % 10 == 9 or batch_idx == 0:
+            self.write_pdb(batch, out, f"val_{self.current_epoch}_{batch_idx}")
         #
         bs = batch.batch_size
         self.log("val_loss_sum", loss_sum, batch_size=bs, on_epoch=True, on_step=False)
@@ -272,7 +272,7 @@ def main():
     trainer_kwargs = {}
     trainer_kwargs["max_epochs"] = arg.max_epochs
     trainer_kwargs["gradient_clip_val"] = 1.0
-    trainer_kwargs["check_val_every_n_epoch"] = 10 if (IS_DEVELOP or len(train_set) < 20) else 1
+    trainer_kwargs["check_val_every_n_epoch"] = 1
     trainer_kwargs["logger"] = pl.loggers.TensorBoardLogger("lightning_logs", name=arg.name)
     trainer_kwargs["callbacks"] = [
         pl.callbacks.ModelCheckpoint(

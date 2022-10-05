@@ -36,8 +36,12 @@ def override_ic(residue_s):
         #
         for i in range(3):
             for key in residue.ic_s[i]:
+                if i == 2 and key[:3] != ("N", "C", "CA"):
+                    continue
                 x = ic[i].get(key, None)
                 if x is not None:
+                    if i == 2:
+                        print(resName, residue.ic_s[i][key], x[1][0])
                     residue.ic_s[i][key] = x[1]
 
 
@@ -354,7 +358,7 @@ def build_torsion_energy_table(residue_s, par_dihed_s):
 def main():
     override_ic(residue_s)
 
-    for ss_index in [0, 1, 2, 3]:
+    for ss_index in [0]:  # , 1, 2, 3]:
         for residue in residue_s.values():
             residue.R = build_structure_from_ic(residue, ss_index=ss_index)
         #
