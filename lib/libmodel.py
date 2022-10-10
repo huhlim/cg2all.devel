@@ -43,7 +43,7 @@ from libconfig import DTYPE
 CONFIG = ConfigDict()
 
 CONFIG["train"] = ConfigDict()
-CONFIG["train"]["dataset"] = "pdb.pisces"
+CONFIG["train"]["dataset"] = "pdb.processed"
 CONFIG["train"]["md_frame"] = -1
 CONFIG["train"]["batch_size"] = 4
 CONFIG["train"]["crop_size"] = -1

@@ -71,7 +71,9 @@ def loss_f(batch, ret, loss_weight, loss_prev=None, RIGID_OPs=None, TORSION_PARs
             * loss_weight.torsion_energy
         )
     if loss_weight.get("atomic_clash", 0.0) > 0.0:
-        loss["atomic_clash"] = loss_f_atomic_clash(batch, R, RIGID_OPs, vdw_scale=0.95) * loss_weight.atomic_clash
+        loss["atomic_clash"] = (
+            loss_f_atomic_clash(batch, R, RIGID_OPs, vdw_scale=0.95) * loss_weight.atomic_clash
+        )
     #
     if loss_prev is not None:
         for k, v in loss_prev.items():
@@ -287,15 +289,11 @@ def loss_f_torsion_angle(
     sc0: Optional[torch.Tensor] = None,
     norm_weight: Optional[float] = 0.01,
 ):
-    #                      phi  psi  chi1 chi2 chi3 chi4 xi_1 xi_2
-    # weight = torch.tensor([1.0, 1.0, 1.0, 1.5, 2.0, 2.0, 0.5, 0.5], device=sc.device)
-    #
     sc_ref = batch.ndata["correct_torsion"]
     mask = batch.ndata["torsion_mask"]
     #
     sc_cos = torch.cos(sc_ref)
     sc_sin = torch.sin(sc_ref)
-    # (1.0 - ((sc[..., 0] * sc_cos) + (sc[..., 1] * sc_sin))) * weight[None, :] * mask
     loss = torch.sum((1.0 - ((sc[..., 0] * sc_cos) + (sc[..., 1] * sc_sin))) * mask)
     #
     if sc0 is not None and norm_weight > 0.0:
@@ -304,7 +302,6 @@ def loss_f_torsion_angle(
         loss = loss + loss_norm * norm_weight
     loss = loss / mask.sum()
     return loss
-
 
 def loss_f_distance_matrix(batch: dgl.DGLGraph, R: torch.Tensor, radius=1.0):
     R_ref = batch.ndata["output_xyz"][:, ATOM_INDEX_CA]

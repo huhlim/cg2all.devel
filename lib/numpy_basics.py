@@ -14,9 +14,15 @@ def v_nonzero(v, index=0):
     safe = np.zeros(3, dtype=v.dtype)
     safe[index] = 1.0
     #
-    s = np.where(v_size(v) < EPS)
-    u = v.copy()
-    u[s] = safe
+    if len(v.shape) > 1:
+        s = np.where(v_size(v) < EPS)
+        u = v.copy()
+        u[s] = safe
+    else:
+        if v_size(v) < EPS:
+            u = safe.copy()
+        else:
+            u = v
     return u
 
 
@@ -53,7 +59,7 @@ def bond_angle(R) -> float:
 
 
 # torsion_angle: returns the torsion angle consist of four atoms
-def torsion_angle(R) -> float:
+def torsion_angle_old(R) -> float:
     torsion_axis = v_norm(R[..., 2, :] - R[..., 1, :])
     v0 = v_norm(R[..., 0, :] - R[..., 1, :])
     v1 = v_norm(R[..., 3, :] - R[..., 2, :])
@@ -64,7 +70,7 @@ def torsion_angle(R) -> float:
     return angle * sign
 
 
-def torsion_angle_alt(R) -> float:
+def torsion_angle(R) -> float:
     b1 = v_norm_safe_alt(R[..., 1, :] - R[..., 0, :])
     b2 = v_norm_safe_alt(R[..., 2, :] - R[..., 1, :])
     b3 = v_norm_safe_alt(R[..., 3, :] - R[..., 2, :])
