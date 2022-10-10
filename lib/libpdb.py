@@ -111,7 +111,6 @@ class PDB(object):
             i_res = residue.index
             if residue.name == "HIS":
                 residue_name = get_HIS_state(residue)
-                print(i_res, residue_name)
             else:
                 residue_name = AMINO_ACID_ALT_s.get(residue.name, residue.name)
             if residue_name not in AMINO_ACID_s:

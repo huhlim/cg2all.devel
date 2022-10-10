@@ -54,6 +54,7 @@ def read_ambiguous_atom_list():
                         atom_s = tor.atom_s[3:]
                     torsion_definition = tor.atom_s[:3]
                     break
+
             method = x[2]
             amb_s.append(
                 Ambiguous(
@@ -72,7 +73,7 @@ def read_ambiguous_atom_list():
         for tor in torsion_s[residue_name]:
             if tor is None:
                 continue
-            if tor.name == "XI" and len(tor.atom_s) > 1:
+            if tor.name == "XI" and len(tor.atom_s) > 4:
                 amb_s.append(
                     Ambiguous(
                         residue_name,
@@ -247,9 +248,9 @@ def update_by_periodic_method(R, atom_mask, i_res, ref_res, tor, amb, opr_dict):
         )
     #
     # find
-    t_ang_min = np.full(R.shape[0], np.inf, dtype=np.float32)
+    t_ang_min = np.full(R.shape[0], np.inf, dtype=float)
     for torsion_angle_atom_s in tor.atom_alt_s:
-        index = [ref_res.atom_s.index(atom) for atom in torsion_angle_atom_s]
+        index = [ref_res.atom_s.index(atom) for atom in torsion_angle_atom_s[:4]]
         r = R[:, i_res, index, :]
         mask = np.all(atom_mask[i_res, index])
         if not mask:
@@ -304,7 +305,7 @@ def update_by_special_method(R, atom_mask, i_res, ref_res, amb):
     if np.any(swap):
         before = (index_amb[0], index_amb[1])
         after = (index_amb[1], index_amb[0])
-        for i,s in enumerate(swap):
+        for i, s in enumerate(swap):
             if s:
                 R[i, i_res, before, :] = R[i, i_res, after, :]
 
