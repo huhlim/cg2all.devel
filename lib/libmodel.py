@@ -66,6 +66,7 @@ CONFIG["globals"]["loss_weight"].update(
         "backbone_torsion": 0.0,
         "torsion_angle": 5.0,
         "torsion_energy": 0.1,
+        "torsion_energy_clamp": 0.6,
         "atomic_clash": 1.0,
     }
 )

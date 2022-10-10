@@ -67,7 +67,7 @@ def loss_f(batch, ret, loss_weight, loss_prev=None, RIGID_OPs=None, TORSION_PARs
         ) * loss_weight.torsion_angle
     if loss_weight.get("torsion_energy", 0.0) > 0.0:
         loss["torsion_energy"] = (
-            loss_f_torsion_energy(batch, R, TORSION_PARs, energy_clamp=0.6)
+            loss_f_torsion_energy(batch, R, TORSION_PARs, energy_clamp=loss_weight.get("torsion_energy_clamp", 0.0))
             * loss_weight.torsion_energy
         )
     if loss_weight.get("atomic_clash", 0.0) > 0.0:
