@@ -19,15 +19,19 @@ class IC(object):
     def __init__(self, residue):
         self.atom_s = []
         self.ic_s = []
+        self.ic_lit = []
         for ic in residue.ic_s:  # bond/angle/torsion
             atom_s = []
             ic_s = []
-            for key in ic:
+            ic_lit = []
+            for key, value in ic.items():
                 atom_s.append(key)
                 ic_s.append([[], [], []])
+                ic_lit.append(value)
 
             self.atom_s.append(atom_s)
             self.ic_s.append(ic_s)
+            self.ic_lit.append(ic_lit)
 
 
 def get_atom_index(residue):
@@ -117,6 +121,8 @@ def report(ic_s):
     for resName, ic in ic_s.items():
         for i, (ic_name, _ic) in enumerate(zip(["BOND", "ANGLE", "TORSION"], ic.ic_s)):
             for j, (atom_s, data) in enumerate(zip(ic.atom_s[i], _ic)):
+                lit = ic.ic_lit[i][j]
+                #
                 wrt = []
                 wrt.append(resName)
                 wrt.append(f"{ic_name:<8s}")
@@ -124,6 +130,11 @@ def report(ic_s):
                 #
                 try:
                     data_all = np.concatenate(data[0] + data[1] + data[2])
+                    if i == 2:
+                        data_all -= lit
+                        data_all = (data_all + np.pi) % (2 * np.pi) - np.pi
+                        data_all += lit
+                        data_all[data_all > np.pi] = 2 * np.pi - data_all[data_all > np.pi]
                 except:
                     data_all = np.zeros((0,))
                 #
@@ -139,7 +150,12 @@ def report(ic_s):
                 #
                 for ss in range(3):
                     try:
-                        data_ss = np.concatenate(data[ss])
+                        data_ss = np.concatenate(data[ss]).copy()
+                        if i == 2:
+                            data_ss -= lit
+                            data_ss = (data_ss + np.pi) % (2 * np.pi) - np.pi
+                            data_ss += lit
+                            data_ss[data_ss > np.pi] = 2 * np.pi - data_ss[data_ss > np.pi]
                     except:
                         data_ss = np.zeros((0,))
                     #

@@ -12,6 +12,8 @@ import json
 
 from libconfig import DATA_HOME
 
+np.set_printoptions(suppress=True)
+
 
 def override_ic(residue_s):
     ic_dat_fn = DATA_HOME / "ic.dat"
@@ -36,12 +38,19 @@ def override_ic(residue_s):
         #
         for i in range(3):
             for key in residue.ic_s[i]:
-                if i == 2 and key[:3] != ("N", "C", "CA"):
-                    continue
+                # if i == 2 and key[:3] != ("N", "C", "CA"):
+                #     continue
                 x = ic[i].get(key, None)
                 if x is not None:
                     if i == 2:
-                        print(resName, residue.ic_s[i][key], x[1][0])
+                        if x[2][0] > np.deg2rad(15.0):
+                            continue
+                        delta = np.abs(x[1][0] - residue.ic_s[i][key])
+                        delta = np.min([delta, 2 * np.pi - delta])
+                        if delta > np.deg2rad(15.0):
+                            continue
+                    # if i == 2:
+                    #     print(resName, key, delta, residue.ic_s[i][key], x[1:, 0])
                     residue.ic_s[i][key] = x[1]
 
 
@@ -355,17 +364,44 @@ def build_torsion_energy_table(residue_s, par_dihed_s):
         fout.write(json.dumps(table_s, indent=2))
 
 
+def write_residue(pdb_fn, residue, R):
+    # ATOM      1  N   MET A   1      27.340  24.430   2.614  1.00  0.00           N
+    wrt = [[], [], []]
+    for i, (atom, r) in enumerate(R.items()):
+        if "-" in atom:
+            i_res = 0
+            name = atom[1:]
+        elif "+" in atom:
+            i_res = 2
+            name = atom[1:]
+        else:
+            i_res = 1
+            name = atom
+
+        if len(atom) < 4:
+            name = f" {name:<3s}"
+        line = "ATOM  " + f"{0:5d} {name} {residue.residue_name} A{i_res:4d}    "
+        line += f"{r[0]:8.3f}{r[1]:8.3f}{r[2]:8.3f}\n"
+        wrt[i_res].append(line)
+
+    with open(pdb_fn, "wt") as fout:
+        fout.writelines(wrt[0])
+        fout.writelines(wrt[1])
+        fout.writelines(wrt[2])
+
+
 def main():
     override_ic(residue_s)
 
     for ss_index in [0]:  # , 1, 2, 3]:
         for residue in residue_s.values():
             residue.R = build_structure_from_ic(residue, ss_index=ss_index)
+            # write_residue(f"{residue.residue_name}.pdb", residue, residue.R)
         #
         rigid_group_s = get_rigid_groups(residue_s, torsion_s, ss_index=ss_index)
         get_rigid_body_transformation_between_frames(rigid_group_s, ss_index=ss_index)
     #
-    # build_torsion_energy_table(residue_s, par_dihed_s)
+    build_torsion_energy_table(residue_s, par_dihed_s)
 
 
 if __name__ == "__main__":
