@@ -109,7 +109,11 @@ class PDB(object):
         #
         for residue in self.top.residues:
             i_res = residue.index
-            residue_name = AMINO_ACID_ALT_s.get(residue.name, residue.name)
+            if residue.name == "HIS":
+                residue_name = get_HIS_state(residue)
+                print(i_res, residue_name)
+            else:
+                residue_name = AMINO_ACID_ALT_s.get(residue.name, residue.name)
             if residue_name not in AMINO_ACID_s:
                 residue_name = "UNK"
             #
@@ -182,7 +186,10 @@ class PDB(object):
             #
             for residue in chain.residues:
                 i_res += 1
-                residue_name = AMINO_ACID_ALT_s.get(residue.name, residue.name)
+                if residue.name == "HIS":
+                    residue_name = get_HIS_state(residue)
+                else:
+                    residue_name = AMINO_ACID_ALT_s.get(residue.name, residue.name)
                 if residue_name not in AMINO_ACID_s:
                     residue_name = "UNK"
                 if residue_name == "UNK":
@@ -272,6 +279,16 @@ class PDB(object):
             traj.save(dcd_fn)
 
 
+def get_HIS_state(residue):
+    atom_s = [atom.name for atom in residue.atoms]
+    if "HD1" in atom_s:
+        return "HSD"
+    elif "HE2" in atom_s:
+        return "HSE"
+    else:
+        return np.random.choice(["HSD", "HSE"], p=[0.5, 0.5])
+
+
 def write_SSBOND(pdb_fn, top, ssbond_s):
     SSBOND = "SSBOND  %2d CYS %s %4d    CYS %s %4d\n"
     wrt = []
@@ -356,9 +373,8 @@ def generate_structure_from_bb_and_torsion(residue_index, bb, torsion):
 
 
 if __name__ == "__main__":
-    pdb = PDB("pdb.processed/1ab1_A.pdb")
-    # pdb = PDB("pdb.processed/1UBQ.pdb")
-    pdb.get_structure_information()
+    pdb = PDB("../pdb.6k/pdb0/1cb0.pdb")
+    # pdb.get_structure_information()
     #
     # job = "../dyna/run/1a2p_B"
     # pdb = PDB(f"{job}/init/solute.pdb", dcd_fn=f"{job}/prod/0/0/solute.dcd")
