@@ -48,6 +48,8 @@ CONFIG["train"]["md_frame"] = -1
 CONFIG["train"]["batch_size"] = 4
 CONFIG["train"]["crop_size"] = -1
 CONFIG["train"]["lr"] = 1e-3
+CONFIG["train"]["lr_sc"] = 1e-2
+CONFIG["train"]["lr_gamma"] = 0.99
 
 CONFIG["globals"] = ConfigDict()
 CONFIG["globals"]["num_recycle"] = 1
@@ -67,7 +69,7 @@ CONFIG["globals"]["loss_weight"].update(
         "torsion_angle": 5.0,
         "torsion_energy": 0.1,
         "torsion_energy_clamp": 0.6,
-        "atomic_clash": 1.0,
+        "atomic_clash": 5.0,
     }
 )
 

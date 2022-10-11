@@ -8,6 +8,8 @@ import matplotlib
 import matplotlib.pyplot as plt
 from seqName import stdres
 
+PERIODIC = [("ASP", 2), ("GLU", 3), ("PHE", 2), ("TYR", 2)]
+
 
 class Data(object):
     def __init__(self):
@@ -182,14 +184,26 @@ def plot_omega(png_fn, native, model):
     plt.close("all")
 
 
-def plot_2d(png_fn, native, model, kT=8):
-    xylim = [[-180, 180], [-180, 180]]
+def plot_2d(png_fn, native, model, kT=8, periodic=False):
+    if periodic:
+        xylim = [[-180, 180], [-90, 90]]
+    else:
+        xylim = [[-180, 180], [-180, 180]]
     bins = 72
     dxy = (xylim[0][1] - xylim[0][0]) / bins
     #
     fig, axes = plt.subplots(1, 2, figsize=(9.6, 4.8), sharex=True, sharey=True)
     #
     for i, data in enumerate([native, model]):
+        valid = np.all(_data[:, :2] < 360.0, axis=1)
+        data = _data[valid]
+        for k, xy in enumerate(xylim):
+            dxy = xy[1] - xy[0]
+            X = data[:, k]
+            X[X > xy[1]] = X[X > xy[1]] - dxy
+            X[X < xy[0]] = X[X < xy[0]] + dxy
+            data[:, k] = X
+
         h, X, Y = np.histogram2d(data[:, 0], data[:, 1], bins=bins, range=xylim, density=True)
         X = np.concatenate([[X[0] - dxy], X, [X[-1] + dxy]])
         Y = np.concatenate([[Y[0] - dxy], Y, [Y[-1] + dxy]])
@@ -300,6 +314,7 @@ def main():
                 data[0].c_ang[select, k : k + 2],
                 data[1].c_ang[select, k : k + 2],
                 kT=6,
+                periodic=(aa, k + 2) in PERIODIC,
             )
 
 

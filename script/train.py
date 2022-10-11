@@ -84,34 +84,40 @@ class Model(pl.LightningModule):
             )
 
     def configure_optimizers(self):
-        parameters = [[], []]
-        for name, param in self.model.named_parameters():
-            x = name.split(".")
-            if x[0] == "structure_module" and x[4] == "0":
-                parameters[1].append(param)
-            else:
-                parameters[0].append(param)
+        lr_sc = self._config.train.get("lr_sc", self._config.train.lr)
+        if lr_sc == self._config.train.lr:
+            lr_sc = None
+
+        if lr_sc is not None:
+            parameters = [[], []]
+            for name, param in self.model.named_parameters():
+                x = name.split(".")
+                if x[0] == "structure_module" and x[4] == "0":
+                    parameters[1].append(param)
+                else:
+                    parameters[0].append(param)
         #
         if IS_DEVELOP:
-            # optimizer = torch.optim.Adam(self.parameters(), lr=0.01)
-            optimizer = torch.optim.Adam(
-                [{"params": parameters[0]}, {"params": parameters[1], "lr": 0.02}], lr=0.01
-            )
+            if lr_sc is None:
+                optimizer = torch.optim.Adam(self.parameters(), lr=0.01)
+            else:
+                optimizer = torch.optim.Adam(
+                    [{"params": parameters[0]}, {"params": parameters[1], "lr": lr_sc}], lr=0.01
+                )
         else:
-            # optimizer = torch.optim.Adam(self.parameters(), lr=self._config.train.lr)
-            optimizer = torch.optim.Adam(
-                [
-                    {"params": parameters[0]},
-                    {"params": parameters[1], "lr": 10.0 * self._config.train.lr},
-                ],
-                lr=self._config.train.lr,
-            )
+            if lr_sc is None:
+                optimizer = torch.optim.Adam(self.parameters(), lr=self._config.train.lr)
+            else:
+                optimizer = torch.optim.Adam(
+                    [{"params": parameters[0]}, {"params": parameters[1], "lr": lr_sc}],
+                    lr=self._config.train.lr,
+                )
 
         lr_scheduler = torch.optim.lr_scheduler.SequentialLR(
             optimizer,
             [
                 torch.optim.lr_scheduler.LinearLR(optimizer, 0.1, 1.0, 10),
-                torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.99),
+                torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=self._config.train.lr_gamma),
             ],
             [10],  # milestone
         )
@@ -286,7 +292,7 @@ def main():
     test_loader = _DataLoader(test_set, shuffle=False)
     #
     # define model
-    model = Model(config, cg_model, compute_loss=True, memcheck=True)
+    model = Model(config, cg_model, compute_loss=True)#, memcheck=True)
     #
     trainer_kwargs = {}
     trainer_kwargs["max_epochs"] = arg.max_epochs
