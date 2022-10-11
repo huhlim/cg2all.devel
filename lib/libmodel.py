@@ -87,9 +87,11 @@ STRUCTURE_MODULE["num_linear_layers"] = 4
 STRUCTURE_MODULE["num_heads"] = 8  # number of attention heads
 STRUCTURE_MODULE["norm"] = [True, True]  # norm between attention blocks / within attention blocks
 STRUCTURE_MODULE["nonlinearity"] = "elu"
+STRUCTURE_MODULE["use_sequence_embedding"] = False
 
 # fiber_in: is determined by input features
-STRUCTURE_MODULE["fiber_in"] = None
+STRUCTURE_MODULE["fiber_init"] = None
+STRUCTURE_MODULE["fiber_struct"] = None
 # fiber_out: is determined by outputs
 # - degree 0: cosine/sine values of torsion angles
 # - degree 1: two for BB rigid body rotation matrix and one for CA translation
@@ -115,8 +117,11 @@ STRUCTURE_MODULE["loss_weight"].update(
         "bonded_energy": 1.0,
         "distance_matrix": 0.0,
         "rotation_matrix": 1.0,
-        "torsion_angle": 2.0,
-        "atomic_clash": 0.0,
+        "backbone_torsion": 0.0,
+        "torsion_angle": 5.0,
+        "torsion_energy": 0.1,
+        "torsion_energy_clamp": 0.6,
+        "atomic_clash": 5.0,
     }
 )
 CONFIG["structure_module"] = STRUCTURE_MODULE
@@ -139,11 +144,23 @@ def set_model_config(arg: dict, cg_model) -> ConfigDict:
     else:
         n_node_scalar = cg_model.n_node_scalar + config.embedding_module.num_embeddings
     #
-    config.structure_module.fiber_in = []
+    config.structure_module.fiber_init = []
     if n_node_scalar > 0:
-        config.structure_module.fiber_in.append((0, n_node_scalar))
+        config.structure_module.fiber_init.append((0, n_node_scalar))
     if cg_model.n_node_vector > 0:
-        config.structure_module.fiber_in.append((1, cg_model.n_node_vector))
+        config.structure_module.fiber_init.append((1, cg_model.n_node_vector))
+    #
+    if config.structure_module.use_sequence_embedding:
+        config.structure_module.fiber_struct = []
+        for degree, n_feat in config.structure_module.fiber_pass:
+            if degree == 0:
+                config.structure_module.fiber_struct.append(
+                    (degree, n_feat + config.embedding_module.embedding_dim)
+                )
+            else:
+                config.structure_module.fiber_struct.append((degree, n_feat))
+    else:
+        config.structure_module.fiber_struct = config.structure_module.fiber_pass
     #
     if config.structure_module.fiber_hidden is None:
         config.structure_module.fiber_hidden = [
@@ -189,8 +206,8 @@ class InitializationModule(nn.Module):
         #
         linear_module = []
         if config.norm[0]:
-            linear_module.append(NormSE3(Fiber(config.fiber_in), nonlinearity=nonlinearity))
-        linear_module.append(LinearSE3(Fiber(config.fiber_in), Fiber(config.fiber_pass)))
+            linear_module.append(NormSE3(Fiber(config.fiber_init), nonlinearity=nonlinearity))
+        linear_module.append(LinearSE3(Fiber(config.fiber_init), Fiber(config.fiber_pass)))
         #
         for _ in range(config.num_linear_layers - 1):
             if config.norm[0]:
@@ -237,6 +254,7 @@ class StructureModule(nn.Module):
         super().__init__()
         #
         self.loss_weight = config.loss_weight
+        self.use_sequence_embedding = config.use_sequence_embedding
         #
         if config.nonlinearity == "elu":
             nonlinearity = nn.ELU()
@@ -244,10 +262,16 @@ class StructureModule(nn.Module):
             nonlinearity = nn.ReLU()
         #
         linear_module = []
-        for _ in range(config.num_linear_layers - 1):
+        #
+        if config.norm[0]:
+            linear_module.append(NormSE3(Fiber(config.fiber_struct), nonlinearity=nonlinearity))
+        linear_module.append(LinearSE3(Fiber(config.fiber_struct), Fiber(config.fiber_pass)))
+        #
+        for _ in range(config.num_linear_layers - 2):
             if config.norm[0]:
                 linear_module.append(NormSE3(Fiber(config.fiber_pass), nonlinearity=nonlinearity))
             linear_module.append(LinearSE3(Fiber(config.fiber_pass), Fiber(config.fiber_pass)))
+        #
         if config.norm[0]:
             linear_module.append(NormSE3(Fiber(config.fiber_pass), nonlinearity=nonlinearity))
         linear_module.append(LinearSE3(Fiber(config.fiber_pass), Fiber(config.fiber_out)))
@@ -352,6 +376,8 @@ class Model(nn.Module):
                 out[degree] = out[degree] + out_d
             out0 = {degree: feat.clone() for degree, feat in out.items()}
             #
+            if self.structure_module.use_sequence_embedding:
+                out["0"] = torch.cat([out["0"], embedding[..., None]], dim=1)
             out = self.structure_module(out)
             #
             bb, sc, bb0, sc0 = self.structure_module.output_to_opr(out)
