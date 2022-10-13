@@ -103,6 +103,7 @@ class PDB(object):
         self.R = np.zeros((self.n_frame, self.n_residue, MAX_ATOM, 3))
         self.atom_mask = np.zeros((self.n_residue, MAX_ATOM), dtype=float)
         self.atom_mask_pdb = np.zeros((self.n_residue, MAX_ATOM), dtype=float)
+        self.atom_mask_heavy = np.zeros((self.n_residue, MAX_ATOM), dtype=float)
         self.atomic_radius = np.zeros((self.n_residue, MAX_ATOM, 2, 2), dtype=float)
         self.atomic_mass = np.zeros((self.n_residue, MAX_ATOM), dtype=float)
         #
@@ -141,6 +142,8 @@ class PDB(object):
                 i_atm = ref_res.atom_s.index(atom_name)
                 self.R[:, i_res, i_atm, :] = self.traj.xyz[:, atom.index, :]
                 self.atom_mask_pdb[i_res, i_atm] = 1.0
+                if atom_name[0] != "H":
+                    self.atom_mask_heavy[i_res, i_atm] = 1.0
                 self.atomic_mass[i_res, i_atm] = atom.element.mass
             #
             n_atom = len(ref_res.atom_s)
@@ -255,6 +258,23 @@ class PDB(object):
                     torsion_angle_s[:, tor.i - 1, p] += p / tor.periodic * 2.0 * np.pi
         return torsion_mask, torsion_angle_s
 
+    def get_R_alt(self, i_res):
+        residue_name = self.residue_name[i_res]
+        ref_res = residue_s[residue_name]
+        #
+        R_alt = self.R[:, i_res].copy()
+        for tor in torsion_s[residue_name]:
+            if tor is None or tor.name != "CHI" or tor.periodic == 1:
+                continue
+            #
+            index_s = []
+            for atom_s in tor.atom_alt_s:
+                index_s.append([ref_res.atom_s.index(atom) for atom in atom_s[3:]])
+            before = index_s[0] + index_s[1]
+            after = index_s[1] + index_s[0]
+            R_alt[:, before] = self.R[:, i_res, after].copy()
+        return R_alt
+
     def get_structure_information(self):
         # get rigid body operations, backbone_orientations and torsion angles
         self.bb_mask = np.zeros(self.n_residue, dtype=float)
@@ -263,6 +283,7 @@ class PDB(object):
         self.torsion = np.zeros(
             (self.n_frame, self.n_residue, MAX_TORSION, MAX_PERIODIC), dtype=float
         )
+        self.R_alt = self.R.copy()
         for i_res in range(self.n_residue):
             mask, opr_s = self.get_backbone_orientation(i_res)
             self.bb_mask[i_res] = mask
@@ -272,6 +293,8 @@ class PDB(object):
             mask, tor_s = self.get_torsion_angles(i_res)
             self.torsion_mask[i_res, :] = mask
             self.torsion[:, i_res, :, :] = tor_s
+            #
+            self.R_alt[:, i_res] = self.get_R_alt(i_res)
 
     def write(self, R, pdb_fn, dcd_fn=None):
         top = self.create_new_topology()

@@ -63,7 +63,6 @@ CONFIG["globals"]["loss_weight"].update(
         "mse_R": 0.0,
         "v_cntr": 1.0,
         "bonded_energy": 1.0,
-        "distance_matrix": 0.0,
         "rotation_matrix": 1.0,
         "backbone_torsion": 0.0,
         "torsion_angle": 5.0,
@@ -115,7 +114,6 @@ STRUCTURE_MODULE["loss_weight"].update(
         "mse_R": 0.0,
         "v_cntr": 1.0,
         "bonded_energy": 1.0,
-        "distance_matrix": 0.0,
         "rotation_matrix": 1.0,
         "backbone_torsion": 0.0,
         "torsion_angle": 5.0,
@@ -428,7 +426,7 @@ class Model(nn.Module):
         metric_s = {}
         metric_s["rmsd_CA"] = rmsd_CA(R, R_ref)
         metric_s["rmsd_rigid"] = rmsd_rigid(R, R_ref)
-        metric_s["rmsd_all"] = rmsd_all(R, R_ref, batch.ndata["pdb_atom_mask"])
+        metric_s["rmsd_all"] = rmsd_all(R, R_ref, batch.ndata["heavy_atom_mask"])
         #
         bonded = rmse_bonded(R, batch.ndata["continuous"])
         metric_s["bond_length"] = bonded[0]

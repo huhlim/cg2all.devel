@@ -31,7 +31,6 @@ class PDBset(Dataset):
         radius=1.0,
         noise_level=0.0,
         self_loop=False,
-        get_structure_information=False,
         random_rotation=False,
         use_pt=None,
         crop=-1,
@@ -55,7 +54,6 @@ class PDBset(Dataset):
         self.radius = radius
         self.self_loop = self_loop
         self.noise_level = noise_level
-        self.get_structure_information = get_structure_information
         self.random_rotation = random_rotation
         self.use_pt = use_pt
         self.crop = crop
@@ -92,6 +90,7 @@ class PDBset(Dataset):
             cg = self.cg_model(pdb_fn)
         if self.random_rotation:
             cg = self.rotate_randomly(cg)
+        cg.get_structure_information()
         #
         r_cg = torch.as_tensor(cg.R_cg[0], dtype=self.dtype)
         if self.noise_level > 0.0:
@@ -155,21 +154,19 @@ class PDBset(Dataset):
         data.ndata["input_atom_mask"] = torch.as_tensor(cg.atom_mask_cg, dtype=self.dtype)
         data.ndata["output_atom_mask"] = torch.as_tensor(cg.atom_mask, dtype=self.dtype)
         data.ndata["pdb_atom_mask"] = torch.as_tensor(cg.atom_mask_pdb, dtype=self.dtype)
+        data.ndata["heavy_atom_mask"] = torch.as_tensor(cg.atom_mask_heavy, dtype=self.dtype)
         data.ndata["output_xyz"] = torch.as_tensor(cg.R[0], dtype=self.dtype)
+        data.ndata["output_xyz_alt"] = torch.as_tensor(cg.R_alt[0], dtype=self.dtype)
+        #
+        data.ndata["correct_bb"] = torch.as_tensor(cg.bb[0], dtype=self.dtype)
+        data.ndata["correct_torsion"] = torch.as_tensor(cg.torsion[0], dtype=self.dtype)
+        data.ndata["torsion_mask"] = torch.as_tensor(cg.torsion_mask, dtype=self.dtype)
         #
         r_cntr = libcg.get_residue_center_of_mass(
             data.ndata["output_xyz"], data.ndata["atomic_mass"]
         )
         v_cntr = r_cntr - data.ndata["output_xyz"][:, ATOM_INDEX_CA]
         data.ndata["v_cntr"] = v_cntr
-        #
-        # data.ndata["node_feat_1"] = torch.cat([data.ndata["node_feat_1"], v_cntr[:, None]], dim=1)
-        #
-        if self.get_structure_information:
-            cg.get_structure_information()
-            data.ndata["correct_bb"] = torch.as_tensor(cg.bb[0], dtype=self.dtype)
-            data.ndata["correct_torsion"] = torch.as_tensor(cg.torsion[0], dtype=self.dtype)
-            data.ndata["torsion_mask"] = torch.as_tensor(cg.torsion_mask, dtype=self.dtype)
         #
         if self.use_pt is not None:
             torch.save(data, pt_fn)
@@ -297,7 +294,6 @@ def test():
         noise_level=0.0,
         use_pt="CA",
         random_rotation=True,
-        get_structure_information=True,
     )
 
     data = train_set[0]
@@ -331,7 +327,6 @@ def to_pt():
         noise_level=0.0,
         random_rotation=True,
         use_pt="CA",
-        get_structure_information=True,
     )
     #
     train_loader = dgl.dataloading.GraphDataLoader(
