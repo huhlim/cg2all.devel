@@ -2,43 +2,38 @@
 # three methods
 # closest: align using the CHI angle defining atom (closest atom) and determine hydrogen's names
 # permute: to remove ambiguity from permutation
-# periodic: to remove periodicity
-CYS CHI_1        closest  HB1  HB2  
-ASP CHI_1        closest  HB1  HB2  
-ASP CHI_2        periodic ALL
-GLU CHI_1        closest  HB1  HB2  
-GLU CHI_2        closest  HG1  HG2  
-GLU CHI_3        periodic ALL
-PHE CHI_1        closest  HB1  HB2  
-PHE CHI_2        periodic ALL
-GLY BB_0         closest  HA1  HA2  
-HSD CHI_1        closest  HB1  HB2  
-HSE CHI_1        closest  HB1  HB2  
-ILE CHI_2        closest  HG11 HG12 
-LYS CHI_1        closest  HB1  HB2  
-LYS CHI_2        closest  HG1  HG2  
-LYS CHI_3        closest  HD1  HD2  
-LYS CHI_4        closest  HE1  HE2  
-LEU CHI_1        closest  HB1  HB2  
-LEU CHI_2        permute  CD1  CD2  
-MET CHI_1        closest  HB1  HB2  
-MET CHI_2        closest  HG1  HG2  
-ASN CHI_1        closest  HB1  HB2  
-ASN OD1-CG-ND2_0 periodic HD21 HD22 
-PRO CHI_1        closest  HB1  HB2  
-PRO CHI_2        closest  HG1  HG2  
-PRO CHI_3        closest  HD1  HD2  
-GLN CHI_1        closest  HB1  HB2  
-GLN CHI_2        closest  HG1  HG2  
-GLN OE1-CD-NE2_0 periodic HE21 HE22 
-ARG CHI_1        closest  HB1  HB2  
-ARG CHI_2        closest  HG1  HG2  
-ARG CHI_3        closest  HD1  HD2  
-ARG CD-NE-CZ_0   periodic NH2  NH1
-ARG NE-CZ-NH1_1  periodic HH11 HH12 
-ARG NE-CZ-NH2_2  periodic HH21 HH22 
-SER CHI_1        closest  HB1  HB2  
-VAL CHI_1        permute  CG1  CG2  
-TRP CHI_1        closest  HB1  HB2  
-TYR CHI_1        closest  HB1  HB2  
-TYR CHI_2        periodic ALL
+CYS CHI_1        closest   HB1  HB2  
+ASP CHI_1        closest   HB1  HB2  
+GLU CHI_1        closest   HB1  HB2  
+GLU CHI_2        closest   HG1  HG2  
+PHE CHI_1        closest   HB1  HB2  
+GLY BB_0         closest   HA1  HA2  
+HSD CHI_1        closest   HB1  HB2  
+HSE CHI_1        closest   HB1  HB2  
+ILE CHI_2        closest   HG11 HG12 
+LYS CHI_1        closest   HB1  HB2  
+LYS CHI_2        closest   HG1  HG2  
+LYS CHI_3        closest   HD1  HD2  
+LYS CHI_4        closest   HE1  HE2  
+LEU CHI_1        closest   HB1  HB2  
+LEU CHI_2        permute   CD1  CD2  
+MET CHI_1        closest   HB1  HB2  
+MET CHI_2        closest   HG1  HG2  
+ASN CHI_1        closest   HB1  HB2  
+ASN OD1-CG-ND2_0 amide     HD21 HD22 
+PRO CHI_1        closest   HB1  HB2  
+PRO CHI_2        closest   HG1  HG2  
+PRO CHI_3        closest   HD1  HD2  
+GLN CHI_1        closest   HB1  HB2  
+GLN CHI_2        closest   HG1  HG2  
+GLN OE1-CD-NE2_0 amide     HE21 HE22 
+ARG CHI_1        closest   HB1  HB2  
+ARG CHI_2        closest   HG1  HG2  
+ARG CHI_3        closest   HD1  HD2  
+ARG CD-NE-CZ_0   guanidium NH2  NH1
+ARG NE-CZ-NH1_1  guanidium HH11 HH12 
+ARG NE-CZ-NH2_2  guanidium HH21 HH22 
+SER CHI_1        closest   HB1  HB2  
+VAL CHI_1        permute   CG1  CG2  
+TRP CHI_1        closest   HB1  HB2  
+TYR CHI_1        closest   HB1  HB2  

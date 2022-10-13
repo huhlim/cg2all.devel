@@ -75,14 +75,17 @@ class ProcessPDB(PDB):
                 if tor.name in ["BB"]:  # , 'PHI', 'PSI']:
                     continue
                 #
-                amb = get_ambiguous_atom_list(residue_name, tor.name, tor.index)
+                if tor.name == "XI":
+                    amb = get_ambiguous_atom_list(residue_name, tor.name, tor.index, tor.sub_index)
+                else:
+                    amb = get_ambiguous_atom_list(residue_name, tor.name, tor.index)
                 #
                 # check if all ambiguous atoms are present
                 if amb is not None:
                     if not self.check_amb_valid(i_res, amb, ref_res):
                         continue
                 #
-                if amb is None or amb.method == "closest":
+                if amb is None or amb.method in ["closest", "xi"]:
                     opr_sc, atom_s, rigid_s = update_by_closest_method(
                         self.R, self.atom_mask_pdb, i_res, ref_res, tor, amb, opr_s
                     )
@@ -94,6 +97,8 @@ class ProcessPDB(PDB):
                     opr_sc, atom_s, rigid_s = update_by_periodic_method(
                         self.R, self.atom_mask_pdb, i_res, ref_res, tor, amb, opr_s
                     )
+                elif amb.method in ["amide", "guanidium"]:
+                    continue
                 else:
                     raise ValueError("Unknown ambiguous method: %s" % amb.method)
                 #
@@ -105,11 +110,12 @@ class ProcessPDB(PDB):
                     atom_index = ref_res.atom_s.index(atom)
                     self.R_ideal[:, i_res, atom_index, :] = rigid_s[:, atom_s.index(atom), :]
             #
-            # special torsion angles, only for Asn, Gln, Arg
+            # amide torsion angles, only for Asn, Gln, Arg
             if residue_name in ["ASN", "GLN"]:
-                amb = get_ambiguous_atom_list(ref_res.residue_name, "special")
+                amb = get_ambiguous_atom_list(ref_res.residue_name, "amide")
                 if self.check_amb_valid(i_res, amb, ref_res):
-                    update_by_special_method(self.R, self.atom_mask_pdb, i_res, ref_res, amb)
+                    update_by_amide_method(self.R, self.atom_mask_pdb, i_res, ref_res, amb)
+
             elif residue_name == "ARG":
                 update_by_guanidium_method(self.R, self.atom_mask_pdb, i_res, ref_res)
 

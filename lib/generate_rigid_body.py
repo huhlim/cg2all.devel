@@ -365,7 +365,6 @@ def build_torsion_energy_table(residue_s, par_dihed_s):
 
 
 def write_residue(pdb_fn, residue, R):
-    # ATOM      1  N   MET A   1      27.340  24.430   2.614  1.00  0.00           N
     wrt = [[], [], []]
     for i, (atom, r) in enumerate(R.items()):
         if "-" in atom:
@@ -380,7 +379,11 @@ def write_residue(pdb_fn, residue, R):
 
         if len(atom) < 4:
             name = f" {name:<3s}"
-        line = "ATOM  " + f"{0:5d} {name} {residue.residue_name} A{i_res:4d}    "
+        if i_res == 1:
+            resName = residue.residue_name
+        else:
+            resName = "ALA"
+        line = "ATOM  " + f"{0:5d} {name} {resName} A{i_res:4d}    "
         line += f"{r[0]:8.3f}{r[1]:8.3f}{r[2]:8.3f}\n"
         wrt[i_res].append(line)
 
@@ -396,7 +399,8 @@ def main():
     for ss_index in [0]:  # , 1, 2, 3]:
         for residue in residue_s.values():
             residue.R = build_structure_from_ic(residue, ss_index=ss_index)
-            # write_residue(f"{residue.residue_name}.pdb", residue, residue.R)
+            if not os.path.exists(f"{residue.residue_name}.pdb"):
+                write_residue(f"{residue.residue_name}.pdb", residue, residue.R)
         #
         rigid_group_s = get_rigid_groups(residue_s, torsion_s, ss_index=ss_index)
         get_rigid_body_transformation_between_frames(rigid_group_s, ss_index=ss_index)

@@ -27,6 +27,7 @@ def read_ambiguous_atom_list():
             "method",
             "torsion_name",
             "torsion_index",
+            "torsion_sub_index",
             "torsion_atom_s",
         ),
     )
@@ -38,11 +39,12 @@ def read_ambiguous_atom_list():
                 continue
             x = line.strip().split()
             residue_name = x[0]
+            method = x[2]
             atom_s = x[3:]
             if "-" not in x[1]:
                 torsion_name, torsion_index = x[1].split("_")
             else:
-                torsion_name = "special"
+                torsion_name = method
                 torsion_definition, torsion_index = x[1].split("_")
                 torsion_definition = torsion_definition.split("-")
             torsion_index = int(torsion_index)
@@ -55,7 +57,6 @@ def read_ambiguous_atom_list():
                     torsion_definition = tor.atom_s[:3]
                     break
 
-            method = x[2]
             amb_s.append(
                 Ambiguous(
                     residue_name,
@@ -63,6 +64,7 @@ def read_ambiguous_atom_list():
                     method,
                     torsion_name,
                     torsion_index,
+                    -1,
                     torsion_definition,
                 )
             )
@@ -78,9 +80,10 @@ def read_ambiguous_atom_list():
                     Ambiguous(
                         residue_name,
                         tor.atom_s[3:],
-                        "periodic",
+                        "xi",
                         "XI",
                         tor.index,
+                        tor.sub_index,
                         tor.atom_s[:3],
                     )
                 )
@@ -90,7 +93,7 @@ def read_ambiguous_atom_list():
 ambiguous_atom_list = read_ambiguous_atom_list()
 
 
-def get_ambiguous_atom_list(residue_name, torsion_name, torsion_index=-1):
+def get_ambiguous_atom_list(residue_name, torsion_name, torsion_index=-1, torsion_sub_index=-1):
     for amb in ambiguous_atom_list:
         if amb.residue_name != residue_name:
             continue
@@ -98,11 +101,12 @@ def get_ambiguous_atom_list(residue_name, torsion_name, torsion_index=-1):
             continue
         elif torsion_index >= 0 and amb.torsion_index != torsion_index:
             continue
+        elif torsion_sub_index >= 0 and amb.torsion_sub_index != torsion_sub_index:
+            continue
         return amb
     return None
 
 
-# %%
 def apply_swapping_rule(ref_res, amb, R):
     greek = amb.atom_s[0][1]
     group_number_s = [atom_name[2] for atom_name in amb.atom_s]
@@ -142,11 +146,20 @@ def apply_closest_rule(ref_res, amb, periodic_s, atom_s, rigid, R):
     R[index_orig, :] = R[index_min, :]
 
 
-# %%
 def update_by_closest_method(R, atom_mask, i_res, ref_res, tor, amb, opr_dict):
     # get rigid-body transformation
-    prev, rigid_tR = get_rigid_transform_by_torsion(ref_res.residue_name, tor.name, tor.index)
-    t_ang0, atom_s, rigid = get_rigid_group_by_torsion(ref_res.residue_name, tor.name, tor.index)
+    if tor.name == "XI":
+        prev, rigid_tR = get_rigid_transform_by_torsion(
+            ref_res.residue_name, tor.name, tor.index, tor.sub_index
+        )
+        t_ang0, atom_s, rigid = get_rigid_group_by_torsion(
+            ref_res.residue_name, tor.name, tor.index, tor.sub_index
+        )
+    else:
+        prev, rigid_tR = get_rigid_transform_by_torsion(ref_res.residue_name, tor.name, tor.index)
+        t_ang0, atom_s, rigid = get_rigid_group_by_torsion(
+            ref_res.residue_name, tor.name, tor.index
+        )
     #
     # calculate the torsion angle
     torsion_angle_atom_s = tor.atom_s[:4]
@@ -170,7 +183,7 @@ def update_by_closest_method(R, atom_mask, i_res, ref_res, tor, amb, opr_dict):
         opr = combine_opr_s([opr, rigid_tR, (opr_prev[0][k], opr_prev[1][k])])
         opr_s[0].append(opr[0])
         opr_s[1].append(opr[1])
-    rigid_s = translate_and_rotate(rigid, np.array(opr_s[0]), np.array(opr_s[1]))
+        rigid_s.append(translate_and_rotate(rigid, np.array(opr_s[0]), np.array(opr_s[1]))[0])
 
     if amb is not None:
         periodic_s = [[atom] for atom in amb.atom_s]
@@ -286,7 +299,7 @@ def update_by_glycine_backbone_method(R, i_res, ref_res, amb, atom_s, rigid_s):
         apply_closest_rule(ref_res, amb, periodic_s, atom_s, rigid_s[k], R[k, i_res, :, :])
 
 
-def update_by_special_method(R, atom_mask, i_res, ref_res, amb):
+def update_by_amide_method(R, atom_mask, i_res, ref_res, amb):
     index_amb = [ref_res.atom_s.index(atom) for atom in amb.atom_s]
     index_tor = [ref_res.atom_s.index(atom) for atom in amb.torsion_atom_s]
     if not np.all(atom_mask[i_res, index_amb]):
@@ -312,7 +325,7 @@ def update_by_special_method(R, atom_mask, i_res, ref_res, amb):
 
 def update_by_guanidium_method(R, atom_mask, i_res, ref_res):
     for i in range(3):
-        amb = get_ambiguous_atom_list(ref_res.residue_name, "special", i)
+        amb = get_ambiguous_atom_list(ref_res.residue_name, "guanidium", i)
         #
         index_amb = [ref_res.atom_s.index(atom) for atom in amb.atom_s]
         index_tor = [ref_res.atom_s.index(atom) for atom in amb.torsion_atom_s]

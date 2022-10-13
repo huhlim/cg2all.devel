@@ -13,7 +13,7 @@ np.set_printoptions(suppress=True)
 
 # %%
 class PDB(object):
-    def __init__(self, pdb_fn, dcd_fn=None, stride=1, frame_index=None):
+    def __init__(self, pdb_fn, dcd_fn=None, stride=1, frame_index=None, **kwarg):
         # read protein
         pdb = mdtraj.load(pdb_fn, standard_names=False)
         load_index = pdb.top.select("protein or (resname HSD or resname HSE or resname MSE)")
@@ -28,9 +28,9 @@ class PDB(object):
                 traj = mdtraj.load_frame(
                     dcd_fn, frame_index, top=pdb.top, atom_indices=load_index, stride=stride
                 )
-        self.process(traj, pdb_fn)
+        self.process(traj, pdb_fn, **kwarg)
 
-    def process(self, traj, pdb_fn):
+    def process(self, traj, pdb_fn, check_validity=True, compute_dssp=True):
         self.traj = traj
         self.top = traj.top
         #
@@ -41,15 +41,19 @@ class PDB(object):
         self.residue_name = []
         self.residue_index = np.zeros(self.n_residue, dtype=int)
         #
-        ss = mdtraj.compute_dssp(traj, simplified=True)
-        self.ss = np.full_like(ss, 2, dtype=int)
-        self.ss[ss == "H"] = 0
-        self.ss[ss == "E"] = 1
+        if compute_dssp:
+            ss = mdtraj.compute_dssp(traj, simplified=True)
+            self.ss = np.full_like(ss, 2, dtype=int)
+            self.ss[ss == "H"] = 0
+            self.ss[ss == "E"] = 1
         #
         self.detect_ssbond(pdb_fn)
         #
         self.to_atom()
         self.get_continuity()
+        #
+        if not check_validity:
+            return
         #
         is_valid, valid_index = self.check_validity()
         if is_valid:
@@ -231,7 +235,7 @@ class PDB(object):
         ref_res = residue_s[residue_name]
         #
         torsion_mask = np.zeros(MAX_TORSION, dtype=float)
-        torsion_angle_s = np.zeros((self.n_frame, MAX_TORSION), dtype=float)
+        torsion_angle_s = np.zeros((self.n_frame, MAX_TORSION, MAX_PERIODIC), dtype=float)
         for tor in torsion_s[self.residue_name[i_res]]:
             if tor is None or tor.name in ["BB"]:
                 continue
@@ -245,7 +249,10 @@ class PDB(object):
             #
             t_ang = torsion_angle(self.R[:, i_res, index, :]) - t_ang0
             torsion_mask[tor.i - 1] = 1.0
-            torsion_angle_s[:, tor.i - 1] = t_ang
+            torsion_angle_s[:, tor.i - 1, :] = t_ang
+            if tor.periodic > 1:
+                for p in range(1, tor.periodic):
+                    torsion_angle_s[:, tor.i - 1, p] += p / tor.periodic * 2.0 * np.pi
         return torsion_mask, torsion_angle_s
 
     def get_structure_information(self):
@@ -253,7 +260,9 @@ class PDB(object):
         self.bb_mask = np.zeros(self.n_residue, dtype=float)
         self.bb = np.zeros((self.n_frame, self.n_residue, 4, 3), dtype=float)
         self.torsion_mask = np.zeros((self.n_residue, MAX_TORSION), dtype=float)
-        self.torsion = np.zeros((self.n_frame, self.n_residue, MAX_TORSION), dtype=float)
+        self.torsion = np.zeros(
+            (self.n_frame, self.n_residue, MAX_TORSION, MAX_PERIODIC), dtype=float
+        )
         for i_res in range(self.n_residue):
             mask, opr_s = self.get_backbone_orientation(i_res)
             self.bb_mask[i_res] = mask
@@ -262,7 +271,7 @@ class PDB(object):
             #
             mask, tor_s = self.get_torsion_angles(i_res)
             self.torsion_mask[i_res, :] = mask
-            self.torsion[:, i_res, :] = tor_s
+            self.torsion[:, i_res, :, :] = tor_s
 
     def write(self, R, pdb_fn, dcd_fn=None):
         top = self.create_new_topology()
@@ -351,7 +360,7 @@ def generate_structure_from_bb_and_torsion(residue_index, bb, torsion):
     #
     for frame in range(n_frame):
         opr = np.zeros_like(transforms)
-        opr[:, 0] = bb
+        opr[:, 0] = bb[frame]
         opr[:, 1:, 0, 0] = 1.0
         sine = np.sin(torsion[frame])
         cosine = np.cos(torsion[frame])
@@ -366,15 +375,14 @@ def generate_structure_from_bb_and_torsion(residue_index, bb, torsion):
             prev = np.take_along_axis(opr, transforms_dep[:, i_tor][:, None, None, None], axis=1)
             opr[:, i_tor] = combine_operations(prev[:, 0], opr[:, i_tor])
 
-        # np.take_along_axis -> torch.gather
         opr = np.take_along_axis(opr, rigids_dep[..., None, None], axis=1)
         R[frame] = rotate_vector(opr[:, :, :3], rigids) + opr[:, :, 3]
     return R
 
 
 if __name__ == "__main__":
-    pdb = PDB("../pdb.6k/pdb0/1cb0.pdb")
-    # pdb.get_structure_information()
+    pdb = PDB("pdb.6k/1ab1.pdb")
+    pdb.get_structure_information()
     #
     # job = "../dyna/run/1a2p_B"
     # pdb = PDB(f"{job}/init/solute.pdb", dcd_fn=f"{job}/prod/0/0/solute.dcd")

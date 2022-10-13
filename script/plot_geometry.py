@@ -194,7 +194,7 @@ def plot_2d(png_fn, native, model, kT=8, periodic=False):
     #
     fig, axes = plt.subplots(1, 2, figsize=(9.6, 4.8), sharex=True, sharey=True)
     #
-    for i, data in enumerate([native, model]):
+    for i, _data in enumerate([native, model]):
         valid = np.all(_data[:, :2] < 360.0, axis=1)
         data = _data[valid]
         for k, xy in enumerate(xylim):

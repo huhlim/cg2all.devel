@@ -63,6 +63,8 @@ MAX_TORSION_CHI = 4
 MAX_TORSION_XI = 2
 MAX_TORSION = MAX_TORSION_CHI + MAX_TORSION_XI + 2  # =8 ; 2 for bb/phi/psi
 MAX_RIGID = MAX_TORSION + 1
+MAX_PERIODIC = 3
+MAX_PERIODIC_HEAVY = 2
 
 
 class Torsion(object):
@@ -74,7 +76,7 @@ class Torsion(object):
         self.sub_index = sub_index
         self.atom_s = [atom.replace("*", "") for atom in atom_s]
         self.periodic = periodic
-        if self.periodic > 1:
+        if self.periodic > 1:  # always tip atoms
             self.atom_alt_s = self.generate_atom_alt_s(atom_s, periodic)
         else:
             self.atom_alt_s = [atom_s]

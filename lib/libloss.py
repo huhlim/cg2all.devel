@@ -67,7 +67,9 @@ def loss_f(batch, ret, loss_weight, loss_prev=None, RIGID_OPs=None, TORSION_PARs
         ) * loss_weight.torsion_angle
     if loss_weight.get("torsion_energy", 0.0) > 0.0:
         loss["torsion_energy"] = (
-            loss_f_torsion_energy(batch, R, TORSION_PARs, energy_clamp=loss_weight.get("torsion_energy_clamp", 0.0))
+            loss_f_torsion_energy(
+                batch, R, TORSION_PARs, energy_clamp=loss_weight.get("torsion_energy_clamp", 0.0)
+            )
             * loss_weight.torsion_energy
         )
     if loss_weight.get("atomic_clash", 0.0) > 0.0:
@@ -289,12 +291,15 @@ def loss_f_torsion_angle(
     sc0: Optional[torch.Tensor] = None,
     norm_weight: Optional[float] = 0.01,
 ):
+    # shape=(N, MAX_TORSION, MAX_PERIODIC)
     sc_ref = batch.ndata["correct_torsion"]
     mask = batch.ndata["torsion_mask"]
     #
     sc_cos = torch.cos(sc_ref)
     sc_sin = torch.sin(sc_ref)
-    loss = torch.sum((1.0 - ((sc[..., 0] * sc_cos) + (sc[..., 1] * sc_sin))) * mask)
+    dot = torch.max(sc[..., 0, None] * sc_cos + sc[..., 1, None] * sc_sin, dim=2)[0]
+    loss = torch.sum(dot * mask)
+    # loss = torch.sum((1.0 - ((sc[..., 0] * sc_cos) + (sc[..., 1] * sc_sin))) * mask)
     #
     if sc0 is not None and norm_weight > 0.0:
         norm = v_size(sc0)
@@ -302,6 +307,7 @@ def loss_f_torsion_angle(
         loss = loss + loss_norm * norm_weight
     loss = loss / mask.sum()
     return loss
+
 
 def loss_f_distance_matrix(batch: dgl.DGLGraph, R: torch.Tensor, radius=1.0):
     R_ref = batch.ndata["output_xyz"][:, ATOM_INDEX_CA]
@@ -372,29 +378,6 @@ def loss_f_atomic_clash(batch: dgl.DGLGraph, R: torch.Tensor, RIGID_OPs, lj=Fals
         energy = energy + energy_ij
     energy = energy / R.size(0)
     return energy
-
-
-def loss_f_torsion_angle_class(batch: dgl.DGLGraph, sc: torch.Tensor, width=15.0, sigma=1.0):
-    device = sc.device
-    SIGMA = width / 180.0 * pi
-    KAPPA = 1.0 / (sigma * SIGMA) ** 2
-    x0 = torch.arange(-pi, pi, SIGMA, device=device) + 0.5 * SIGMA
-    x0_cos = torch.cos(x0)
-    x0_sin = torch.sin(x0)
-    #
-    prob = KAPPA * (
-        sc[..., None, :, 0] * x0_cos[:, None] + sc[..., None, :, 1] * x0_sin[:, None] - 1.0
-    )
-    #
-    sc_ref = batch.ndata["correct_torsion"]
-    sc_x0 = (sc_ref[..., None] - x0) % (2.0 * pi)
-    sc_x0 = torch.minimum(sc_x0, 2.0 * pi - sc_x0)
-    index_ref = torch.argmin(sc_x0, dim=-1)
-    #
-    mask = batch.ndata["torsion_mask"]
-    loss = torch.nn.functional.cross_entropy(prob, index_ref, reduction="none") * mask
-    loss = loss.sum() / mask.sum()
-    return loss
 
 
 def loss_f_torsion_energy(batch: dgl.DGLGraph, R: torch.Tensor, TORSION_PARs, energy_clamp=0.0):
@@ -503,18 +486,23 @@ def test():
     #
     import time
 
-    R_ref.requires_grad_(True)
-    R_model.requires_grad_(True)
+    t_ang = model.ndata["correct_torsion"][..., 0]
+    sc = [torch.cos(t_ang), torch.sin(t_ang)]
+    sc = torch.stack(sc, dim=-1)
+    loss_f_torsion_angle(native, sc)
     #
-    t0 = time.time()
-    l = loss_f_backbone_torsion(native, R_ref)
-    print(time.time() - t0)
-    l.backward()
-    t0 = time.time()
-    l = loss_f_backbone_torsion(native, R_model)
-    print(time.time() - t0)
-    l.backward()
-    print(R_model.grad)
+    # R_ref.requires_grad_(True)
+    # R_model.requires_grad_(True)
+    # #
+    # t0 = time.time()
+    # l = loss_f_backbone_torsion(native, R_ref)
+    # print(time.time() - t0)
+    # l.backward()
+    # t0 = time.time()
+    # l = loss_f_backbone_torsion(native, R_model)
+    # print(time.time() - t0)
+    # l.backward()
+    # print(R_model.grad)
 
 
 if __name__ == "__main__":
