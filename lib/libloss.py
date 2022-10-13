@@ -346,7 +346,7 @@ def loss_f_torsion_angle(
     sc_cos = torch.cos(sc_ref)
     sc_sin = torch.sin(sc_ref)
     dot = torch.max(sc[..., 0, None] * sc_cos + sc[..., 1, None] * sc_sin, dim=2)[0]
-    loss = torch.sum(dot * mask)
+    loss = torch.sum((1.0 - dot) * mask)
     #
     if sc0 is not None and norm_weight > 0.0:
         norm = v_size(sc0)
@@ -447,7 +447,6 @@ def test():
         pdblist,
         cg_model,
         radius=0.8,
-        get_structure_information=True,
     )
     train_loader = dgl.dataloading.GraphDataLoader(
         train_set, batch_size=2, shuffle=False, num_workers=1
@@ -485,33 +484,23 @@ def test():
     #
     import time
 
-    # t_ang = model.ndata["correct_torsion"][..., 0]
-    # sc = [torch.cos(t_ang), torch.sin(t_ang)]
-    # sc = torch.stack(sc, dim=-1)
-    # loss_f_torsion_angle(native, sc)
-    native.ndata["output_xyz_ref"] = get_output_xyz_ref(native, R_model)
-    bb = model.ndata["correct_bb"]
-    o = loss_f_FAPE_all(native, R_model, bb)
-    print(o)
-    native.ndata["output_xyz_ref"] = native.ndata["output_xyz"]
-    o = loss_f_FAPE_all(native, R_model, bb)
-    print(o)
-    native.ndata["output_xyz_ref"] = native.ndata["output_xyz_alt"]
-    o = loss_f_FAPE_all(native, R_model, bb)
-    print(o)
+    t_ang = model.ndata["correct_torsion"][..., 0]
+    sc = [torch.cos(t_ang), torch.sin(t_ang)]
+    sc = torch.stack(sc, dim=-1)
+    loss_f_torsion_angle(native, sc)
+    # native.ndata["output_xyz_ref"] = get_output_xyz_ref(native, R_model)
+    # bb = model.ndata["correct_bb"]
+    # o = loss_f_FAPE_all(native, R_model, bb)
+    # print(o)
+    # native.ndata["output_xyz_ref"] = native.ndata["output_xyz"]
+    # o = loss_f_FAPE_all(native, R_model, bb)
+    # print(o)
+    # native.ndata["output_xyz_ref"] = native.ndata["output_xyz_alt"]
+    # o = loss_f_FAPE_all(native, R_model, bb)
+    # print(o)
     #
     # R_ref.requires_grad_(True)
-    # R_model.requires_grad_(True)
-    # #
-    # t0 = time.time()
-    # l = loss_f_backbone_torsion(native, R_ref)
-    # print(time.time() - t0)
-    # l.backward()
-    # t0 = time.time()
-    # l = loss_f_backbone_torsion(native, R_model)
-    # print(time.time() - t0)
-    # l.backward()
-    # print(R_model.grad)
+    R_model.requires_grad_(True)
 
 
 if __name__ == "__main__":

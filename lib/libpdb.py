@@ -252,7 +252,7 @@ class PDB(object):
             #
             t_ang = torsion_angle(self.R[:, i_res, index, :]) - t_ang0
             torsion_mask[tor.i - 1] = 1.0
-            torsion_angle_s[:, tor.i - 1, :] = t_ang
+            torsion_angle_s[:, tor.i - 1, :] = t_ang[..., None]
             if tor.periodic > 1:
                 for p in range(1, tor.periodic):
                     torsion_angle_s[:, tor.i - 1, p] += p / tor.periodic * 2.0 * np.pi

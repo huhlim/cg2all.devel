@@ -262,7 +262,7 @@ def create_trajectory_from_batch(
             xyz.append(data.ndata["output_xyz"].cpu().detach().numpy()[mask > 0.0])
         else:
             mask = data.ndata["output_atom_mask"].cpu().detach().numpy()
-            mask = np.ones_like(mask)
+            # mask = np.ones_like(mask)
         #
         ssbond = []
         for cys_i, cys_j in enumerate(data.ndata["ssbond_index"].cpu().detach().numpy()):
