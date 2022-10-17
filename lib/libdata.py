@@ -123,7 +123,7 @@ class PDBset(Dataset):
         data.ndata["chain_index"] = torch.as_tensor(cg.chain_index, dtype=torch.long)
         data.ndata["residue_type"] = torch.as_tensor(cg.residue_index, dtype=torch.long)
         data.ndata["continuous"] = torch.as_tensor(cg.continuous, dtype=self.dtype)
-        data.ndata["ss"] = torch.as_tensor(cg.ss[frame_index], dtype=torch.long)
+        data.ndata["ss"] = torch.as_tensor(cg.ss[0], dtype=torch.long)
         #
         ssbond_index = torch.full((data.num_nodes(),), -1, dtype=torch.long)
         for cys_i, cys_j in cg.ssbond_s:
@@ -316,7 +316,8 @@ def test():
 
 
 def to_pt():
-    base_dir = BASE / "pdb.6k"
+    base_dir = BASE / "pdb.27k"
+    # base_dir = BASE / "md.pisces"
     pdblist = base_dir / "targets"
     cg_model = libcg.CalphaBasedModel
     #
@@ -327,6 +328,8 @@ def to_pt():
         noise_level=0.0,
         random_rotation=True,
         use_pt="CA",
+        # use_md=True,
+        # n_frame=10,
     )
     #
     train_loader = dgl.dataloading.GraphDataLoader(

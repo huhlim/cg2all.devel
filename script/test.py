@@ -80,7 +80,6 @@ def main():
         cg_model=cg_model,
         radius=config.globals.radius,
         noise_level=0.0,
-        get_structure_information=True,
         random_rotation=True,
         use_pt="CA",
         use_md=use_md,
