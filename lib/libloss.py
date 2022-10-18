@@ -12,6 +12,7 @@ from residue_constants import (
     ATOM_INDEX_CA,
     ATOM_INDEX_C,
     ATOM_INDEX_PRO_CD,
+    ATOM_INDEX_CYS_CB,
     ATOM_INDEX_CYS_SG,
     BOND_LENGTH0,
     BOND_LENGTH_PROLINE_RING,
@@ -379,19 +380,21 @@ def loss_f_atomic_clash(batch: dgl.DGLGraph, R: torch.Tensor, RIGID_OPs, lj=Fals
         mask_j = data.ndata["output_atom_mask"][j] > 0.0
         mask = mask_j[:, :, None] & mask_i[:, None, :]
         #
-        # y = i == j + 1
-        curr_residue_type = data.ndata["residue_type"][i]
-        prev_residue_type = data.ndata["residue_type"][j]
+        # i == j + 1
+        y = i == j + 1
+        curr_residue_type = data.ndata["residue_type"][i[y]]
+        prev_residue_type = data.ndata["residue_type"][j[y]]
         curr_bb = _RIGID_GROUPS_DEP[curr_residue_type] < 3
         curr_bb[curr_residue_type == PROLINE_INDEX, :7] = True
         prev_bb = _RIGID_GROUPS_DEP[prev_residue_type] < 3
         bb_pair = prev_bb[:, :, None] & curr_bb[:, None, :]
+        mask[y] = mask[y] & (~bb_pair)
         #
-        bb_pair[i != j + 1] = False
-        mask = mask & (~bb_pair)
-        #
-        ssbond = (data.edata["edge_feat_0"][x, 1] == 1.0)[:, 0]
-        mask[ssbond, ATOM_INDEX_CYS_SG, ATOM_INDEX_CYS_SG] = False
+        ssbond = data.edata["edge_feat_0"][x, 1, 0] == 1.0
+        # mask[ssbond, ATOM_INDEX_CYS_SG, ATOM_INDEX_CYS_SG] = False
+        mask[ssbond, ATOM_INDEX_CYS_CB:, ATOM_INDEX_CYS_CB:] = False
+        mask[ssbond, ATOM_INDEX_CYS_SG, ATOM_INDEX_CA] = False
+        mask[ssbond, ATOM_INDEX_CA, ATOM_INDEX_CYS_SG] = False
         #
         dr = _R[j][:, :, None] - _R[i][:, None, :]
         dist = v_size(dr)[mask]
@@ -429,6 +432,68 @@ def loss_f_torsion_energy(batch: dgl.DGLGraph, R: torch.Tensor, TORSION_PARs, en
     energy = (par[..., 0] * (1.0 + torch.cos(t_ang))).sum(-1) - par[..., 0, 4]
     energy = torch.clamp(energy - energy_clamp, min=0.0)
     return torch.sum(energy) / n_residue
+
+
+def find_atomic_clash(batch: dgl.DGLGraph, R: torch.Tensor, RIGID_OPs, vdw_scale=1.0):
+    _RIGID_GROUPS_DEP = RIGID_OPs[1][1]
+
+    feat = []
+    for batch_index in range(batch.batch_size):
+        data = dgl.slice_batch(batch, batch_index, store_ids=True)
+        _R = R[data.ndata["_ID"]]
+        #
+        i, j = data.edges()
+        #
+        # mask_i = data.ndata["output_atom_mask"][i] > 0.0
+        # mask_j = data.ndata["output_atom_mask"][j] > 0.0
+        mask_i = data.ndata["heavy_atom_mask"][i] > 0.0
+        mask_j = data.ndata["heavy_atom_mask"][j] > 0.0
+        mask = mask_j[:, :, None] & mask_i[:, None, :]
+        #
+        # i == j + 1
+        x = i == j + 1
+        curr_residue_type = data.ndata["residue_type"][i[x]]
+        prev_residue_type = data.ndata["residue_type"][j[x]]
+        curr_bb = _RIGID_GROUPS_DEP[curr_residue_type] < 3
+        curr_bb[curr_residue_type == PROLINE_INDEX, :7] = True
+        prev_bb = _RIGID_GROUPS_DEP[prev_residue_type] < 3
+        bb_pair = prev_bb[:, :, None] & curr_bb[:, None, :]
+        mask[x] = mask[x] & (~bb_pair)
+        #
+        # i + 1 == j
+        x = i + 1 == j
+        curr_residue_type = data.ndata["residue_type"][i[x]]
+        next_residue_type = data.ndata["residue_type"][j[x]]
+        curr_bb = _RIGID_GROUPS_DEP[curr_residue_type] < 3
+        next_bb = _RIGID_GROUPS_DEP[next_residue_type] < 3
+        next_bb[curr_residue_type == PROLINE_INDEX, :7] = True
+        bb_pair = next_bb[:, :, None] & curr_bb[:, None, :]
+        mask[x] = mask[x] & (~bb_pair)
+        #
+        ssbond = data.edata["edge_feat_0"][:, 1, 0] == 1.0
+        mask[ssbond, ATOM_INDEX_CYS_CB:, ATOM_INDEX_CYS_CB:] = False
+        mask[ssbond, ATOM_INDEX_CYS_SG, ATOM_INDEX_CA] = False
+        mask[ssbond, ATOM_INDEX_CA, ATOM_INDEX_CYS_SG] = False
+        mask = mask.type(torch.float)
+        #
+        dr = _R[j][:, :, None] - _R[i][:, None, :]
+        dist = v_size(dr)
+        #
+        epsilon_i = data.ndata["atomic_radius"][i, :, 0, 0]
+        epsilon_j = data.ndata["atomic_radius"][j, :, 0, 0]
+        epsilon = torch.sqrt(epsilon_j[:, :, None] * epsilon_i[:, None, :]) * mask
+        #
+        radius_i = data.ndata["atomic_radius"][i, :, 0, 1]
+        radius_j = data.ndata["atomic_radius"][j, :, 0, 1]
+        radius_sum = radius_j[:, :, None] + radius_i[:, None, :]
+        radius_sum = radius_sum * vdw_scale
+        #
+        x = -torch.clamp(dist - radius_sum, max=0.0)
+        energy_ij = 10.0 * (epsilon * torch.pow(x, 2)).sum(dim=(1, 2))
+        feat.append(energy_ij)
+
+    feat = torch.cat(feat, dim=0)
+    return feat
 
 
 def test():
@@ -484,10 +549,14 @@ def test():
     #
     import time
 
-    t_ang = model.ndata["correct_torsion"][..., 0]
-    sc = [torch.cos(t_ang), torch.sin(t_ang)]
-    sc = torch.stack(sc, dim=-1)
-    loss_f_torsion_angle(native, sc)
+    # find_atomic_clash(model, R_model, RIGID_OPs)
+    loss_f_atomic_clash(batch, batch.ndata["output_xyz"], RIGID_OPs)
+    find_atomic_clash(batch, batch.ndata["output_xyz"], RIGID_OPs, vdw_scale=0.95)
+
+    # t_ang = model.ndata["correct_torsion"][..., 0]
+    # sc = [torch.cos(t_ang), torch.sin(t_ang)]
+    # sc = torch.stack(sc, dim=-1)
+    # loss_f_torsion_angle(native, sc)
     # native.ndata["output_xyz_ref"] = get_output_xyz_ref(native, R_model)
     # bb = model.ndata["correct_bb"]
     # o = loss_f_FAPE_all(native, R_model, bb)
@@ -500,7 +569,7 @@ def test():
     # print(o)
     #
     # R_ref.requires_grad_(True)
-    R_model.requires_grad_(True)
+    # R_model.requires_grad_(True)
 
 
 if __name__ == "__main__":

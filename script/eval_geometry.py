@@ -21,10 +21,12 @@ def kl_div(X, Y, eps=EPS):
 
 def assess_per_target(name, dat):
     delta_chi_s = [[] for _ in range(4)]
+    correct_s = [[] for _ in range(4)]
     #
     Y, X = dat
     for resName, y, x in zip(Y.resName, Y.c_ang, X.c_ang):
         mask = y < 999.0
+        correct = True
         for i, m in enumerate(mask):
             if not m:
                 break
@@ -38,14 +40,16 @@ def assess_per_target(name, dat):
                 delta %= 360.0
                 delta = min(delta, abs(360.0 - delta))
             delta_chi_s[i].append(delta)
+            correct = correct & (delta < CHI_CUTOFF)
+            correct_s[i].append(correct)
     #
     rmsd = [np.sqrt(np.mean(np.power(X, 2))) for X in delta_chi_s]
     mae = [np.mean(X) for X in delta_chi_s]
-    acc = [(np.array(X) < CHI_CUTOFF).astype(float).sum() / len(X) for X in delta_chi_s]
+    acc = [np.array(X).astype(float).sum() / len(X) * 100 for X in correct_s]
     #
     wrt = []
-    for i in range(4):
-        wrt.append(f"{rmsd[i]:6.2f} {mae[i]:6.2f} {acc[i]*100.0:6.2f}")
+    for measure in [rmsd, mae, acc]:
+        wrt.append(" ".join([f"{measure[i]:6.2f}" for i in range(4)]))
     wrt.append(name)
     return " | ".join(wrt) + "\n"
 
@@ -195,7 +199,7 @@ def main():
         keyword = sys.argv[2]
     else:
         keyword = "test"
-    dat_fn_s = list(log_dir.glob(f"{keyword}*.geom.dat"))[:20]
+    dat_fn_s = list(log_dir.glob(f"{keyword}*.geom.dat"))
     #
     data = [Data(), Data()]
     data[0].to_np()

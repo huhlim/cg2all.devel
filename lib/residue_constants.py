@@ -395,6 +395,7 @@ def read_CHARMM_prm(fn):
 
 residue_s = read_CHARMM_rtf(DATA_HOME / "toppar/top_all36_prot.rtf")
 ATOM_INDEX_PRO_CD = residue_s["PRO"].atom_s.index("CD")
+ATOM_INDEX_CYS_CB = residue_s["CYS"].atom_s.index("CB")
 ATOM_INDEX_CYS_SG = residue_s["CYS"].atom_s.index("SG")
 
 radius_s, par_dihed_s = read_CHARMM_prm(DATA_HOME / "toppar/par_all36m_prot.prm")

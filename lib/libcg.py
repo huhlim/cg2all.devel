@@ -9,7 +9,7 @@ import dgl
 from libconfig import DTYPE
 from libpdb import PDB
 from sklearn.decomposition import PCA
-from torch_basics import v_size, inner_product, torsion_angle
+from torch_basics import v_size, inner_product, torsion_angle, one_hot_encoding, acos_safe
 from residue_constants import MAX_RESIDUE_TYPE, ATOM_INDEX_CA, ATOM_INDEX_N, ATOM_INDEX_C
 
 
@@ -84,7 +84,11 @@ class ResidueBasedModel(PDB):
             b_len[shift:-shift] = v_size(dr[shift:-shift])
             #
             dr[shift:-shift] /= b_len[shift:-shift, None]
-            dr[:-shift][not_defined] = 0.0
+            #
+            for s in range(shift):
+                dr[s : -shift + s][not_defined] = 0.0
+                #b_len[s : -shift + s][not_defined] = 0.0
+                b_len[s : -shift + s][not_defined] = 1.0
             #
             geom_s["bond_length"][shift] = (b_len[:-shift], b_len[shift:])
             geom_s["bond_vector"][shift] = (dr[:-shift], -dr[shift:])
@@ -131,6 +135,51 @@ class ResidueBasedModel(PDB):
         #
         f_in["0"].append(geom_s["bond_angle"][0][:, None])  # 2
         f_in["0"].append(geom_s["bond_angle"][1][:, None])
+        #
+        f_in["0"].append(geom_s["dihedral_angle"].reshape(-1, 8))  # 8
+        #
+        # noise-level
+        f_in["0"].append(noise_size[:, None])  # 1
+        #
+        f_in["0"] = torch.as_tensor(torch.cat(f_in["0"], axis=1), dtype=dtype)  # 16
+        #
+        # 1d: unit vectors from adjacent residues to the current residue
+        f_in["1"].append(geom_s["bond_vector"][1][0])
+        f_in["1"].append(geom_s["bond_vector"][1][1])
+        f_in["1"].append(geom_s["bond_vector"][2][0])
+        f_in["1"].append(geom_s["bond_vector"][2][1])
+        f_in["1"] = torch.as_tensor(torch.stack(f_in["1"], axis=1), dtype=dtype)  # 4
+        #
+        return f_in
+
+
+class ResidueBasedModelOH(ResidueBasedModel):
+    n_node_scalar = 55
+    n_node_vector = 4
+    n_edge_scalar = 3
+    n_edge_vector = 0
+
+    def __init__(self, pdb_fn, dcd_fn=None, **kwarg):
+        super().__init__(pdb_fn, dcd_fn, **kwarg)
+
+    @staticmethod
+    def geom_to_feature(geom_s, noise_size: torch.Tensor, dtype=DTYPE) -> torch.Tensor:
+        # features for each residue
+        f_in = {"0": [], "1": []}
+        # 0d
+        f_in["0"].append(geom_s["n_neigh"])  # 1
+        #
+        f_in["0"].append(one_hot_encoding(geom_s["bond_length"][1][0], 0.36, 0.40, 8))  # 4
+        f_in["0"].append(one_hot_encoding(geom_s["bond_length"][1][1], 0.36, 0.40, 8))  # 4
+        f_in["0"].append(one_hot_encoding(geom_s["bond_length"][2][0], 0.50, 0.75, 10))  # 4
+        f_in["0"].append(one_hot_encoding(geom_s["bond_length"][2][1], 0.50, 0.75, 10))  # 4
+        #
+        angle = acos_safe(geom_s["bond_angle"][0])
+        angle_oh = one_hot_encoding(angle, np.deg2rad(75), np.deg2rad(165), 9)
+        zero = (geom_s["bond_angle"][0] == 0.0) & (geom_s["bond_angle"][1] == 0.0)
+        angle_oh[zero] = 0.0
+        angle_oh[zero, 0] = 1.0
+        f_in["0"].append(angle_oh)
         #
         f_in["0"].append(geom_s["dihedral_angle"].reshape(-1, 8))  # 8
         #
@@ -209,8 +258,9 @@ def get_backbone_angles(R):
 
 
 def main():
-    pdb = ResidueBasedModel("pdb.processed/1ab1_A.pdb")
-    get_backbone_angles(torch.as_tensor(pdb.R[0]))
+    pdb = ResidueBasedModelOH("pdb.processed/1ab1_A.pdb")
+    print(pdb.n_node_scalar)
+    # get_backbone_angles(torch.as_tensor(pdb.R[0]))
 
 
 if __name__ == "__main__":

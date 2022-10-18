@@ -282,8 +282,7 @@ def create_trajectory_from_batch(
 
 
 def test():
-    base_dir = BASE / "pdb.processed"
-    # base_dir = BASE / "pdb.top8000"
+    base_dir = BASE / "pdb.6k"
     pdblist = base_dir / "targets.train"
     cg_model = libcg.CalphaBasedModel
     #
@@ -292,11 +291,12 @@ def test():
         pdblist,
         cg_model,
         noise_level=0.0,
-        use_pt="CA",
+        # use_pt="CA_oh",
         random_rotation=True,
     )
 
     data = train_set[0]
+    return
     traj_s, ssbond_s = create_trajectory_from_batch(
         data, data.ndata["output_xyz"], write_native=True
     )
@@ -316,7 +316,7 @@ def test():
 
 
 def to_pt():
-    base_dir = BASE / "pdb.27k"
+    base_dir = BASE / "pdb.6k"
     # base_dir = BASE / "md.pisces"
     pdblist = base_dir / "targets"
     cg_model = libcg.CalphaBasedModel

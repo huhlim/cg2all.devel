@@ -78,3 +78,10 @@ def torsion_angle(R: torch.Tensor) -> torch.Tensor:
     p1 = inner_product(b1, c1)
     p2 = inner_product(c1, c2)
     return torch.atan2(p1, p2)
+
+
+def one_hot_encoding(X, X_min, X_max, nX) -> torch.Tensor:
+    dX = (X_max - X_min) / nX
+    index = ((X - X_min) / dX).type(torch.long)
+    index = torch.clip(index, min=0, max=nX - 1)
+    return torch.eye(nX)[index]
