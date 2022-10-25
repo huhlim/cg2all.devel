@@ -6,6 +6,7 @@ import sys
 import numpy as np
 import mdtraj
 from string import ascii_uppercase as CHAIN_IDs
+from string import ascii_uppercase as INSCODEs
 from numpy_basics import *
 from residue_constants import *
 
@@ -68,8 +69,8 @@ class PDB(object):
         with open(pdb_fn) as fp:
             for line in fp:
                 if line.startswith("SSBOND"):
-                    cys_0 = (line[15], line[17:21])
-                    cys_1 = (line[29], line[31:35])
+                    cys_0 = (line[15], line[17:22].strip())
+                    cys_1 = (line[29], line[31:36].strip())
                     if cys_0 == cys_1:
                         sys.stderr.write(f"WARNING: invalid SSBOND found {pdb_fn}\n")
                         continue
@@ -85,7 +86,14 @@ class PDB(object):
             residue_index = []
             for chain_id, resSeq in cys_s:
                 chain_index = chain_s.index(chain_id)
-                index = self.top.select(f"chainid {chain_index} and resSeq {resSeq} and name SG")
+                if resSeq[-1] in INSCODEs:
+                    index = self.top.select(
+                        f"chainid {chain_index} and resSeq '{resSeq}' and name SG"
+                    )
+                else:
+                    index = self.top.select(
+                        f"chainid {chain_index} and resSeq {resSeq} and name SG"
+                    )
                 if index.shape[0] == 1:
                     residue_index.append(self.top.atom(index[0]).residue.index)
             residue_index = sorted(residue_index)
@@ -94,18 +102,13 @@ class PDB(object):
         self.ssbond_s = ssbond_s
 
     def to_atom(self, verbose=False):
-        # set up
-        #   - R
-        #   - atom_mask
-        #   - residue_name
-        #   - residue_index
-
         self.R = np.zeros((self.n_frame, self.n_residue, MAX_ATOM, 3))
         self.atom_mask = np.zeros((self.n_residue, MAX_ATOM), dtype=float)
         self.atom_mask_pdb = np.zeros((self.n_residue, MAX_ATOM), dtype=float)
         self.atom_mask_heavy = np.zeros((self.n_residue, MAX_ATOM), dtype=float)
         self.atomic_radius = np.zeros((self.n_residue, MAX_ATOM, 2, 2), dtype=float)
         self.atomic_mass = np.zeros((self.n_residue, MAX_ATOM), dtype=float)
+        # self.bfactor = np.full((self.n_residue, MAX_ATOM), dtype=float)
         #
         if len(self.ssbond_s) > 0:
             ssbond_s = np.concatenate(self.ssbond_s, dtype=int)
@@ -322,19 +325,29 @@ def get_HIS_state(residue):
 
 
 def write_SSBOND(pdb_fn, top, ssbond_s):
-    SSBOND = "SSBOND  %2d CYS %s %4d    CYS %s %4d\n"
+    SSBOND = "SSBOND  %2d CYS %s %5s   CYS %s %5s\n"
     wrt = []
     for disu_no, ssbond in enumerate(ssbond_s):
         cys_0 = top.residue(ssbond[0])
         cys_1 = top.residue(ssbond[1])
+        #
+        if isinstance(cys_0.resSeq, int):
+            cys_0_resSeq = f"{cys_0.resSeq:4d} "
+        else:
+            cys_0_resSeq = f"{cys_0.resSeq:>5s}"
+        if isinstance(cys_1.resSeq, int):
+            cys_1_resSeq = f"{cys_1.resSeq:4d} "
+        else:
+            cys_1_resSeq = f"{cys_1.resSeq:>5s}"
+        #
         wrt.append(
             SSBOND
             % (
                 disu_no + 1,
                 CHAIN_IDs[cys_0.chain.index],
-                cys_0.resSeq,
+                cys_0_resSeq,
                 CHAIN_IDs[cys_1.chain.index],
-                cys_1.resSeq,
+                cys_1_resSeq,
             )
         )
     #

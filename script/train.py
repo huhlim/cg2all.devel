@@ -317,6 +317,8 @@ def main():
     trainer = pl.Trainer(**trainer_kwargs)
     trainer.fit(model, train_loader, val_loader, ckpt_path=arg.ckpt_fn)
     trainer.test(model, test_loader)
+    #
+    trainer.save_checkpoint(pathlib.Path(trainer_kwargs["logger"].log_dir) / "last.ckpt")
 
 
 if __name__ == "__main__":

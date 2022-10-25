@@ -55,4 +55,4 @@ echo $cmd \
     --partition feig \
     --conda dgl \
     --gpu $n_gpu \
-    --cpu $n_cpu
+    --cpu $n_cpu 

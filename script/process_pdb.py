@@ -29,8 +29,8 @@ class ProcessPDB(PDB):
         atom_index_s = [
             ref_res.atom_s.index(atom) for atom in amb.atom_s if not atom.startswith("H")
         ]
-        if len(atom_index_s) == 0:
-            return True
+        if len(atom_index_s) == 0:  # all hydrogens
+            atom_index_s = [ref_res.atom_s.index(atom) for atom in amb.atom_s]
         #
         mask = self.atom_mask_pdb[i_res, atom_index_s]
         if np.all(mask):
