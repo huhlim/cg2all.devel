@@ -6,7 +6,8 @@ pdb/*.dat
 pdb.processed/*.dat
 pdb.pisces
 pdb.top8000
-pdb.29k
+pdb.27k
+pdb.6k
 top8000/*.pdb
 md.pisces
 lightning_logs

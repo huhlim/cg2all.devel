@@ -33,7 +33,7 @@ from residue_constants import (
     TORSION_ENERGY_TENSOR,
     TORSION_ENERGY_DEP,
 )
-from libloss import loss_f
+from libloss import loss_f, find_atomic_clash
 from torch_basics import v_size, v_norm_safe, inner_product, rotate_matrix, rotate_vector
 from libmetric import rmsd_CA, rmsd_rigid, rmsd_all, rmse_bonded
 from libcg import get_residue_center_of_mass, get_backbone_angles
@@ -53,6 +53,10 @@ CONFIG["train"]["lr_gamma"] = 0.99
 
 CONFIG["globals"] = ConfigDict()
 CONFIG["globals"]["num_recycle"] = 1
+CONFIG["globals"]["use_clash"] = False
+CONFIG["globals"]["use_edge_layers"] = False
+CONFIG["globals"]["use_random"] = False
+CONFIG["globals"]["n_refine_cycle"] = 0
 CONFIG["globals"]["radius"] = 1.0
 CONFIG["globals"]["loss_weight"] = ConfigDict()
 CONFIG["globals"]["loss_weight"].update(
@@ -82,11 +86,11 @@ CONFIG["embedding_module"] = EMBEDDING_MODULE
 STRUCTURE_MODULE = ConfigDict()
 STRUCTURE_MODULE["low_memory"] = True
 STRUCTURE_MODULE["num_graph_layers"] = 4
+STRUCTURE_MODULE["num_refine_layers"] = 1
 STRUCTURE_MODULE["num_linear_layers"] = 4
 STRUCTURE_MODULE["num_heads"] = 8  # number of attention heads
 STRUCTURE_MODULE["norm"] = [True, True]  # norm between attention blocks / within attention blocks
 STRUCTURE_MODULE["nonlinearity"] = "elu"
-STRUCTURE_MODULE["use_sequence_embedding"] = False
 
 # fiber_in: is determined by input features
 STRUCTURE_MODULE["fiber_init"] = None
@@ -108,13 +112,13 @@ STRUCTURE_MODULE["fiber_edge"] = None
 STRUCTURE_MODULE["loss_weight"] = ConfigDict()
 STRUCTURE_MODULE["loss_weight"].update(
     {
-        "rigid_body": 1.0,
-        "FAPE_CA": 5.0,
+        "rigid_body": 0.0,
+        "FAPE_CA": 0.0,
         "FAPE_all": 0.0,
         "mse_R": 0.0,
-        "v_cntr": 1.0,
-        "bonded_energy": 1.0,
-        "rotation_matrix": 1.0,
+        "v_cntr": 0.0,
+        "bonded_energy": 0.0,
+        "rotation_matrix": 0.0,
         "backbone_torsion": 0.0,
         "torsion_angle": 5.0,
         "torsion_energy": 0.1,
@@ -148,17 +152,7 @@ def set_model_config(arg: dict, cg_model) -> ConfigDict:
     if cg_model.n_node_vector > 0:
         config.structure_module.fiber_init.append((1, cg_model.n_node_vector))
     #
-    if config.structure_module.use_sequence_embedding:
-        config.structure_module.fiber_struct = []
-        for degree, n_feat in config.structure_module.fiber_pass:
-            if degree == 0:
-                config.structure_module.fiber_struct.append(
-                    (degree, n_feat + config.embedding_module.embedding_dim)
-                )
-            else:
-                config.structure_module.fiber_struct.append((degree, n_feat))
-    else:
-        config.structure_module.fiber_struct = config.structure_module.fiber_pass
+    config.structure_module.fiber_struct = config.structure_module.fiber_pass
     #
     if config.structure_module.fiber_hidden is None:
         config.structure_module.fiber_hidden = [
@@ -168,7 +162,10 @@ def set_model_config(arg: dict, cg_model) -> ConfigDict:
     #
     config.structure_module.fiber_edge = []
     if cg_model.n_edge_scalar > 0:
-        config.structure_module.fiber_edge.append((0, cg_model.n_edge_scalar))
+        n_edge_scalar = cg_model.n_edge_scalar
+        if config.globals.use_clash:
+            n_edge_scalar += 1
+        config.structure_module.fiber_edge.append((0, n_edge_scalar))
     if cg_model.n_edge_vector > 0:
         config.structure_module.fiber_edge.append((1, cg_model.n_edge_vector))
     #
@@ -219,6 +216,28 @@ class InitializationModule(nn.Module):
         return out
 
 
+class EdgeModule(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        #
+        if config.nonlinearity == "elu":
+            nonlinearity = nn.ELU()
+        elif config.nonlinearity == "relu":
+            nonlinearity = nn.ReLU()
+        #
+        linear_module = []
+        for _ in range(config.num_linear_layers):
+            if config.norm[0]:
+                linear_module.append(NormSE3(Fiber(config.fiber_edge), nonlinearity=nonlinearity))
+            linear_module.append(LinearSE3(Fiber(config.fiber_edge), Fiber(config.fiber_edge)))
+        #
+        self.linear_module = nn.Sequential(*linear_module)
+
+    def forward(self, feats):
+        out = self.linear_module(feats)
+        return out
+
+
 class InteractionModule(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -252,7 +271,6 @@ class StructureModule(nn.Module):
         super().__init__()
         #
         self.loss_weight = config.loss_weight
-        self.use_sequence_embedding = config.use_sequence_embedding
         #
         if config.nonlinearity == "elu":
             nonlinearity = nn.ELU()
@@ -318,6 +336,69 @@ class StructureModule(nn.Module):
         return bb, sc, bb0, sc0
 
 
+class RefineModule(nn.Module):
+    def __init__(self, config, use_clash=False):
+        super().__init__()
+        #
+        if config.nonlinearity == "elu":
+            nonlinearity = nn.ELU()
+        elif config.nonlinearity == "relu":
+            nonlinearity = nn.ReLU()
+        #
+        if use_clash:
+            fiber_in = []
+            for degree, n_feat in config.fiber_pass:
+                if degree == 0:
+                    fiber_in.append((degree, n_feat + 1))
+                else:
+                    fiber_in.append((degree, n_feat))
+        else:
+            fiber_in = config.fiber_pass
+        fiber_out = [(degree, n_feat) for degree, n_feat in config.fiber_out if degree == 0]
+        #
+        self.graph_module = SE3Transformer(
+            num_layers=config.num_refine_layers,
+            fiber_in=Fiber(fiber_in),
+            fiber_hidden=Fiber(config.fiber_hidden),
+            fiber_out=Fiber(config.fiber_pass),
+            num_heads=config.num_heads,
+            channels_div=config.channels_div,
+            fiber_edge=Fiber(config.fiber_edge or {}),
+            norm=config.norm[0],
+            use_layer_norm=config.norm[1],
+            nonlinearity=nonlinearity,
+            low_memory=config.low_memory,
+        )
+        #
+        linear_module = []
+        #
+        if config.norm[0]:
+            linear_module.append(NormSE3(Fiber(config.fiber_struct), nonlinearity=nonlinearity))
+        linear_module.append(LinearSE3(Fiber(config.fiber_struct), Fiber(config.fiber_pass)))
+        #
+        for _ in range(config.num_linear_layers - 2):
+            if config.norm[0]:
+                linear_module.append(NormSE3(Fiber(config.fiber_pass), nonlinearity=nonlinearity))
+            linear_module.append(LinearSE3(Fiber(config.fiber_pass), Fiber(config.fiber_pass)))
+        #
+        if config.norm[0]:
+            linear_module.append(NormSE3(Fiber(config.fiber_pass), nonlinearity=nonlinearity))
+        linear_module.append(LinearSE3(Fiber(config.fiber_pass), Fiber(fiber_out)))
+        #
+        self.linear_module = nn.Sequential(*linear_module)
+
+    def forward(self, batch: dgl.DGLGraph, out0, node_feats, edge_feats):
+        out = self.graph_module(batch, node_feats=node_feats, edge_feats=edge_feats)
+        for degree, out_d in out0.items():
+            out[degree] = out[degree] + out_d.detach()
+        #
+        sc0 = self.linear_module(out)
+        sc0 = sc0["0"].reshape(-1, MAX_TORSION, 2)
+        sc = v_norm_safe(sc0)
+        #
+        return out, sc, sc0
+
+
 class Model(nn.Module):
     def __init__(self, _config, cg_model, compute_loss=False):
         super().__init__()
@@ -326,10 +407,18 @@ class Model(nn.Module):
         self.compute_loss = compute_loss
         self.num_recycle = _config.globals.num_recycle
         self.loss_weight = _config.globals.loss_weight
+        self.use_clash = _config.globals.use_clash
+        self.use_edge_layers = _config.globals.use_edge_layers
+        self.n_refine_cycle = _config.globals.n_refine_cycle
+        self.use_random = _config.globals.use_random
         #
         self.embedding_module = EmbeddingModule(_config.embedding_module)
         #
         self.initialization_module = InitializationModule(_config.structure_module)
+        if self.use_edge_layers:
+            self.edge_module = EdgeModule(_config.structure_module)
+        if self.n_refine_cycle > 0:
+            self.refine_module = RefineModule(_config.structure_module, self.use_clash)
         self.interaction_module = InteractionModule(_config.structure_module)
         self.structure_module = StructureModule(_config.structure_module)
 
@@ -359,7 +448,7 @@ class Model(nn.Module):
         # residue_type --> embedding
         embedding = self.embedding_module(batch)
         #
-        edge_feats = {"0": batch.edata["edge_feat_0"]}
+        edge_feats0 = {"0": batch.edata["edge_feat_0"]}
         node_feats = {
             "0": torch.cat([batch.ndata["node_feat_0"], embedding[..., None]], dim=1),
             "1": batch.ndata["node_feat_1"],
@@ -367,39 +456,36 @@ class Model(nn.Module):
         #
         out0 = self.initialization_module(node_feats)
         #
-        n_intermediate = 0
-        for k in range(self.num_recycle):
-            out = self.interaction_module(batch, node_feats=out0, edge_feats=edge_feats)
-            for degree, out_d in out0.items():
-                out[degree] = out[degree] + out_d
-            out0 = {degree: feat.clone() for degree, feat in out.items()}
-            #
-            if self.structure_module.use_sequence_embedding:
-                out["0"] = torch.cat([out["0"], embedding[..., None]], dim=1)
-            out = self.structure_module(out)
-            #
-            bb, sc, bb0, sc0 = self.structure_module.output_to_opr(out)
-            ret["bb"] = bb
-            ret["sc"] = sc
-            ret["bb0"] = bb0
-            ret["sc0"] = sc0
-            #
-            ret["R"], ret["opr_bb"] = build_structure(
-                self.RIGID_OPs, batch, ret["bb"], sc=ret["sc"], stop_grad=(k + 1 < self.num_recycle)
-            )
-            #
-            if k < self.num_recycle - 1:
-                if self.compute_loss or self.training:
-                    n_intermediate += 1
-                    loss["intermediate"] = loss_f(
-                        batch,
-                        ret,
-                        self.structure_module.loss_weight,
-                        loss_prev=loss.get("intermediate", {}),
-                        RIGID_OPs=self.RIGID_OPs,  # for atomic_clash
-                        TORSION_PARs=self.TORSION_PARs,  # for torsion_energy
-                    )
-
+        if self.use_edge_layers:
+            if self.use_clash:
+                edata = edge_feats0["0"]
+                edge_feats0["0"] = torch.cat(
+                    [
+                        edata,
+                        torch.ones((edata.size(0), 1, 1), device=edata.device, dtype=edata.dtype),
+                    ],
+                    dim=1,
+                )
+            edge_feats = self.edge_module(edge_feats0)
+        else:
+            edge_feats = edge_feats0
+        #
+        # first-pass
+        out = self.interaction_module(batch, node_feats=out0, edge_feats=edge_feats)
+        for degree, out_d in out0.items():
+            out[degree] = out[degree] + out_d
+        out0 = {degree: feat.clone() for degree, feat in out.items()}
+        #
+        out = self.structure_module(out)
+        #
+        bb, sc, bb0, sc0 = self.structure_module.output_to_opr(out)
+        ret["bb"] = bb
+        ret["sc"] = sc
+        ret["bb0"] = bb0
+        ret["sc0"] = sc0
+        #
+        ret["R"], ret["opr_bb"] = build_structure(self.RIGID_OPs, batch, bb, sc=sc)
+        #
         if self.compute_loss or self.training:
             loss["final"] = loss_f(
                 batch,
@@ -408,9 +494,62 @@ class Model(nn.Module):
                 RIGID_OPs=self.RIGID_OPs,
                 TORSION_PARs=self.TORSION_PARs,
             )
-            if "intermediate" in loss:
-                for k, v in loss["intermediate"].items():
-                    loss["intermediate"][k] = v / n_intermediate
+        #
+        if self.n_refine_cycle == 0:
+            metrics = self.calc_metrics(batch, ret)
+            return ret, loss, metrics
+        #
+        # refinement
+        clash_prev = find_atomic_clash(batch, ret["R"], self.RIGID_OPs, vdw_scale=0.9, energy_clamp=0.005).detach()
+        n_refine = 0
+        for _ in range(self.n_refine_cycle):
+            if self.use_clash:
+                if self.use_edge_layers:
+                    edge_feats0["0"][:, -1, 0] = clash_prev.type(edata.dtype)
+                    edge_feats = self.edge_module(edge_feats0)
+                #
+                node_clash = dgl.ops.copy_e_sum(batch, clash_prev)[..., None, None]
+                node_clash = node_clash.type(out0["0"].dtype)
+                if self.use_random:
+                    node_clash = node_clash * torch.randn_like(node_clash)
+                #
+                node_feats = {}
+                for degree, out_d in out0.items():
+                    if degree == "0":
+                        node_feats[degree] = torch.cat([out_d, node_clash], dim=1).detach()
+                    else:
+                        node_feats[degree] = out_d.detach()
+            else:
+                node_feats = {degree: out_d.detach() for degree, out_d in out0.items()}
+            #
+            out1, sc, sc0 = self.refine_module(
+                batch, out0, node_feats=node_feats, edge_feats=edge_feats
+            )
+            R, _ = build_structure(self.RIGID_OPs, batch, ret["bb"], sc=sc)
+            #
+            clash = find_atomic_clash(batch, R, self.RIGID_OPs, vdw_scale=0.9, energy_clamp=0.005).detach()
+            if clash.sum() < clash_prev.sum() or self.training:
+                out0 = out1
+                clash_prev = clash
+                #
+                ret["sc"] = sc
+                ret["sc0"] = sc0
+                ret["R"] = R
+            #
+            if self.compute_loss or self.training:
+                n_refine += 1
+                loss["refine"] = loss_f(
+                    batch,
+                    ret,
+                    self.structure_module.loss_weight,
+                    RIGID_OPs=self.RIGID_OPs,
+                    TORSION_PARs=self.TORSION_PARs,
+                )
+
+        if self.compute_loss or self.training:
+            if "refine" in loss:
+                for k, v in loss["refine"].items():
+                    loss["refine"][k] = v / n_refine
 
         metrics = self.calc_metrics(batch, ret)
         #
