@@ -82,7 +82,8 @@ def loss_f(
         )
     if loss_weight.get("atomic_clash", 0.0) > 0.0:
         loss["atomic_clash"] = (
-            loss_f_atomic_clash(batch, R, RIGID_OPs, vdw_scale=0.95) * loss_weight.atomic_clash
+            loss_f_atomic_clash(batch, R, RIGID_OPs, vdw_scale=0.9, energy_clamp=0.005)
+            * loss_weight.atomic_clash
         )
     #
     if loss_prev is not None:
@@ -357,7 +358,9 @@ def loss_f_torsion_angle(
     return loss
 
 
-def loss_f_atomic_clash(batch: dgl.DGLGraph, R: torch.Tensor, RIGID_OPs, lj=False, vdw_scale=1.0):
+def loss_f_atomic_clash(
+    batch: dgl.DGLGraph, R: torch.Tensor, RIGID_OPs, lj=False, vdw_scale=1.0, energy_clamp=0.0
+):
     # c ~ average number of edges per node
     # time: O(Nxc) vs. O(N^2) for loss_f_atomic_clash_old
     # memory: O(Nxc) vs. O(N) for loss_f_atomic_clash_old
@@ -391,7 +394,6 @@ def loss_f_atomic_clash(batch: dgl.DGLGraph, R: torch.Tensor, RIGID_OPs, lj=Fals
         mask[y] = mask[y] & (~bb_pair)
         #
         ssbond = data.edata["edge_feat_0"][x, 1, 0] == 1.0
-        # mask[ssbond, ATOM_INDEX_CYS_SG, ATOM_INDEX_CYS_SG] = False
         mask[ssbond, ATOM_INDEX_CYS_CB:, ATOM_INDEX_CYS_CB:] = False
         mask[ssbond, ATOM_INDEX_CYS_SG, ATOM_INDEX_CA] = False
         mask[ssbond, ATOM_INDEX_CA, ATOM_INDEX_CYS_SG] = False
@@ -414,7 +416,7 @@ def loss_f_atomic_clash(batch: dgl.DGLGraph, R: torch.Tensor, RIGID_OPs, lj=Fals
             radius_sum = radius_sum * vdw_scale
             x = -torch.clamp(dist - radius_sum, max=0.0)
             energy_ij = 10.0 * (epsilon * torch.pow(x, 2)).sum()
-        energy = energy + energy_ij
+        energy = energy + torch.clamp(energy_ij - energy_clamp, min=0.0)
     energy = energy / R.size(0)
     return energy
 
@@ -434,7 +436,9 @@ def loss_f_torsion_energy(batch: dgl.DGLGraph, R: torch.Tensor, TORSION_PARs, en
     return torch.sum(energy) / n_residue
 
 
-def find_atomic_clash(batch: dgl.DGLGraph, R: torch.Tensor, RIGID_OPs, vdw_scale=1.0):
+def find_atomic_clash(
+    batch: dgl.DGLGraph, R: torch.Tensor, RIGID_OPs, vdw_scale=1.0, energy_clamp=0.0
+):
     _RIGID_GROUPS_DEP = RIGID_OPs[1][1]
 
     feat = []
@@ -444,13 +448,12 @@ def find_atomic_clash(batch: dgl.DGLGraph, R: torch.Tensor, RIGID_OPs, vdw_scale
         #
         i, j = data.edges()
         #
-        # mask_i = data.ndata["output_atom_mask"][i] > 0.0
-        # mask_j = data.ndata["output_atom_mask"][j] > 0.0
-        mask_i = data.ndata["heavy_atom_mask"][i] > 0.0
-        mask_j = data.ndata["heavy_atom_mask"][j] > 0.0
+        mask_i = data.ndata["output_atom_mask"][i] > 0.0
+        mask_j = data.ndata["output_atom_mask"][j] > 0.0
+        # mask_i = data.ndata["heavy_atom_mask"][i] > 0.0
+        # mask_j = data.ndata["heavy_atom_mask"][j] > 0.0
         mask = mask_j[:, :, None] & mask_i[:, None, :]
         #
-        # i == j + 1
         x = i == j + 1
         curr_residue_type = data.ndata["residue_type"][i[x]]
         prev_residue_type = data.ndata["residue_type"][j[x]]
@@ -460,13 +463,12 @@ def find_atomic_clash(batch: dgl.DGLGraph, R: torch.Tensor, RIGID_OPs, vdw_scale
         bb_pair = prev_bb[:, :, None] & curr_bb[:, None, :]
         mask[x] = mask[x] & (~bb_pair)
         #
-        # i + 1 == j
         x = i + 1 == j
         curr_residue_type = data.ndata["residue_type"][i[x]]
         next_residue_type = data.ndata["residue_type"][j[x]]
         curr_bb = _RIGID_GROUPS_DEP[curr_residue_type] < 3
         next_bb = _RIGID_GROUPS_DEP[next_residue_type] < 3
-        next_bb[curr_residue_type == PROLINE_INDEX, :7] = True
+        next_bb[next_residue_type == PROLINE_INDEX, :7] = True
         bb_pair = next_bb[:, :, None] & curr_bb[:, None, :]
         mask[x] = mask[x] & (~bb_pair)
         #
@@ -490,6 +492,7 @@ def find_atomic_clash(batch: dgl.DGLGraph, R: torch.Tensor, RIGID_OPs, vdw_scale
         #
         x = -torch.clamp(dist - radius_sum, max=0.0)
         energy_ij = 10.0 * (epsilon * torch.pow(x, 2)).sum(dim=(1, 2))
+        energy_ij = torch.clamp(energy_ij - energy_clamp, min=0.0)
         feat.append(energy_ij)
 
     feat = torch.cat(feat, dim=0)
@@ -550,8 +553,23 @@ def test():
     import time
 
     # find_atomic_clash(model, R_model, RIGID_OPs)
-    loss_f_atomic_clash(batch, batch.ndata["output_xyz"], RIGID_OPs)
-    find_atomic_clash(batch, batch.ndata["output_xyz"], RIGID_OPs, vdw_scale=0.95)
+    # loss_f_atomic_clash(batch, batch.ndata["output_xyz"], RIGID_OPs)
+    batch = native
+    clash0 = find_atomic_clash(batch, batch.ndata["output_xyz"], RIGID_OPs, vdw_scale=0.9, energy_clamp=0.005)
+    clash_native = dgl.ops.copy_e_sum(batch, clash0).detach().numpy()
+
+    batch = model
+    clash = find_atomic_clash(batch, batch.ndata["output_xyz"], RIGID_OPs, vdw_scale=0.9, energy_clamp=0.005)
+    clash_model = dgl.ops.copy_e_sum(batch, clash).detach().numpy()
+    # for i, (n, m) in enumerate(zip(clash_native, clash_model)):
+    #     if m > 0.05:
+    #         print(i + 1, n.round(4), m.round(4), "CLASH")
+    #     else:
+    #         print(i + 1, n.round(4), m.round(4))
+    for k, (i, j) in enumerate(zip(*model.edges())):
+        if clash[k] < 0.0001:
+            continue
+        print(i.item() + 1, j.item() + 1, clash[k].numpy().round(4), clash0[k].numpy().round(4))
 
     # t_ang = model.ndata["correct_torsion"][..., 0]
     # sc = [torch.cos(t_ang), torch.sin(t_ang)]

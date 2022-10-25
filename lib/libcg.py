@@ -77,8 +77,10 @@ class ResidueBasedModel(PDB):
         geom_s["bond_length"] = {}
         geom_s["bond_vector"] = {}
         for shift in [1, 2]:
-            b_len = torch.zeros(r.shape[0] + shift, dtype=DTYPE, device=device)
             dr = torch.zeros((r.shape[0] + shift, 3), dtype=DTYPE, device=device)
+            # TODO: test this
+            b_len = torch.zeros(r.shape[0] + shift, dtype=DTYPE, device=device)
+            # b_len = torch.ones(r.shape[0] + shift, dtype=DTYPE, device=device)
             #
             dr[shift:-shift] = r[:-shift, :] - r[shift:, :]
             b_len[shift:-shift] = v_size(dr[shift:-shift])
@@ -87,7 +89,7 @@ class ResidueBasedModel(PDB):
             #
             for s in range(shift):
                 dr[s : -shift + s][not_defined] = 0.0
-                #b_len[s : -shift + s][not_defined] = 0.0
+                # TODO: test to remove this
                 b_len[s : -shift + s][not_defined] = 1.0
             #
             geom_s["bond_length"][shift] = (b_len[:-shift], b_len[shift:])
