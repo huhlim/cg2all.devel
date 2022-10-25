@@ -12,6 +12,7 @@ import multiprocessing
 N_PROC = int(os.getenv("OMP_NUM_THREADS", "8"))
 CHI_CUTOFF = 30.0
 EPS = 1e-6
+ASA_CUTOFF = 15
 
 
 def kl_div(X, Y, eps=EPS):
@@ -20,11 +21,11 @@ def kl_div(X, Y, eps=EPS):
 
 
 def assess_per_target(name, dat):
-    delta_chi_s = [[] for _ in range(4)]
-    correct_s = [[] for _ in range(4)]
+    delta_chi_s = [[[] for _ in range(4)] for i in range(2)]
+    correct_s = [[[] for _ in range(4)] for i in range(2)]
     #
     Y, X = dat
-    for resName, y, x in zip(Y.resName, Y.c_ang, X.c_ang):
+    for resName, asa, y, x in zip(Y.resName, Y.asa, Y.c_ang, X.c_ang):
         mask = y < 999.0
         correct = True
         for i, m in enumerate(mask):
@@ -39,17 +40,33 @@ def assess_per_target(name, dat):
             else:
                 delta %= 360.0
                 delta = min(delta, abs(360.0 - delta))
-            delta_chi_s[i].append(delta)
+            delta_chi_s[0][i].append(delta)
             correct = correct & (delta < CHI_CUTOFF)
-            correct_s[i].append(correct)
+            correct_s[0][i].append(correct)
+            #
+            if asa >= ASA_CUTOFF:
+                delta_chi_s[1][i].append(delta)
+                correct_s[1][i].append(correct)
     #
-    rmsd = [np.sqrt(np.mean(np.power(X, 2))) for X in delta_chi_s]
-    mae = [np.mean(X) for X in delta_chi_s]
-    acc = [np.array(X).astype(float).sum() / len(X) * 100 for X in correct_s]
+    mae_s = []
+    acc_s = []
+    for i in range(2):
+        mae = []
+        acc = []
+        for j in range(4):
+            if len(delta_chi_s[i][j]) > 0:
+                mae.append(np.mean(delta_chi_s[i][j]))
+                acc.append(np.array(correct_s[i][j]).astype(float).sum() / len(correct_s[i][j]) * 100.0)
+            else:
+                mae.append(180.0)
+                acc.append(0.0)
+        mae_s.append(mae)
+        acc_s.append(acc)
     #
     wrt = []
-    for measure in [rmsd, mae, acc]:
-        wrt.append(" ".join([f"{measure[i]:6.2f}" for i in range(4)]))
+    for i in range(2):
+        for measure in [mae_s[i], acc_s[i]]:
+            wrt.append(" ".join([f"{measure[i]:6.2f}" for i in range(4)]))
     wrt.append(name)
     return " | ".join(wrt) + "\n"
 
@@ -120,7 +137,8 @@ def distr_2d(native, model, periodic=False):
     return kl
 
 
-def assess_distr(data):
+def assess_distr(log_dir, keyword, data):
+    fout = open(log_dir / f"{keyword}.eval_geometry.dat", "wt")
     wrt = ["bond_length: "]
     for i, xr in enumerate([(1.2, 1.5), (1.3, 1.6), (1.4, 1.7)]):
         kl = distr_1d(
@@ -131,7 +149,7 @@ def assess_distr(data):
             data[1].b_len[:, i],
         )
         wrt.append(f"{kl:10.3f}")
-    sys.stdout.write(" ".join(wrt) + "\n")
+    fout.write(" ".join(wrt) + "\n")
     #
     wrt = ["bond_angle:  "]
     for i, xr in enumerate([(105, 135), (105, 135), (95, 125)]):
@@ -143,13 +161,13 @@ def assess_distr(data):
             data[1].b_ang[:, i],
         )
         wrt.append(f"{kl:10.3f}")
-    sys.stdout.write(" ".join(wrt) + "\n")
+    fout.write(" ".join(wrt) + "\n")
 
     kl_s = distr_omega(data[0], data[1])
     wrt = ["omega_angle: "]
     for k, kl in kl_s.items():
         wrt.append(f"{kl:10.3f}")
-    sys.stdout.write(" ".join(wrt) + "\n")
+    fout.write(" ".join(wrt) + "\n")
 
     wrt = ["rama_angles: "]
     kl = distr_2d(data[0].t_ang[:, :2], data[1].t_ang[:, :2])
@@ -161,7 +179,7 @@ def assess_distr(data):
             data[1].t_ang[select, :2],
         )
         wrt.append(f"{kl:10.3f}")
-    sys.stdout.write(" ".join(wrt) + "\n")
+    fout.write(" ".join(wrt) + "\n")
     #
     for aa in stdres:
         if aa in ["ALA", "GLY"]:
@@ -190,7 +208,8 @@ def assess_distr(data):
                 periodic=(aa, k + 2) in PERIODIC,
             )
             wrt.append(f"{kl:10.3f}")
-        sys.stdout.write(" ".join(wrt) + "\n")
+        fout.write(" ".join(wrt) + "\n")
+    fout.close()
 
 
 def main():
@@ -211,7 +230,7 @@ def main():
     for dat in dat_s:
         for i in range(2):
             data[i].join(dat[i])
-    assess_distr(data)
+    assess_distr(log_dir, keyword, data)
 
     with multiprocessing.Pool(n_proc) as pool:
         wrt = pool.starmap(

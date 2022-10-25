@@ -17,6 +17,7 @@ class Data(object):
         self.chain_break = []
         self.resName = []
         self.ss = []
+        self.asa = []
         self.b_len = []
         self.b_ang = []
         self.t_ang = []
@@ -33,11 +34,12 @@ class Data(object):
         self.has_chain_break = False
         #
         self.resName.append(x[2].strip().split()[-1])
-        self.ss.append(["HELIX", "SHEET", "COIL"].index(x[3].strip()))
-        self.b_len.append(x[4].split())
-        self.b_ang.append(x[5].split())
-        self.t_ang.append(x[6].split())
-        self.c_ang.append(x[7].split())
+        self.ss.append(["HELIX", "SHEET", "COIL"].index(x[3].strip().split()[0]))
+        self.asa.append(x[3].strip().split()[1])
+        self.b_len.append(x[5].split())
+        self.b_ang.append(x[6].split())
+        self.t_ang.append(x[7].split())
+        self.c_ang.append(x[8].split())
 
     def append_chain_break(self):
         self.chain_break[-1] = True
@@ -49,6 +51,7 @@ class Data(object):
         #
         select = ~np.array(self.chain_break, dtype=bool)
         self.ss = np.array(self.ss, dtype=int)[select]
+        self.asa = np.array(self.asa, dtype=int)[select]
         self.resName = np.array(self.resName)[select]
         self.resName_prev = self.resName_prev[select[:-1]]
         self.resName_next = self.resName_next[select[:-1]]
@@ -60,6 +63,7 @@ class Data(object):
     def join(self, othr):
         if len(self) == 0:
             self.ss = othr.ss.copy()
+            self.asa = othr.asa.copy()
             self.resName = othr.resName.copy()
             self.resName_prev = othr.resName_prev.copy()
             self.resName_next = othr.resName_next.copy()
@@ -69,6 +73,7 @@ class Data(object):
             self.c_ang = othr.c_ang.copy()
         else:
             self.ss = np.concatenate([self.ss, othr.ss])
+            self.asa = np.concatenate([self.asa, othr.asa])
             self.resName = np.concatenate([self.resName, othr.resName])
             self.resName_prev = np.concatenate([self.resName_prev, othr.resName_prev])
             self.resName_next = np.concatenate([self.resName_next, othr.resName_next])
@@ -80,6 +85,7 @@ class Data(object):
     def select_by(self, select):
         data = Data()
         data.ss = self.ss[select]
+        data.asa = self.asa[select]
         data.resName = self.resName[select]
         data.resName_prev = self.resName_prev[select]
         data.resName_next = self.resName_next[select]
