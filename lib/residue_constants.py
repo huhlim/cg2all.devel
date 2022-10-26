@@ -398,6 +398,12 @@ ATOM_INDEX_PRO_CD = residue_s["PRO"].atom_s.index("CD")
 ATOM_INDEX_CYS_CB = residue_s["CYS"].atom_s.index("CB")
 ATOM_INDEX_CYS_SG = residue_s["CYS"].atom_s.index("SG")
 
+with open(DATA_HOME / "tip_atom.dat") as fp:
+    for line in fp:
+        residue_name, tip_atom = line.strip().split()
+        atom_index = residue_s[residue_name].atom_s.index(tip_atom)
+        residue_s[residue_name].atom_index_tip = atom_index
+
 radius_s, par_dihed_s = read_CHARMM_prm(DATA_HOME / "toppar/par_all36m_prot.prm")
 for residue_name, torsion in torsion_s.items():
     residue = residue_s[residue_name]

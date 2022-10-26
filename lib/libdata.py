@@ -168,6 +168,13 @@ class PDBset(Dataset):
         v_cntr = r_cntr - data.ndata["output_xyz"][:, ATOM_INDEX_CA]
         data.ndata["v_cntr"] = v_cntr
         #
+        data.ndata["atom_index_tip"] = torch.as_tensor(cg.atom_index_tip, dtype=torch.long)
+        v_tip = torch.take_along_dim(
+            data.ndata["output_xyz"], data.ndata["atom_index_tip"][:, None, None], dim=1
+        )
+        v_tip = v_tip[:, 0] - data.ndata["output_xyz"][:, ATOM_INDEX_CA]
+        data.ndata["v_tip"] = v_tip
+        #
         if self.use_pt is not None:
             torch.save(data, pt_fn)
         #

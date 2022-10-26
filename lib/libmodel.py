@@ -49,7 +49,7 @@ CONFIG["train"]["batch_size"] = 4
 CONFIG["train"]["crop_size"] = -1
 CONFIG["train"]["lr"] = 1e-3
 CONFIG["train"]["lr_sc"] = 1e-2
-CONFIG["train"]["lr_gamma"] = 0.99
+CONFIG["train"]["lr_gamma"] = 0.995
 
 CONFIG["globals"] = ConfigDict()
 CONFIG["globals"]["num_recycle"] = 1
@@ -66,6 +66,7 @@ CONFIG["globals"]["loss_weight"].update(
         "FAPE_all": 5.0,
         "mse_R": 0.0,
         "v_cntr": 1.0,
+        "v_tip": 0.0,
         "bonded_energy": 1.0,
         "rotation_matrix": 1.0,
         "backbone_torsion": 0.0,
@@ -117,6 +118,7 @@ STRUCTURE_MODULE["loss_weight"].update(
         "FAPE_all": 0.0,
         "mse_R": 0.0,
         "v_cntr": 0.0,
+        "v_tip": 0.0,
         "bonded_energy": 0.0,
         "rotation_matrix": 0.0,
         "backbone_torsion": 0.0,
@@ -500,7 +502,9 @@ class Model(nn.Module):
             return ret, loss, metrics
         #
         # refinement
-        clash_prev = find_atomic_clash(batch, ret["R"], self.RIGID_OPs, vdw_scale=0.9, energy_clamp=0.005).detach()
+        clash_prev = find_atomic_clash(
+            batch, ret["R"], self.RIGID_OPs, vdw_scale=0.9, energy_clamp=0.005
+        ).detach()
         n_refine = 0
         for _ in range(self.n_refine_cycle):
             if self.use_clash:
@@ -527,7 +531,9 @@ class Model(nn.Module):
             )
             R, _ = build_structure(self.RIGID_OPs, batch, ret["bb"], sc=sc)
             #
-            clash = find_atomic_clash(batch, R, self.RIGID_OPs, vdw_scale=0.9, energy_clamp=0.005).detach()
+            clash = find_atomic_clash(
+                batch, R, self.RIGID_OPs, vdw_scale=0.9, energy_clamp=0.005
+            ).detach()
             if clash.sum() < clash_prev.sum() or self.training:
                 out0 = out1
                 clash_prev = clash

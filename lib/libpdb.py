@@ -108,6 +108,7 @@ class PDB(object):
         self.atom_mask_heavy = np.zeros((self.n_residue, MAX_ATOM), dtype=float)
         self.atomic_radius = np.zeros((self.n_residue, MAX_ATOM, 2, 2), dtype=float)
         self.atomic_mass = np.zeros((self.n_residue, MAX_ATOM), dtype=float)
+        self.atom_index_tip = np.ones(self.n_residue, dtype=int)
         # self.bfactor = np.full((self.n_residue, MAX_ATOM), dtype=float)
         #
         if len(self.ssbond_s) > 0:
@@ -148,6 +149,8 @@ class PDB(object):
                 if atom_name[0] != "H":
                     self.atom_mask_heavy[i_res, i_atm] = 1.0
                 self.atomic_mass[i_res, i_atm] = atom.element.mass
+                if i_atm == ref_res.atom_index_tip:
+                    self.atom_index_tip[i_res] = i_atm
             #
             n_atom = len(ref_res.atom_s)
             self.atomic_radius[i_res, :n_atom] = ref_res.atomic_radius[:n_atom]

@@ -36,10 +36,10 @@ class Data(object):
         self.resName.append(x[2].strip().split()[-1])
         self.ss.append(["HELIX", "SHEET", "COIL"].index(x[3].strip().split()[0]))
         self.asa.append(x[3].strip().split()[1])
-        self.b_len.append(x[5].split())
-        self.b_ang.append(x[6].split())
-        self.t_ang.append(x[7].split())
-        self.c_ang.append(x[8].split())
+        self.b_len.append(x[4].split())
+        self.b_ang.append(x[5].split())
+        self.t_ang.append(x[6].split())
+        self.c_ang.append(x[7].split())
 
     def append_chain_break(self):
         self.chain_break[-1] = True
@@ -250,7 +250,10 @@ def plot_2d(png_fn, native, model, kT=8, periodic=False):
 
 
 def main():
-    log_dir = pathlib.Path(sys.argv[1])
+    if len(sys.argv) == 1:
+        log_dir = pathlib.Path(".")
+    else:
+        log_dir = pathlib.Path(sys.argv[1])
     if len(sys.argv) > 2:
         keyword = sys.argv[2]
     else:
