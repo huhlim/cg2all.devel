@@ -35,6 +35,7 @@ class PDBset(Dataset):
         use_pt=None,
         crop=-1,
         use_md=False,
+        null_TER=False,
         n_frame=1,
         dtype=DTYPE,
     ):
@@ -57,6 +58,7 @@ class PDBset(Dataset):
         self.random_rotation = random_rotation
         self.use_pt = use_pt
         self.crop = crop
+        self.null_TER = null_TER
         #
         self.use_md = use_md
         self.n_frame = n_frame
@@ -105,7 +107,7 @@ class PDBset(Dataset):
         noise_size = torch.full((cg.n_residue,), noise_size)
         #
         pos = r_cg[cg.atom_mask_cg > 0.0, :]
-        geom_s = cg.get_geometry(pos, cg.continuous[0])
+        geom_s = cg.get_geometry(pos, cg.continuous[0], null_TER=self.null_TER)
         #
         node_feat = cg.geom_to_feature(
             geom_s, cg.continuous, noise_size=noise_size, dtype=self.dtype
@@ -154,6 +156,7 @@ class PDBset(Dataset):
         data.ndata["output_atom_mask"] = torch.as_tensor(cg.atom_mask, dtype=self.dtype)
         data.ndata["pdb_atom_mask"] = torch.as_tensor(cg.atom_mask_pdb, dtype=self.dtype)
         data.ndata["heavy_atom_mask"] = torch.as_tensor(cg.atom_mask_heavy, dtype=self.dtype)
+        data.ndata["bfactors"] = torch.as_tensor(cg.bfactors[0], dtype=self.dtype)
         data.ndata["output_xyz"] = torch.as_tensor(cg.R[0], dtype=self.dtype)
         data.ndata["output_xyz_alt"] = torch.as_tensor(cg.R_alt[0], dtype=self.dtype)
         #
@@ -302,6 +305,7 @@ def test():
     )
 
     data = train_set[0]
+    print(data.ndata["bfactors"])
     return
     traj_s, ssbond_s = create_trajectory_from_batch(
         data, data.ndata["output_xyz"], write_native=True
@@ -333,7 +337,8 @@ def to_pt():
         cg_model,
         noise_level=0.0,
         random_rotation=True,
-        use_pt="CAv2",
+        use_pt="CAv3",
+        null_TER=True,
         # use_md=True,
         # n_frame=10,
     )
@@ -351,5 +356,5 @@ def to_pt():
 
 
 if __name__ == "__main__":
-    to_pt()
-    # test()
+    # to_pt()
+    test()

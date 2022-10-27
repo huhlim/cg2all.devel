@@ -21,6 +21,7 @@ class PDB(object):
         if dcd_fn is None:
             self.is_dcd = False
             traj = pdb.atom_slice(load_index)
+            traj.bfactors = pdb.bfactors[:, load_index]
         else:
             self.is_dcd = True
             if frame_index is None:
@@ -61,6 +62,7 @@ class PDB(object):
             return
         else:
             traj_valid = traj.atom_slice(valid_index)
+            traj_valid.bfactors = traj.bfactors[:, valid_index]
             self.process(traj_valid, pdb_fn)
 
     def detect_ssbond(self, pdb_fn):
@@ -109,7 +111,7 @@ class PDB(object):
         self.atomic_radius = np.zeros((self.n_residue, MAX_ATOM, 2, 2), dtype=float)
         self.atomic_mass = np.zeros((self.n_residue, MAX_ATOM), dtype=float)
         self.atom_index_tip = np.ones(self.n_residue, dtype=int)
-        # self.bfactor = np.full((self.n_residue, MAX_ATOM), dtype=float)
+        self.bfactors = np.full((self.n_frame, self.n_residue, MAX_ATOM), 100.0, dtype=float)
         #
         if len(self.ssbond_s) > 0:
             ssbond_s = np.concatenate(self.ssbond_s, dtype=int)
@@ -149,6 +151,7 @@ class PDB(object):
                 if atom_name[0] != "H":
                     self.atom_mask_heavy[i_res, i_atm] = 1.0
                 self.atomic_mass[i_res, i_atm] = atom.element.mass
+                self.bfactors[:, i_res, i_atm] = self.traj.bfactors[:, atom.index]
                 if i_atm == ref_res.atom_index_tip:
                     self.atom_index_tip[i_res] = i_atm
             #
@@ -159,6 +162,7 @@ class PDB(object):
                 HG1_index = ref_res.atom_s.index("HG1")
                 self.atom_mask[i_res, HG1_index] = 0.0
                 self.atomic_mass[i_res, HG1_index] = 0.0
+        self.bfactors = np.clip(self.bfactors, 0.0, 100.0)
 
     # get continuity information, whether it has a previous residue
     def get_continuity(self):
@@ -309,15 +313,16 @@ class PDB(object):
         top = self.create_new_topology()
         mask = np.where(self.atom_mask_pdb)
         xyz = R[:, mask[0], mask[1], :]
+        bfactors = self.bfactors[:, mask[0], mask[1]]
         #
         traj = mdtraj.Trajectory(xyz[:1], top)
-        traj.save(pdb_fn)
+        traj.save(pdb_fn, bfactors=bfactors[:1])
         if len(self.ssbond_s) > 0:
             write_SSBOND(pdb_fn, self.top, self.ssbond_s)
         #
         if dcd_fn is not None:
             traj = mdtraj.Trajectory(xyz, top)
-            traj.save(dcd_fn)
+            traj.save(dcd_fn, bfactors=bfactors)
 
 
 def get_HIS_state(residue):

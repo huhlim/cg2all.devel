@@ -107,7 +107,7 @@ def get_ambiguous_atom_list(residue_name, torsion_name, torsion_index=-1, torsio
     return None
 
 
-def apply_swapping_rule(ref_res, amb, R):
+def apply_swapping_rule(ref_res, amb, R, bfac):
     greek = amb.atom_s[0][1]
     group_number_s = [atom_name[2] for atom_name in amb.atom_s]
     group_s = []
@@ -118,9 +118,10 @@ def apply_swapping_rule(ref_res, amb, R):
     before = group_s[0] + group_s[1]
     after = group_s[1] + group_s[0]
     R[before, :] = R[after, :]
+    bfac[before] = bfac[after]
 
 
-def apply_closest_rule(ref_res, amb, periodic_s, atom_s, rigid, R):
+def apply_closest_rule(ref_res, amb, periodic_s, atom_s, rigid, R, bfac):
     index_s = []
     index_tgt = []
     for periodic in periodic_s:
@@ -144,9 +145,10 @@ def apply_closest_rule(ref_res, amb, periodic_s, atom_s, rigid, R):
         if index_orig is None:
             index_orig = index
     R[index_orig, :] = R[index_min, :]
+    bfac[index_orig] = bfac[index_min]
 
 
-def update_by_closest_method(R, atom_mask, i_res, ref_res, tor, amb, opr_dict):
+def update_by_closest_method(R, bfac, atom_mask, i_res, ref_res, tor, amb, opr_dict):
     # get rigid-body transformation
     if tor.name == "XI":
         prev, rigid_tR = get_rigid_transform_by_torsion(
@@ -188,12 +190,14 @@ def update_by_closest_method(R, atom_mask, i_res, ref_res, tor, amb, opr_dict):
     if amb is not None:
         periodic_s = [[atom] for atom in amb.atom_s]
         for k in range(R.shape[0]):
-            apply_closest_rule(ref_res, amb, periodic_s, atom_s, rigid_s[k], R[k, i_res, :, :])
+            apply_closest_rule(
+                ref_res, amb, periodic_s, atom_s, rigid_s[k], R[k, i_res, :, :], bfac[k, i_res, :]
+            )
     opr_s = [np.array(opr_s[0]), np.array(opr_s[1])]
     return opr_s, atom_s, np.array(rigid_s)
 
 
-def update_by_permute_method(R, atom_mask, i_res, ref_res, tor, amb, opr_dict):
+def update_by_permute_method(R, bfac, atom_mask, i_res, ref_res, tor, amb, opr_dict):
     # get rigid-body transformation
     prev, rigid_tR = get_rigid_transform_by_torsion(ref_res.residue_name, tor.name, tor.index)
     t_ang0, atom_s, rigid = get_rigid_group_by_torsion(ref_res.residue_name, tor.name, tor.index)
@@ -239,13 +243,13 @@ def update_by_permute_method(R, atom_mask, i_res, ref_res, tor, amb, opr_dict):
         rigid_s.append(rigid_min)
         #
         if swap_min == 1:
-            apply_swapping_rule(ref_res, amb, R[k, i_res, :, :])
+            apply_swapping_rule(ref_res, amb, R[k, i_res, :, :], bfac[k, i_res, :])
 
     opr_s = [np.array(opr_s[0]), np.array(opr_s[1])]
     return opr_s, atom_s, np.array(rigid_s)
 
 
-def update_by_periodic_method(R, atom_mask, i_res, ref_res, tor, amb, opr_dict):
+def update_by_periodic_method(R, bfac, atom_mask, i_res, ref_res, tor, amb, opr_dict):
     # get rigid-body transformation
     if tor.name == "XI":
         prev, rigid_tR = get_rigid_transform_by_torsion(
@@ -288,18 +292,22 @@ def update_by_periodic_method(R, atom_mask, i_res, ref_res, tor, amb, opr_dict):
     opr_s = [np.array(opr_s[0]), np.array(opr_s[1])]
     rigid_s = translate_and_rotate(rigid, opr_s[0], opr_s[1])
     for k in range(R.shape[0]):
-        apply_closest_rule(ref_res, amb, periodic_s, atom_s, rigid_s[k], R[k, i_res, :, :])
+        apply_closest_rule(
+            ref_res, amb, periodic_s, atom_s, rigid_s[k], R[k, i_res, :, :], bfac[k, i_res, :]
+        )
         #
     return opr_s, atom_s, np.array(rigid_s)
 
 
-def update_by_glycine_backbone_method(R, i_res, ref_res, amb, atom_s, rigid_s):
+def update_by_glycine_backbone_method(R, bfac, i_res, ref_res, amb, atom_s, rigid_s):
     periodic_s = [[atom] for atom in amb.atom_s]
     for k in range(R.shape[0]):
-        apply_closest_rule(ref_res, amb, periodic_s, atom_s, rigid_s[k], R[k, i_res, :, :])
+        apply_closest_rule(
+            ref_res, amb, periodic_s, atom_s, rigid_s[k], R[k, i_res, :, :], bfac[k, i_res, :]
+        )
 
 
-def update_by_amide_method(R, atom_mask, i_res, ref_res, amb):
+def update_by_amide_method(R, bfac, atom_mask, i_res, ref_res, amb):
     index_amb = [ref_res.atom_s.index(atom) for atom in amb.atom_s]
     index_tor = [ref_res.atom_s.index(atom) for atom in amb.torsion_atom_s]
     if not np.all(atom_mask[i_res, index_amb]):
@@ -321,9 +329,10 @@ def update_by_amide_method(R, atom_mask, i_res, ref_res, amb):
         for i, s in enumerate(swap):
             if s:
                 R[i, i_res, before, :] = R[i, i_res, after, :]
+                bfac[i, i_res, before] = bfac[i, i_res, after]
 
 
-def update_by_guanidium_method(R, atom_mask, i_res, ref_res):
+def update_by_guanidium_method(R, bfac, atom_mask, i_res, ref_res):
     for i in range(3):
         amb = get_ambiguous_atom_list(ref_res.residue_name, "guanidium", i)
         #
@@ -368,3 +377,4 @@ def update_by_guanidium_method(R, atom_mask, i_res, ref_res):
             atom_mask[i_res, before] = atom_mask[i_res, after]
             for s in swap:
                 R[s, i_res, before, :] = R[s, i_res, after, :]
+                bfac[s, i_res, before] = bfac[s, i_res, after]

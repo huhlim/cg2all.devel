@@ -66,7 +66,7 @@ class ProcessPDB(PDB):
             #
             amb = get_ambiguous_atom_list(residue_name, "BB")
             if residue_name == "GLY" and self.check_amb_valid(i_res, amb, ref_res):
-                update_by_glycine_backbone_method(self.R, i_res, ref_res, amb, atom_s, rigid_s)
+                update_by_glycine_backbone_method(self.R, self.bfactors, i_res, ref_res, amb, atom_s, rigid_s)
             #
             # update side chain atom names
             for tor in tor_s:
@@ -87,11 +87,11 @@ class ProcessPDB(PDB):
                 #
                 if amb is None or amb.method in ["closest", "xi"]:
                     opr_sc, atom_s, rigid_s = update_by_closest_method(
-                        self.R, self.atom_mask_pdb, i_res, ref_res, tor, amb, opr_s
+                        self.R, self.bfactors, self.atom_mask_pdb, i_res, ref_res, tor, amb, opr_s
                     )
                 elif amb.method == "permute":
                     opr_sc, atom_s, rigid_s = update_by_permute_method(
-                        self.R, self.atom_mask_pdb, i_res, ref_res, tor, amb, opr_s
+                        self.R, self.bfactors, self.atom_mask_pdb, i_res, ref_res, tor, amb, opr_s
                     )
                 elif amb.method == "periodic":
                     opr_sc, atom_s, rigid_s = update_by_periodic_method(
@@ -114,10 +114,10 @@ class ProcessPDB(PDB):
             if residue_name in ["ASN", "GLN"]:
                 amb = get_ambiguous_atom_list(ref_res.residue_name, "amide")
                 if self.check_amb_valid(i_res, amb, ref_res):
-                    update_by_amide_method(self.R, self.atom_mask_pdb, i_res, ref_res, amb)
+                    update_by_amide_method(self.R, self.bfactors, self.atom_mask_pdb, i_res, ref_res, amb)
 
             elif residue_name == "ARG":
-                update_by_guanidium_method(self.R, self.atom_mask_pdb, i_res, ref_res)
+                update_by_guanidium_method(self.R, self.bfactors, self.atom_mask_pdb, i_res, ref_res)
 
 
 def main():

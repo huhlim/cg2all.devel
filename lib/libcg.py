@@ -57,7 +57,7 @@ class ResidueBasedModel(PDB):
             traj.save(dcd_fn)
 
     @staticmethod
-    def get_geometry(r: torch.Tensor, continuous: torch.Tensor):
+    def get_geometry(r: torch.Tensor, continuous: torch.Tensor, null_TER=False):
         device = r.device
         #
         not_defined = continuous == 0.0
@@ -82,13 +82,15 @@ class ResidueBasedModel(PDB):
             dr[shift:-shift] /= b_len[shift:-shift, None]
             b_len = torch.clamp(b_len, max=1.0)
             #
-            # dr[:shift] = dr[shift]
-            # dr[-shift:] = dr[-shift - 1]
-            # b_len[:shift] = b_len[shift]
-            # b_len[-shift:] = b_len[-shift - 1]
-            for s in range(shift):
-                dr[s : -shift + s][not_defined] = 0.0
-                b_len[s : -shift + s][not_defined] = 1.0
+            if null_TER:
+                for s in range(shift):
+                    dr[s : -shift + s][not_defined] = 0.0
+                    b_len[s : -shift + s][not_defined] = 1.0
+            else:
+                dr[:shift] = dr[shift]
+                dr[-shift:] = dr[-shift - 1]
+                b_len[:shift] = b_len[shift]
+                b_len[-shift:] = b_len[-shift - 1]
             #
             geom_s["bond_length"][shift] = (b_len[:-shift], b_len[shift:])
             geom_s["bond_vector"][shift] = (dr[:-shift], -dr[shift:])
@@ -98,12 +100,13 @@ class ResidueBasedModel(PDB):
         v2 = geom_s["bond_vector"][1][1]
         cosine = inner_product(v1, v2)
         sine = 1.0 - cosine**2
-        cosine[not_defined] = 0.0
-        sine[not_defined] = 0.0
-        cosine[:-1][not_defined[1:]] = 0.0
-        sine[:-1][not_defined[1:]] = 0.0
-        cosine[-1] = 0.0
-        sine[-1] = 0.0
+        if null_TER:
+            cosine[not_defined] = 0.0
+            sine[not_defined] = 0.0
+            cosine[:-1][not_defined[1:]] = 0.0
+            sine[:-1][not_defined[1:]] = 0.0
+            cosine[-1] = 0.0
+            sine[-1] = 0.0
         geom_s["bond_angle"] = (cosine, sine)
 
         # dihedral angles
@@ -111,9 +114,10 @@ class ResidueBasedModel(PDB):
         t_ang = torsion_angle(R)
         cosine = torch.cos(t_ang)
         sine = torch.sin(t_ang)
-        for i in range(3):
-            cosine[: -(i + 1)][not_defined[i + 1 : -3]] = 0.0
-            sine[: -(i + 1)][not_defined[i + 1 : -3]] = 0.0
+        if null_TER:
+            for i in range(3):
+                cosine[: -(i + 1)][not_defined[i + 1 : -3]] = 0.0
+                sine[: -(i + 1)][not_defined[i + 1 : -3]] = 0.0
         sc = torch.zeros((r.shape[0], 4, 2), device=device)
         for i in range(4):
             sc[i : i + cosine.shape[0], i, 0] = cosine

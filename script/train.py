@@ -273,7 +273,7 @@ def main():
         radius=config.globals.radius,
         noise_level=0.0,
         random_rotation=True,
-        use_pt="CAv2",
+        use_pt=config.get("use_pt", "CAv3"),
         use_md=use_md,
         n_frame=n_frame,
     )
