@@ -302,24 +302,6 @@ class StructureModule(nn.Module):
         out = self.linear_module(feats)
         return out
 
-    def init_value(self, batch: dgl.DGLGraph):
-        n_residue = batch.num_nodes()
-        dtype = batch.ndata["pos"].dtype
-        device = batch.ndata["pos"].device
-        #
-        out = {}
-        #
-        sc = torch.zeros((n_residue, MAX_TORSION, 2), dtype=dtype, device=device)
-        sc[..., 0] = 1.0
-        out["0"] = sc.reshape(-1, MAX_TORSION * 2, 1)
-        #
-        bb = torch.zeros((n_residue, 3, 3), dtype=dtype, device=device)
-        bb[:, 0] = batch.ndata["global_frame"][:, :3]
-        bb[:, 1] = batch.ndata["global_frame"][:, 3:]
-        out["1"] = bb
-        #
-        return out
-
     @staticmethod
     def output_to_opr(output):
         bb0 = output["1"][:, :2]

@@ -162,23 +162,26 @@ class PDB(object):
 
     # get continuity information, whether it has a previous residue
     def get_continuity(self):
+        self.continuous = np.zeros((2, self.n_residue), dtype=bool)  # prev / next
+        #
         # different chains
-        self.continuous = self.chain_index[1:] == self.chain_index[:-1]
+        same_chain = self.chain_index[1:] == self.chain_index[:-1]
+        self.continuous[0, 1:] = same_chain
+        self.continuous[1, :-1] = same_chain
 
         # chain breaks
         dr = self.R[:, 1:, ATOM_INDEX_N] - self.R[:, :-1, ATOM_INDEX_C]
         d = v_size(dr).mean(axis=0)
-        self.continuous[d > BOND_LENGTH0 * 2.0] = 0.0
+        chain_breaks = d > BOND_LENGTH0 * 2.0
+        self.continuous[0, 1:][chain_breaks] = False
+        self.continuous[1, :-1][chain_breaks] = False
         #
         has_backbone = np.all(self.atom_mask_pdb[:, :4] > 0.0, axis=-1)
-        self.continuous[~has_backbone[:-1]] = 0.0
-
-        self.continuous = np.concatenate([[0], self.continuous])
+        self.continuous[0, 1:][~has_backbone[:-1]] = False
+        self.continuous[1, :-1][~has_backbone[1:]] = False
 
     def check_validity(self):
-        valid = np.zeros_like(self.continuous, dtype=bool)
-        valid[self.continuous > 0.0] = True
-        valid[:-1][self.continuous[1:] > 0.0] = True
+        valid = np.any(self.continuous, axis=0)
         #
         if np.all(valid):
             return True, None
@@ -420,7 +423,7 @@ def generate_structure_from_bb_and_torsion(residue_index, bb, torsion):
 
 
 if __name__ == "__main__":
-    pdb = PDB("pdb.6k/1ab1.pdb")
+    pdb = PDB("pdb.processed/1ab1_A.pdb")
     pdb.get_structure_information()
     #
     # job = "../dyna/run/1a2p_B"

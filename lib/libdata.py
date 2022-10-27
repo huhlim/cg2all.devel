@@ -105,9 +105,11 @@ class PDBset(Dataset):
         noise_size = torch.full((cg.n_residue,), noise_size)
         #
         pos = r_cg[cg.atom_mask_cg > 0.0, :]
-        geom_s = cg.get_geometry(pos, cg.continuous, pca=True)
+        geom_s = cg.get_geometry(pos, cg.continuous[0])
         #
-        node_feat = cg.geom_to_feature(geom_s, noise_size=noise_size, dtype=self.dtype)
+        node_feat = cg.geom_to_feature(
+            geom_s, cg.continuous, noise_size=noise_size, dtype=self.dtype
+        )
         data = dgl.radius_graph(pos, self.radius, self_loop=self.self_loop)
         data.ndata["pos"] = pos
         data.ndata["pos0"] = pos.clone()
@@ -117,12 +119,9 @@ class PDBset(Dataset):
         edge_src, edge_dst = data.edges()
         data.edata["rel_pos"] = pos[edge_dst] - pos[edge_src]
         #
-        global_frame = torch.as_tensor(geom_s["pca"], dtype=self.dtype).reshape(-1)
-        data.ndata["global_frame"] = global_frame.repeat(cg.n_residue, 1)  # shape=(N, 6)
-        #
         data.ndata["chain_index"] = torch.as_tensor(cg.chain_index, dtype=torch.long)
         data.ndata["residue_type"] = torch.as_tensor(cg.residue_index, dtype=torch.long)
-        data.ndata["continuous"] = torch.as_tensor(cg.continuous, dtype=self.dtype)
+        data.ndata["continuous"] = torch.as_tensor(cg.continuous[0], dtype=self.dtype)
         data.ndata["ss"] = torch.as_tensor(cg.ss[0], dtype=torch.long)
         #
         ssbond_index = torch.full((data.num_nodes(),), -1, dtype=torch.long)
@@ -134,7 +133,7 @@ class PDBset(Dataset):
         data.ndata["ssbond_index"] = ssbond_index
         #
         edge_feat = torch.zeros((data.num_edges(), 3), dtype=self.dtype)  # bonded / ssbond / space
-        for i, cont in enumerate(cg.continuous):
+        for i, cont in enumerate(cg.continuous[0]):
             if cont and data.has_edges_between(i - 1, i):  # i-1 and i is connected
                 eid = data.edge_ids(i - 1, i)
                 edge_feat[eid, 0] = 1.0
@@ -334,7 +333,7 @@ def to_pt():
         cg_model,
         noise_level=0.0,
         random_rotation=True,
-        use_pt="CA",
+        use_pt="CAv2",
         # use_md=True,
         # n_frame=10,
     )
