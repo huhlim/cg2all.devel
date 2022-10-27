@@ -74,6 +74,8 @@ CONFIG["globals"]["loss_weight"].update(
         "torsion_energy": 0.1,
         "torsion_energy_clamp": 0.6,
         "atomic_clash": 5.0,
+        "atomic_clash_vdw": 1.0,
+        "atomic_clash_clamp": 0.0,
     }
 )
 

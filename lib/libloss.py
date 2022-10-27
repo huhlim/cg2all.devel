@@ -84,7 +84,13 @@ def loss_f(
         )
     if loss_weight.get("atomic_clash", 0.0) > 0.0:
         loss["atomic_clash"] = (
-            loss_f_atomic_clash(batch, R, RIGID_OPs, vdw_scale=0.9, energy_clamp=0.005)
+            loss_f_atomic_clash(
+                batch,
+                R,
+                RIGID_OPs,
+                vdw_scale=loss_weight.get("atomic_clash_vdw", 1.0),
+                energy_clamp=loss_weight.get("atomic_clash_clamp", 0.0),
+            )
             * loss_weight.atomic_clash
         )
     #

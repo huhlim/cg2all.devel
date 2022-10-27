@@ -213,7 +213,10 @@ def assess_distr(log_dir, keyword, data):
 
 
 def main():
-    log_dir = pathlib.Path(sys.argv[1])
+    if len(sys.argv) == 1:
+        log_dir = pathlib.Path(".")
+    else:
+        log_dir = pathlib.Path(sys.argv[1])
     if len(sys.argv) > 2:
         keyword = sys.argv[2]
     else:
