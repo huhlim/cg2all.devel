@@ -156,18 +156,7 @@ class Model(pl.LightningModule):
                 log_dir / "error.pt",
             )
             raise ValueError(loss_s, metric)
-        # else:
-        #     log_dir = pathlib.Path(self.logger.log_dir)
-        #     torch.save(
-        #         {
-        #             "model": self.model.state_dict(),
-        #             "batch": batch,
-        #             "loss_s": loss_s,
-        #             "metric": metric,
-        #         },
-        #         log_dir / "normal.pt",
-        #     )
-        # #
+
         bs = batch.batch_size
         self.log("train_loss", loss_s, batch_size=bs, on_epoch=True, on_step=False)
         self.log(

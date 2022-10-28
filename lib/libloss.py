@@ -54,8 +54,6 @@ def loss_f(
         loss["mse_R"] = loss_f_mse_R(batch, R) * loss_weight.mse_R
     if loss_weight.get("v_cntr", 0.0) > 0.0:
         loss["v_cntr"] = loss_f_v_cntr(batch, R) * loss_weight.v_cntr
-    if loss_weight.get("v_tip", 0.0) > 0.0:
-        loss["v_tip"] = loss_f_v_tip(batch, R) * loss_weight.v_tip
     if loss_weight.get("FAPE_CA", 0.0) > 0.0:
         loss["FAPE_CA"] = loss_f_FAPE_CA(batch, R, opr_bb, d_clamp=1.0) * loss_weight.FAPE_CA
     if loss_weight.get("FAPE_all", 0.0) > 0.0:
@@ -131,17 +129,6 @@ def loss_f_v_cntr(batch: dgl.DGLGraph, R: torch.Tensor):
     )
     #
     loss_distance = torch.mean(torch.abs(v_size(v_cntr) - v_size(batch.ndata["v_cntr"])))
-    return loss_angle + loss_distance * 10.0
-
-
-def loss_f_v_tip(batch: dgl.DGLGraph, R: torch.Tensor):
-    tip_mask = batch.ndata["atom_index_tip"] != ATOM_INDEX_CA
-    v_tip = torch.take_along_dim(R, batch.ndata["atom_index_tip"][:, None, None], dim=1)[:, 0]
-    v_tip = (v_tip - R[:, ATOM_INDEX_CA])[tip_mask]
-    v_tip0 = batch.ndata["v_tip"][tip_mask]
-    #
-    loss_angle = torch.mean(torch.abs(1.0 - inner_product(v_norm_safe(v_tip), v_norm(v_tip0))))
-    loss_distance = torch.mean(torch.abs(v_size(v_tip) - v_size(v_tip0)))
     return loss_angle + loss_distance * 10.0
 
 
@@ -579,7 +566,6 @@ def test():
     import time
 
     print(loss_f_v_cntr(native, R_model))
-    print(loss_f_v_tip(native, R_model))
 
     # find_atomic_clash(model, R_model, RIGID_OPs)
     # loss_f_atomic_clash(batch, batch.ndata["output_xyz"], RIGID_OPs)

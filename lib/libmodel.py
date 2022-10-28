@@ -62,7 +62,6 @@ CONFIG["globals"]["loss_weight"].update(
         "FAPE_all": 5.0,
         "mse_R": 0.0,
         "v_cntr": 1.0,
-        "v_tip": 0.0,
         "bonded_energy": 1.0,
         "rotation_matrix": 1.0,
         "backbone_torsion": 0.0,
@@ -117,7 +116,6 @@ STRUCTURE_MODULE["loss_weight"].update(
         "FAPE_all": 0.0,
         "mse_R": 0.0,
         "v_cntr": 0.0,
-        "v_tip": 0.0,
         "bonded_energy": 0.0,
         "rotation_matrix": 0.0,
         "backbone_torsion": 0.0,
@@ -415,6 +413,8 @@ class Model(nn.Module):
         R_ref = batch.ndata["output_xyz"]
         #
         metric_s = {}
+        metric_s["clash"] = find_atomic_clash(batch, R, self.RIGID_OPs).mean()
+        #
         metric_s["rmsd_CA"] = rmsd_CA(R, R_ref)
         metric_s["rmsd_rigid"] = rmsd_rigid(R, R_ref)
         metric_s["rmsd_all"] = rmsd_all(R, R_ref, batch.ndata["heavy_atom_mask"])
@@ -424,7 +424,6 @@ class Model(nn.Module):
         metric_s["bond_angle"] = bonded[1]
         metric_s["omega_angle"] = bonded[2]
         #
-        metric_s["clash"] = find_atomic_clash(batch, R, self.RIGID_OPs)
         return metric_s
 
 
