@@ -478,8 +478,6 @@ def find_atomic_clash(
         #
         mask_i = data.ndata["output_atom_mask"][i] > 0.0
         mask_j = data.ndata["output_atom_mask"][j] > 0.0
-        # mask_i = data.ndata["heavy_atom_mask"][i] > 0.0
-        # mask_j = data.ndata["heavy_atom_mask"][j] > 0.0
         mask = mask_j[:, :, None] & mask_i[:, None, :]
         #
         x = i == j + 1

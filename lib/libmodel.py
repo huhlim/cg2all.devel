@@ -46,17 +46,12 @@ CONFIG["train"] = ConfigDict()
 CONFIG["train"]["dataset"] = "pdb.processed"
 CONFIG["train"]["md_frame"] = -1
 CONFIG["train"]["batch_size"] = 4
-CONFIG["train"]["crop_size"] = -1
+CONFIG["train"]["crop_size"] = 256
 CONFIG["train"]["lr"] = 1e-3
 CONFIG["train"]["lr_sc"] = 1e-2
 CONFIG["train"]["lr_gamma"] = 0.995
 
 CONFIG["globals"] = ConfigDict()
-CONFIG["globals"]["num_recycle"] = 1
-CONFIG["globals"]["use_clash"] = False
-CONFIG["globals"]["use_edge_layers"] = False
-CONFIG["globals"]["use_random"] = False
-CONFIG["globals"]["n_refine_cycle"] = 0
 CONFIG["globals"]["radius"] = 1.0
 CONFIG["globals"]["loss_weight"] = ConfigDict()
 CONFIG["globals"]["loss_weight"].update(
@@ -89,7 +84,6 @@ CONFIG["embedding_module"] = EMBEDDING_MODULE
 STRUCTURE_MODULE = ConfigDict()
 STRUCTURE_MODULE["low_memory"] = True
 STRUCTURE_MODULE["num_graph_layers"] = 4
-STRUCTURE_MODULE["num_refine_layers"] = 1
 STRUCTURE_MODULE["num_linear_layers"] = 4
 STRUCTURE_MODULE["num_heads"] = 8  # number of attention heads
 STRUCTURE_MODULE["norm"] = [True, True]  # norm between attention blocks / within attention blocks
@@ -166,10 +160,7 @@ def set_model_config(arg: dict, cg_model) -> ConfigDict:
     #
     config.structure_module.fiber_edge = []
     if cg_model.n_edge_scalar > 0:
-        n_edge_scalar = cg_model.n_edge_scalar
-        if config.globals.use_clash:
-            n_edge_scalar += 1
-        config.structure_module.fiber_edge.append((0, n_edge_scalar))
+        config.structure_module.fiber_edge.append((0, cg_model.n_edge_scalar))
     if cg_model.n_edge_vector > 0:
         config.structure_module.fiber_edge.append((1, cg_model.n_edge_vector))
     #
@@ -322,89 +313,17 @@ class StructureModule(nn.Module):
         return bb, sc, bb0, sc0
 
 
-class RefineModule(nn.Module):
-    def __init__(self, config, use_clash=False):
-        super().__init__()
-        #
-        if config.nonlinearity == "elu":
-            nonlinearity = nn.ELU()
-        elif config.nonlinearity == "relu":
-            nonlinearity = nn.ReLU()
-        #
-        if use_clash:
-            fiber_in = []
-            for degree, n_feat in config.fiber_pass:
-                if degree == 0:
-                    fiber_in.append((degree, n_feat + 1))
-                else:
-                    fiber_in.append((degree, n_feat))
-        else:
-            fiber_in = config.fiber_pass
-        fiber_out = [(degree, n_feat) for degree, n_feat in config.fiber_out if degree == 0]
-        #
-        self.graph_module = SE3Transformer(
-            num_layers=config.num_refine_layers,
-            fiber_in=Fiber(fiber_in),
-            fiber_hidden=Fiber(config.fiber_hidden),
-            fiber_out=Fiber(config.fiber_pass),
-            num_heads=config.num_heads,
-            channels_div=config.channels_div,
-            fiber_edge=Fiber(config.fiber_edge or {}),
-            norm=config.norm[0],
-            use_layer_norm=config.norm[1],
-            nonlinearity=nonlinearity,
-            low_memory=config.low_memory,
-        )
-        #
-        linear_module = []
-        #
-        if config.norm[0]:
-            linear_module.append(NormSE3(Fiber(config.fiber_struct), nonlinearity=nonlinearity))
-        linear_module.append(LinearSE3(Fiber(config.fiber_struct), Fiber(config.fiber_pass)))
-        #
-        for _ in range(config.num_linear_layers - 2):
-            if config.norm[0]:
-                linear_module.append(NormSE3(Fiber(config.fiber_pass), nonlinearity=nonlinearity))
-            linear_module.append(LinearSE3(Fiber(config.fiber_pass), Fiber(config.fiber_pass)))
-        #
-        if config.norm[0]:
-            linear_module.append(NormSE3(Fiber(config.fiber_pass), nonlinearity=nonlinearity))
-        linear_module.append(LinearSE3(Fiber(config.fiber_pass), Fiber(fiber_out)))
-        #
-        self.linear_module = nn.Sequential(*linear_module)
-
-    def forward(self, batch: dgl.DGLGraph, out0, node_feats, edge_feats):
-        out = self.graph_module(batch, node_feats=node_feats, edge_feats=edge_feats)
-        for degree, out_d in out0.items():
-            out[degree] = out[degree] + out_d.detach()
-        #
-        sc0 = self.linear_module(out)
-        sc0 = sc0["0"].reshape(-1, MAX_TORSION, 2)
-        sc = v_norm_safe(sc0)
-        #
-        return out, sc, sc0
-
-
 class Model(nn.Module):
     def __init__(self, _config, cg_model, compute_loss=False):
         super().__init__()
         #
         self.cg_model = cg_model
         self.compute_loss = compute_loss
-        self.num_recycle = _config.globals.num_recycle
         self.loss_weight = _config.globals.loss_weight
-        self.use_clash = _config.globals.use_clash
-        self.use_edge_layers = _config.globals.use_edge_layers
-        self.n_refine_cycle = _config.globals.n_refine_cycle
-        self.use_random = _config.globals.use_random
         #
         self.embedding_module = EmbeddingModule(_config.embedding_module)
         #
         self.initialization_module = InitializationModule(_config.structure_module)
-        if self.use_edge_layers:
-            self.edge_module = EdgeModule(_config.structure_module)
-        if self.n_refine_cycle > 0:
-            self.refine_module = RefineModule(_config.structure_module, self.use_clash)
         self.interaction_module = InteractionModule(_config.structure_module)
         self.structure_module = StructureModule(_config.structure_module)
 
@@ -434,27 +353,13 @@ class Model(nn.Module):
         # residue_type --> embedding
         embedding = self.embedding_module(batch)
         #
-        edge_feats0 = {"0": batch.edata["edge_feat_0"]}
+        edge_feats = {"0": batch.edata["edge_feat_0"]}
         node_feats = {
             "0": torch.cat([batch.ndata["node_feat_0"], embedding[..., None]], dim=1),
             "1": batch.ndata["node_feat_1"],
         }
         #
         out0 = self.initialization_module(node_feats)
-        #
-        if self.use_edge_layers:
-            if self.use_clash:
-                edata = edge_feats0["0"]
-                edge_feats0["0"] = torch.cat(
-                    [
-                        edata,
-                        torch.ones((edata.size(0), 1, 1), device=edata.device, dtype=edata.dtype),
-                    ],
-                    dim=1,
-                )
-            edge_feats = self.edge_module(edge_feats0)
-        else:
-            edge_feats = edge_feats0
         #
         # first-pass
         out = self.interaction_module(batch, node_feats=out0, edge_feats=edge_feats)
@@ -480,67 +385,6 @@ class Model(nn.Module):
                 RIGID_OPs=self.RIGID_OPs,
                 TORSION_PARs=self.TORSION_PARs,
             )
-        #
-        if self.n_refine_cycle == 0:
-            metrics = self.calc_metrics(batch, ret)
-            return ret, loss, metrics
-        #
-        # refinement
-        clash_prev = find_atomic_clash(
-            batch, ret["R"], self.RIGID_OPs, vdw_scale=0.9, energy_clamp=0.005
-        ).detach()
-        n_refine = 0
-        for _ in range(self.n_refine_cycle):
-            if self.use_clash:
-                if self.use_edge_layers:
-                    edge_feats0["0"][:, -1, 0] = clash_prev.type(edata.dtype)
-                    edge_feats = self.edge_module(edge_feats0)
-                #
-                node_clash = dgl.ops.copy_e_sum(batch, clash_prev)[..., None, None]
-                node_clash = node_clash.type(out0["0"].dtype)
-                if self.use_random:
-                    node_clash = node_clash * torch.randn_like(node_clash)
-                #
-                node_feats = {}
-                for degree, out_d in out0.items():
-                    if degree == "0":
-                        node_feats[degree] = torch.cat([out_d, node_clash], dim=1).detach()
-                    else:
-                        node_feats[degree] = out_d.detach()
-            else:
-                node_feats = {degree: out_d.detach() for degree, out_d in out0.items()}
-            #
-            out1, sc, sc0 = self.refine_module(
-                batch, out0, node_feats=node_feats, edge_feats=edge_feats
-            )
-            R, _ = build_structure(self.RIGID_OPs, batch, ret["bb"], sc=sc)
-            #
-            clash = find_atomic_clash(
-                batch, R, self.RIGID_OPs, vdw_scale=0.9, energy_clamp=0.005
-            ).detach()
-            if clash.sum() < clash_prev.sum() or self.training:
-                out0 = out1
-                clash_prev = clash
-                #
-                ret["sc"] = sc
-                ret["sc0"] = sc0
-                ret["R"] = R
-            #
-            if self.compute_loss or self.training:
-                n_refine += 1
-                loss["refine"] = loss_f(
-                    batch,
-                    ret,
-                    self.structure_module.loss_weight,
-                    RIGID_OPs=self.RIGID_OPs,
-                    TORSION_PARs=self.TORSION_PARs,
-                )
-
-        if self.compute_loss or self.training:
-            if "refine" in loss:
-                for k, v in loss["refine"].items():
-                    loss["refine"][k] = v / n_refine
-
         metrics = self.calc_metrics(batch, ret)
         #
         return ret, loss, metrics
@@ -561,6 +405,8 @@ class Model(nn.Module):
         metric_s["bond_length"] = bonded[0]
         metric_s["bond_angle"] = bonded[1]
         metric_s["omega_angle"] = bonded[2]
+        #
+        metric_s["clash"] = find_atomic_clash(batch, R, self.RIGID_OPs)
         return metric_s
 
 
