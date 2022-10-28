@@ -35,7 +35,6 @@ class PDBset(Dataset):
         use_pt=None,
         crop=-1,
         use_md=False,
-        null_TER=False,
         n_frame=1,
         dtype=DTYPE,
     ):
@@ -58,7 +57,6 @@ class PDBset(Dataset):
         self.random_rotation = random_rotation
         self.use_pt = use_pt
         self.crop = crop
-        self.null_TER = null_TER
         #
         self.use_md = use_md
         self.n_frame = n_frame
@@ -107,7 +105,7 @@ class PDBset(Dataset):
         noise_size = torch.full((cg.n_residue,), noise_size)
         #
         pos = r_cg[cg.atom_mask_cg > 0.0, :]
-        geom_s = cg.get_geometry(pos, cg.continuous[0], null_TER=self.null_TER)
+        geom_s = cg.get_geometry(pos, cg.continuous[0])
         #
         node_feat = cg.geom_to_feature(
             geom_s, cg.continuous, noise_size=noise_size, dtype=self.dtype
@@ -338,7 +336,6 @@ def to_pt():
         noise_level=0.0,
         random_rotation=True,
         use_pt="CAv3",
-        null_TER=True,
         # use_md=True,
         # n_frame=10,
     )
