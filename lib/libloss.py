@@ -460,7 +460,7 @@ def loss_f_torsion_energy(batch: dgl.DGLGraph, R: torch.Tensor, TORSION_PARs, en
 def loss_f_bfactors(batch: dgl.DGLGraph, bfactors: torch.Tensor):
     mask = batch.ndata["pdb_atom_mask"]
     delta = bfactors - batch.ndata["bfactors"]
-    loss = torch.sum(torch.pow(delta, 2) * mask) / mask.sum()
+    loss = torch.sum(torch.pow(delta, 2) * mask) / mask.sum() * 0.01
     return loss
 
 

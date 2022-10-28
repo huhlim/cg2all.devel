@@ -23,6 +23,7 @@ except ImportError:
 
 from residue_constants import (
     MAX_RESIDUE_TYPE,
+    MAX_ATOM,
     MAX_TORSION,
     MAX_RIGID,
     ATOM_INDEX_CA,
@@ -71,6 +72,7 @@ CONFIG["globals"]["loss_weight"].update(
         "atomic_clash": 5.0,
         "atomic_clash_vdw": 1.0,
         "atomic_clash_clamp": 0.0,
+        "bfactors": 0.0,
     }
 )
 
@@ -88,6 +90,7 @@ STRUCTURE_MODULE["num_linear_layers"] = 4
 STRUCTURE_MODULE["num_heads"] = 8  # number of attention heads
 STRUCTURE_MODULE["norm"] = [True, True]  # norm between attention blocks / within attention blocks
 STRUCTURE_MODULE["nonlinearity"] = "elu"
+STRUCTURE_MODULE["output_bfactors"] = False
 
 # fiber_in: is determined by input features
 STRUCTURE_MODULE["fiber_init"] = None
@@ -122,6 +125,7 @@ STRUCTURE_MODULE["loss_weight"].update(
         "torsion_energy": 0.1,
         "torsion_energy_clamp": 0.6,
         "atomic_clash": 5.0,
+        "bfactors": 0.0,
     }
 )
 CONFIG["structure_module"] = STRUCTURE_MODULE
@@ -157,6 +161,14 @@ def set_model_config(arg: dict, cg_model) -> ConfigDict:
             (d, config.structure_module.num_channels)
             for d in range(config.structure_module.num_degrees)
         ]
+    #
+    if config.structure_module.output_bfactors:
+        fiber_out = []
+        for degree, n_feats in config.structure_module.fiber_out:
+            if degree == 0:
+                n_feats += MAX_ATOM
+            fiber_out.append((degree, n_feats))
+        config.structure_module.fiber_out = fiber_out
     #
     config.structure_module.fiber_edge = []
     if cg_model.n_edge_scalar > 0:
@@ -266,6 +278,7 @@ class StructureModule(nn.Module):
         super().__init__()
         #
         self.loss_weight = config.loss_weight
+        self.output_bfactors = config.output_bfactors
         #
         if config.nonlinearity == "elu":
             nonlinearity = nn.ELU()
@@ -293,8 +306,7 @@ class StructureModule(nn.Module):
         out = self.linear_module(feats)
         return out
 
-    @staticmethod
-    def output_to_opr(output):
+    def output_to_opr(self, output):
         bb0 = output["1"][:, :2]
         v0 = bb0[:, 0]
         v1 = bb0[:, 1]
@@ -307,10 +319,15 @@ class StructureModule(nn.Module):
         t = 0.1 * output["1"][:, 2][..., None, :]
         bb = torch.cat([rot, t], dim=1)
         #
-        sc0 = output["0"].reshape(-1, MAX_TORSION, 2)
+        n_torsion_output = MAX_TORSION * 2
+        sc0 = output["0"][:, :n_torsion_output].reshape(-1, MAX_TORSION, 2)
         sc = v_norm_safe(sc0)
         #
-        return bb, sc, bb0, sc0
+        if self.output_bfactors:
+            bfactors = torch.sigmoid(output["0"][:, n_torsion_output:, 0]) * 100.0
+        else:
+            bfactors = None
+        return bb, sc, bb0, sc0, bfactors
 
 
 class Model(nn.Module):
@@ -369,11 +386,12 @@ class Model(nn.Module):
         #
         out = self.structure_module(out)
         #
-        bb, sc, bb0, sc0 = self.structure_module.output_to_opr(out)
+        bb, sc, bb0, sc0, bfactors = self.structure_module.output_to_opr(out)
         ret["bb"] = bb
         ret["sc"] = sc
         ret["bb0"] = bb0
         ret["sc0"] = sc0
+        ret["bfactors"] = bfactors
         #
         ret["R"], ret["opr_bb"] = build_structure(self.RIGID_OPs, batch, bb, sc=sc)
         #

@@ -117,7 +117,9 @@ class Model(pl.LightningModule):
             optimizer,
             [
                 torch.optim.lr_scheduler.LinearLR(optimizer, 0.1, 1.0, 10),
-                torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=self._config.train.lr_gamma),
+                torch.optim.lr_scheduler.ExponentialLR(
+                    optimizer, gamma=self._config.train.lr_gamma
+                ),
             ],
             [10],  # milestone
         )
@@ -204,14 +206,19 @@ class Model(pl.LightningModule):
     def write_pdb(self, batch, out, prefix, write_native=True, log_dir=None):
         if log_dir is None:
             log_dir = pathlib.Path(self.logger.log_dir)
-        traj_s, ssbond_s = create_trajectory_from_batch(batch, out["R"], write_native=True)
+        #
+        traj_s, ssbond_s, bfac_s = create_trajectory_from_batch(
+            batch, out["R"], bfac=out["bfactors"], write_native=True
+        )
+        #
         for i, (traj, ssbond) in enumerate(zip(traj_s, ssbond_s)):
             try:
                 out_f = log_dir / f"{prefix}_{self.global_rank}_{i}.pdb"
             except:
                 out_f = log_dir / f"{prefix}_{i}.pdb"
+            #
             try:
-                traj.save(out_f)
+                traj.save(out_f, bfactors=bfac_s[i])
                 if len(ssbond) > 0:
                     write_SSBOND(out_f, traj.top, ssbond)
             except:
@@ -291,7 +298,7 @@ def main():
     test_loader = _DataLoader(test_set, shuffle=False)
     #
     # define model
-    model = Model(config, cg_model, compute_loss=True)#, memcheck=True)
+    model = Model(config, cg_model, compute_loss=True)  # , memcheck=True)
     #
     trainer_kwargs = {}
     trainer_kwargs["max_epochs"] = arg.max_epochs

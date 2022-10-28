@@ -248,28 +248,34 @@ def create_topology_from_data(data: dgl.DGLGraph, write_native: bool = False) ->
 
 def create_trajectory_from_batch(
     batch: dgl.DGLGraph,
-    output: torch.Tensor = None,
+    R: torch.Tensor = None,
+    bfac: torch.Tensor = None,
     write_native: bool = False,
 ) -> List[mdtraj.Trajectory]:
     #
-    if output is not None:
-        R = output.cpu().detach().numpy()
+    if R is not None:
+        R = R.cpu().detach().numpy()
+    if bfac is not None:
+        bfac = bfac.cpu().detach().numpy()
     #
-    write_native = write_native or output is None
+    write_native = write_native or R is None
     #
     start = 0
     traj_s = []
     ssbond_s = []
+    bfac_s = []
     for idx, data in enumerate(dgl.unbatch(batch)):
         top = create_topology_from_data(data, write_native=write_native)
         #
         xyz = []
+        _bfacs = []
         if write_native:
             mask = data.ndata["pdb_atom_mask"].cpu().detach().numpy()
             xyz.append(data.ndata["output_xyz"].cpu().detach().numpy()[mask > 0.0])
+            if bfac is not None:
+                _bfacs.append(data.ndata["bfactors"].cpu().detach().numpy()[mask > 0.0])
         else:
             mask = data.ndata["output_atom_mask"].cpu().detach().numpy()
-            # mask = np.ones_like(mask)
         #
         ssbond = []
         for cys_i, cys_j in enumerate(data.ndata["ssbond_index"].cpu().detach().numpy()):
@@ -277,15 +283,22 @@ def create_trajectory_from_batch(
                 ssbond.append((cys_j, cys_i))
         ssbond_s.append(sorted(ssbond))
         #
-        if output is not None:
+        if R is not None:
             end = start + data.num_nodes()
             xyz.append(R[start:end][mask > 0.0])
+            if bfac is not None:
+                _bfacs.append(bfac[start:end][mask > 0.0])
             start = end
         xyz = np.array(xyz)
+        if bfac is not None:
+            _bfacs = np.array(_bfacs)
+        else:
+            _bfacs = None
         #
         traj = mdtraj.Trajectory(xyz=xyz, topology=top)
         traj_s.append(traj)
-    return traj_s, ssbond_s
+        bfac_s.append(_bfacs)
+    return traj_s, ssbond_s, bfac_s
 
 
 def test():
@@ -335,7 +348,7 @@ def to_pt():
         cg_model,
         noise_level=0.0,
         random_rotation=True,
-        use_pt="CAv3",
+        use_pt="CA",
         # use_md=True,
         # n_frame=10,
     )
@@ -353,5 +366,5 @@ def to_pt():
 
 
 if __name__ == "__main__":
-    # to_pt()
-    test()
+    to_pt()
+    # test()
