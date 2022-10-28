@@ -93,6 +93,8 @@ def loss_f(
             )
             * loss_weight.atomic_clash
         )
+    if loss_weight.get("bfactors", 0.0) > 0.0:
+        loss["bfactors"] = loss_f_bfactors(batch, ret["bfactors"]) * loss_weight.bfactors
     #
     if loss_prev is not None:
         for k, v in loss_prev.items():
@@ -453,6 +455,13 @@ def loss_f_torsion_energy(batch: dgl.DGLGraph, R: torch.Tensor, TORSION_PARs, en
     energy = (par[..., 0] * (1.0 + torch.cos(t_ang))).sum(-1) - par[..., 0, 4]
     energy = torch.clamp(energy - energy_clamp, min=0.0)
     return torch.sum(energy) / n_residue
+
+
+def loss_f_bfactors(batch: dgl.DGLGraph, bfactors: torch.Tensor):
+    mask = batch.ndata["pdb_atom_mask"]
+    delta = bfactors - batch.ndata["bfactors"]
+    loss = torch.sum(torch.pow(delta, 2) * mask) / mask.sum()
+    return loss
 
 
 def find_atomic_clash(
