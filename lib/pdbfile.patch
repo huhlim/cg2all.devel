@@ -1,5 +1,5 @@
 --- /home/huhlim/conda/envs/openmm/lib/python3.9/site-packages/mdtraj/formats/pdb/pdbfile.py	2022-07-21 15:28:16.355378529 -0400
-+++ pdbfile.py	2022-10-24 12:40:30.643163298 -0400
++++ pdbfile.py	2022-10-28 21:14:20.374411951 -0400
 @@ -160,6 +160,7 @@
              coords = f.positions[::stride, atom_slice, :]
          assert coords.ndim == 3, 'internal shape error'
@@ -48,13 +48,13 @@
                          atomSerial = atomIndex
 -                    line = "ATOM  %5d %-4s %3s %1s%4d    %s%s%s  1.00 %5s      %-4s%2s  " % ( # Right-justify atom symbol
 +                    if isinstance(res.resSeq, int):
-+                        resSeq = f"{res.resSeq%10000:4d} "
++                        if res.resSeq < 0:
++                            resSeq = res.resSeq
++                        else:
++                            resSeq = res.resSeq %10000
++                        resSeq = f"{resSeq:4d} "
 +                    else:
 +                        resSeq = f"{res.resSeq:>5s}"
-+                    # if res.resSeq < 0:
-+                    #     resSeq = res.resSeq
-+                    # else:
-+                    #     resSeq = res.resSeq %10000
 +                    #line = "ATOM  %5d %-4s %3s %1s%4d    %s%s%s  1.00 %5s      %-4s%2s  " % ( # Right-justify atom symbol
 +                    line = "ATOM  %5d %-4s %3s %1s%5s   %s%s%s  1.00%6s      %-4s%2s  " % ( # Right-justify atom symbol
                          atomSerial % 100000, atomName, resName, chainName,

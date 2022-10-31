@@ -309,7 +309,8 @@ def test():
     )
 
     data = train_set[0]
-    print(data.ndata["bfactors"])
+    print(data.ndata["node_feat_0"].size())
+    print(data.ndata["node_feat_1"].size())
     return
     traj_s, ssbond_s = create_trajectory_from_batch(
         data, data.ndata["output_xyz"], write_native=True
@@ -359,5 +360,5 @@ def to_pt():
 
 
 if __name__ == "__main__":
-    to_pt()
-    # test()
+    # to_pt()
+    test()
