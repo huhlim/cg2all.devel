@@ -15,6 +15,8 @@ np.set_printoptions(suppress=True)
 # %%
 class PDB(object):
     def __init__(self, pdb_fn, dcd_fn=None, stride=1, frame_index=None, **kwarg):
+        self.pdb_name = str(pdb_fn).split("/")[-1][:-4]
+
         # read protein
         pdb = mdtraj.load(pdb_fn, standard_names=False)
         load_index = pdb.top.select("protein or (resname HSD or resname HSE or resname MSE)")
@@ -108,10 +110,10 @@ class PDB(object):
                     sys.stderr.write(
                         f"WARNING: invalid SSBOND distance between "
                         f"{cys_s[0][0]} {cys_s[0][1]} and {cys_s[1][0]} {cys_s[1][1]} "
-                        f"{np.max(dist).round(3)*10.0:6.2f}\n"
+                        f"{np.max(dist).round(3)*10.0:6.2f} {self.pdb_name}\n"
                     )
-                    continue
-                ssbond_s.append(residue_index)
+                else:
+                    ssbond_s.append(residue_index)
         self.ssbond_s = ssbond_s
 
     def to_atom(self, verbose=False):

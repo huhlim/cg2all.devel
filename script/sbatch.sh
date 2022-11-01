@@ -15,9 +15,10 @@ name=$(basename $config .json)
 
 n_gpu=1
 n_cpu=8
+dep=""
 args=""
 #
-OPTS=$(getopt --alternative --longoptions cpu:,gpu:,name:,ckpt:,epoch:,cg -- "$@")
+OPTS=$(getopt --alternative --longoptions cpu:,gpu:,dep:,name:,ckpt:,epoch:,cg -- "$@")
 eval set -- "$OPTS"
 while :
 do
@@ -30,6 +31,11 @@ do
 
     --cpu )
         n_cpu=$2
+        shift 2
+        ;;
+
+    --dep )
+        dep=$2
         shift 2
         ;;
 
@@ -46,13 +52,17 @@ do
     esac
 done
 
-cmd="./script/train.py --config $config $args --requeue"
+cmd="./script/train.py --config $config $args"
 
 echo $cmd
-echo $cmd \
-    | sbatch.script --name $name \
+
+sbatch="sbatch.script --name $name \
     --output logs/$name.log \
     --partition feig \
     --conda dgl \
     --gpu $n_gpu \
-    --cpu $n_cpu 
+    --cpu $n_cpu"
+if [[ $dep != "" ]]; then
+    sbatch="$sbatch --dependency $dep"
+fi
+echo $cmd | $sbatch
