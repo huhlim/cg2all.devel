@@ -87,6 +87,7 @@ class PDB(object):
         ssbond_s = []
         for cys_s in ssbond_from_pdb:
             residue_index = []
+            R = []
             for chain_id, resSeq in cys_s:
                 chain_index = chain_s.index(chain_id)
                 if resSeq[-1] in INSCODEs:
@@ -99,8 +100,17 @@ class PDB(object):
                     )
                 if index.shape[0] == 1:
                     residue_index.append(self.top.atom(index[0]).residue.index)
+                    R.append(self.traj.xyz[:, index[0]])
             residue_index = sorted(residue_index)
             if len(residue_index) == 2 and residue_index not in ssbond_s:
+                dist = np.linalg.norm(R[1] - R[0], axis=-1)
+                if np.any(dist > 1.0):
+                    sys.stderr.write(
+                        f"WARNING: invalid SSBOND distance between "
+                        f"{cys_s[0][0]} {cys_s[0][1]} and {cys_s[1][0]} {cys_s[1][1]} "
+                        f"{np.max(dist).round(3)*10.0:6.2f}\n"
+                    )
+                    continue
                 ssbond_s.append(residue_index)
         self.ssbond_s = ssbond_s
 
@@ -174,7 +184,7 @@ class PDB(object):
         # chain breaks
         dr = self.R[:, 1:, ATOM_INDEX_N] - self.R[:, :-1, ATOM_INDEX_C]
         d = v_size(dr).mean(axis=0)
-        chain_breaks = d > BOND_LENGTH0 * 2.0
+        chain_breaks = d > BOND_BREAK
         self.continuous[0, 1:][chain_breaks] = False
         self.continuous[1, :-1][chain_breaks] = False
         #
