@@ -51,6 +51,8 @@ CONFIG["train"]["crop_size"] = 256
 CONFIG["train"]["lr"] = 1e-3
 CONFIG["train"]["lr_sc"] = 1e-2
 CONFIG["train"]["lr_gamma"] = 0.995
+CONFIG["train"]["use_pt"] = "CA"
+CONFIG["train"]["augment"] = ""
 
 CONFIG["globals"] = ConfigDict()
 CONFIG["globals"]["radius"] = 1.0

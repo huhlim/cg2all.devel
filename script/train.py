@@ -267,8 +267,8 @@ def main():
         PDBset,
         cg_model=cg_model,
         radius=config.globals.radius,
-        use_pt=config.train.get("use_pt", "CA_aug"),
-        augment=True,
+        use_pt=config.train.get("use_pt", "CA"),
+        augment=config.train.get("augment", ""),
         use_md=use_md,
         n_frame=n_frame,
     )

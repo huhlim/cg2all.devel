@@ -21,6 +21,8 @@ from libconfig import BASE, DTYPE
 from torch_basics import v_norm, v_size
 from residue_constants import AMINO_ACID_s, AMINO_ACID_REV_s, residue_s, ATOM_INDEX_CA
 
+torch.multiprocessing.set_sharing_strategy("file_system")
+
 
 class PDBset(Dataset):
     def __init__(
@@ -30,7 +32,7 @@ class PDBset(Dataset):
         cg_model,
         radius=1.0,
         self_loop=False,
-        augment=False,
+        augment="",
         use_pt=None,
         crop=-1,
         use_md=False,
@@ -88,11 +90,14 @@ class PDBset(Dataset):
             cg = self.cg_model(pdb_fn)
         cg.get_structure_information()
         #
-        pdb_fn_aug = self.basedir / f"augment/{pdb_id}.pdb"
-        if self.augment and pdb_fn_aug.exists():
-            cg_aug = self.cg_model(pdb_fn_aug)
-            cg_aug.get_structure_information()
-            self.augment_torsion(cg, cg_aug)
+        if self.augment != "":
+            pdb_fn_aug = self.basedir / f"{self.augment}/{pdb_id}.pdb"
+            if pdb_fn_aug.exists():
+                cg_aug = self.cg_model(pdb_fn_aug)
+                cg_aug.get_structure_information()
+                self.augment_torsion(cg, cg_aug)
+            else:
+                sys.stderr.write(f"WARNING: augment PDB does NOT exist, {str(pdb_fn_aug)}\n")
         #
         r_cg = torch.as_tensor(cg.R_cg[0], dtype=self.dtype)
         #
@@ -326,32 +331,33 @@ def test():
 
 def to_pt():
     base_dir = BASE / "pdb.6k"
-    # base_dir = BASE / "md.pisces"
     pdblist = base_dir / "targets"
     cg_model = libcg.CalphaBasedModel
     #
-    train_set = PDBset(
-        base_dir,
-        pdblist,
-        cg_model,
-        use_pt="CA_aug",
-        augment=True,
-        # use_md=True,
-        # n_frame=10,
-    )
-    #
-    train_loader = dgl.dataloading.GraphDataLoader(
-        train_set, batch_size=8, shuffle=False, num_workers=12
-    )
-    import time
-
-    t0 = time.time()
-    for _ in tqdm.tqdm(train_loader):
-        pass
-        # print(time.time() - t0)
-        # t0 = time.time()
+    for use_pt, augment in [
+        ("CA", ""),
+        ("CA_aug+FLIP", "augment+FLIP"),
+        ("CA_aug_min+FLIP", "augment_min+FLIP"),
+        ("CA_aug", "augment"),
+        ("CA_aug_min", "augment_min"),
+    ]:
+        train_set = PDBset(
+            base_dir,
+            pdblist,
+            cg_model,
+            use_pt=use_pt,
+            augment=augment,
+            # use_md=True,
+            # n_frame=10,
+        )
+        #
+        train_loader = dgl.dataloading.GraphDataLoader(
+            train_set, batch_size=8, shuffle=False, num_workers=16
+        )
+        for _ in tqdm.tqdm(train_loader, desc=use_pt):
+            pass
 
 
 if __name__ == "__main__":
-    # to_pt()
-    test()
+    to_pt()
+    # test()
