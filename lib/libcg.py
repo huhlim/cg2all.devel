@@ -173,7 +173,6 @@ class Martini(PDB):
     def __init__(self, pdb_fn, dcd_fn=None):
         super().__init__(pdb_fn, dcd_fn)
         self.convert_to_cg()
-        #
 
     def convert_to_cg(self):
         raise NotImplementedError

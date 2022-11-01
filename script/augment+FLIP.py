@@ -174,8 +174,8 @@ def run_scwrl(in_pdb, out_pdb):
 def run_reduce(in_pdb, out_pdb):
     if not os.path.exists(out_pdb):
         with open(out_pdb, "wt") as fout:
-            # call(["reduce.sh", "-Quiet", "-BUILD", in_pdb], stdout=fout)
-            call(["reduce.sh", "-Quiet", "-OH", "-ROTEXOH", "-HIS", in_pdb], stdout=fout)
+            call(["reduce.sh", "-Quiet", "-BUILD", in_pdb], stdout=fout)
+            # call(["reduce.sh", "-Quiet", "-OH", "-ROTEXOH", "-HIS", in_pdb], stdout=fout)
     with open(out_pdb) as fp:
         n_atoms = 0
         for line in fp:
@@ -219,8 +219,8 @@ def run_minimize(in_pdb, out_pdb):
 
 def main():
     in_pdb = pathlib.Path(sys.argv[1]).resolve()
-    out_pdb = pathlib.Path("augment").resolve() / in_pdb.name
-    min_pdb = pathlib.Path("augment_min").resolve() / in_pdb.name
+    out_pdb = pathlib.Path("augment+FLIP").resolve() / in_pdb.name
+    min_pdb = pathlib.Path("augment_min+FLIP").resolve() / in_pdb.name
     #
     if len(sys.argv) > 2:
         run_dir = pathlib.Path(sys.argv[2])
