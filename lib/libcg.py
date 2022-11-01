@@ -14,7 +14,7 @@ from residue_constants import MAX_RESIDUE_TYPE, ATOM_INDEX_CA, ATOM_INDEX_N, ATO
 
 
 class ResidueBasedModel(PDB):
-    n_node_scalar = 18
+    n_node_scalar = 17
     n_node_vector = 4
     n_edge_scalar = 3
     n_edge_vector = 0
@@ -118,15 +118,13 @@ class ResidueBasedModel(PDB):
         return geom_s
 
     @staticmethod
-    def geom_to_feature(
-        geom_s, continuous: torch.Tensor, noise_size: torch.Tensor, dtype=DTYPE
-    ) -> torch.Tensor:
+    def geom_to_feature(geom_s, continuous: torch.Tensor, dtype=DTYPE) -> torch.Tensor:
         # features for each residue
         f_in = {"0": [], "1": []}
-        # 0d
-        f_in["0"].append(torch.as_tensor(continuous.T, dtype=dtype))
         #
+        # 0d
         f_in["0"].append(geom_s["n_neigh"])  # 1
+        f_in["0"].append(torch.as_tensor(continuous.T, dtype=dtype))  # 2
         #
         f_in["0"].append(geom_s["bond_length"][1][0][:, None])  # 4
         f_in["0"].append(geom_s["bond_length"][1][1][:, None])
@@ -138,10 +136,7 @@ class ResidueBasedModel(PDB):
         #
         f_in["0"].append(geom_s["dihedral_angle"].reshape(-1, 8))  # 8
         #
-        # noise-level
-        f_in["0"].append(noise_size[:, None])  # 1
-        #
-        f_in["0"] = torch.as_tensor(torch.cat(f_in["0"], axis=1), dtype=dtype)  # 16
+        f_in["0"] = torch.as_tensor(torch.cat(f_in["0"], axis=1), dtype=dtype)  # 17
         #
         # 1d: unit vectors from adjacent residues to the current residue
         f_in["1"].append(geom_s["bond_vector"][1][0])

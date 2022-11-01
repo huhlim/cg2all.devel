@@ -40,6 +40,7 @@ class PDB(object):
         self.n_chain = self.top.n_chains
         self.n_residue = self.top.n_residues
         self.chain_index = np.array([r.chain.index for r in self.top.residues], dtype=int)
+        self.resSeq = np.array([r.resSeq for r in self.top.residues])
         self.residue_name = []
         self.residue_index = np.zeros(self.n_residue, dtype=int)
         #

@@ -168,7 +168,8 @@ def run_scwrl(in_pdb, out_pdb):
 def run_reduce(in_pdb, out_pdb):
     if not os.path.exists(out_pdb):
         with open(out_pdb, "wt") as fout:
-            call(["reduce.sh", "-Quiet", "-BUILD", in_pdb], stdout=fout)
+            # call(["reduce.sh", "-Quiet", "-BUILD", in_pdb], stdout=fout)
+            call(["reduce.sh", "-Quiet", "-OH", "-ROTEXOH", "-HIS", in_pdb], stdout=fout)
     with open(out_pdb) as fp:
         n_atoms = 0
         for line in fp:
@@ -190,6 +191,24 @@ def run_minimize(in_pdb, out_pdb):
         EXEC = f"{BASE}/script/minimize_structure.py"
         FFs = [f"{BASE}/data/toppar/par_all36m_prot.prm", f"{BASE}/data/toppar/top_all36_prot.rtf"]
         call([EXEC, out_pdb[:-4], in_pdb, "--toppar"] + FFs, stdout=sys.stdout)
+    #
+    pdb0 = mdtraj.load(in_pdb)
+    pdb1 = mdtraj.load(out_pdb)
+    #
+    top = mdtraj.Topology()
+    chain_prev = None
+    for res1 in pdb1.top.residues:
+        res0 = pdb0.top.residue(res1.index)
+        if res0.chain.index != chain_prev:
+            chain = top.add_chain()
+            chain_prev = res0.chain.index
+        #
+        residue = top.add_residue(res0.name, chain, resSeq=res0.resSeq)
+        for atom in res1.atoms:
+            top.add_atom(atom.name, atom.element, residue)
+    #
+    pdb1 = mdtraj.Trajectory(pdb1.xyz, top)
+    pdb1.save(out_pdb)
 
 
 def main():

@@ -25,6 +25,17 @@ class ProcessPDB(PDB):
     def __init__(self, *arg, **kwarg):
         super().__init__(*arg, **kwarg)
 
+        self.check_structure()
+
+    def check_structure(self):
+        # check if there is any C-alpha-based clash
+        for frame, R in enumerate(self.R):
+            r = R[:, ATOM_INDEX_CA]
+            d = np.linalg.norm(r[:, None] - r[None, :])
+            clash = np.where(d < 0.27)[0]
+            if len(clash) > 0:
+                sys.exit(f"CLASHES: {frame} {len(clash)}\n")
+
     def check_amb_valid(self, i_res, amb, ref_res):
         atom_index_s = [
             ref_res.atom_s.index(atom) for atom in amb.atom_s if not atom.startswith("H")
@@ -66,7 +77,9 @@ class ProcessPDB(PDB):
             #
             amb = get_ambiguous_atom_list(residue_name, "BB")
             if residue_name == "GLY" and self.check_amb_valid(i_res, amb, ref_res):
-                update_by_glycine_backbone_method(self.R, self.bfactors, i_res, ref_res, amb, atom_s, rigid_s)
+                update_by_glycine_backbone_method(
+                    self.R, self.bfactors, i_res, ref_res, amb, atom_s, rigid_s
+                )
             #
             # update side chain atom names
             for tor in tor_s:
@@ -114,10 +127,14 @@ class ProcessPDB(PDB):
             if residue_name in ["ASN", "GLN"]:
                 amb = get_ambiguous_atom_list(ref_res.residue_name, "amide")
                 if self.check_amb_valid(i_res, amb, ref_res):
-                    update_by_amide_method(self.R, self.bfactors, self.atom_mask_pdb, i_res, ref_res, amb)
+                    update_by_amide_method(
+                        self.R, self.bfactors, self.atom_mask_pdb, i_res, ref_res, amb
+                    )
 
             elif residue_name == "ARG":
-                update_by_guanidium_method(self.R, self.bfactors, self.atom_mask_pdb, i_res, ref_res)
+                update_by_guanidium_method(
+                    self.R, self.bfactors, self.atom_mask_pdb, i_res, ref_res
+                )
 
 
 def main():

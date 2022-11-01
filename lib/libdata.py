@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import sys
 import copy
 import numpy as np
 import pathlib
@@ -13,7 +14,6 @@ import torch
 from torch.utils.data import Dataset
 
 import tqdm
-import e3nn
 import dgl
 
 import libcg
@@ -29,9 +29,8 @@ class PDBset(Dataset):
         pdblist: List[str],
         cg_model,
         radius=1.0,
-        noise_level=0.0,
         self_loop=False,
-        random_rotation=False,
+        augment=False,
         use_pt=None,
         crop=-1,
         use_md=False,
@@ -53,8 +52,7 @@ class PDBset(Dataset):
         self.cg_model = cg_model
         self.radius = radius
         self.self_loop = self_loop
-        self.noise_level = noise_level
-        self.random_rotation = random_rotation
+        self.augment = augment
         self.use_pt = use_pt
         self.crop = crop
         #
@@ -88,28 +86,20 @@ class PDBset(Dataset):
             cg = self.cg_model(pdb_fn, dcd_fn=dcd_fn, frame_index=frame_index)
         else:
             cg = self.cg_model(pdb_fn)
-        if self.random_rotation:
-            cg = self.rotate_randomly(cg)
         cg.get_structure_information()
         #
+        pdb_fn_aug = self.basedir / f"augment/{pdb_id}.pdb"
+        if self.augment and pdb_fn_aug.exists():
+            cg_aug = self.cg_model(pdb_fn_aug)
+            cg_aug.get_structure_information()
+            self.augment_torsion(cg, cg_aug)
+        #
         r_cg = torch.as_tensor(cg.R_cg[0], dtype=self.dtype)
-        if self.noise_level > 0.0:
-            noise_size = torch.randn(1).item() * (self.noise_level / 2.0) + self.noise_level
-            if noise_size > 0.0:
-                dr = torch.randn(r_cg.size()) * noise_size
-                r_cg += dr - dr.mean(axis=0)
-            else:
-                noise_size = 0.0
-        else:
-            noise_size = 0.0
-        noise_size = torch.full((cg.n_residue,), noise_size)
         #
         pos = r_cg[cg.atom_mask_cg > 0.0, :]
         geom_s = cg.get_geometry(pos, cg.continuous[0])
         #
-        node_feat = cg.geom_to_feature(
-            geom_s, cg.continuous, noise_size=noise_size, dtype=self.dtype
-        )
+        node_feat = cg.geom_to_feature(geom_s, cg.continuous, dtype=self.dtype)
         data = dgl.radius_graph(pos, self.radius, self_loop=self.self_loop)
         data.ndata["pos"] = pos
         data.ndata["pos0"] = pos.clone()
@@ -176,14 +166,6 @@ class PDBset(Dataset):
         else:
             return data
 
-    def rotate_randomly(self, cg):
-        random_rotation = e3nn.o3.rand_matrix().numpy()
-        #
-        out = copy.deepcopy(cg)
-        out.R_cg = out.R_cg @ random_rotation.T
-        out.R = out.R @ random_rotation.T
-        return out
-
     def get_subgraph(self, graph):
         n_residues = graph.num_nodes()
         if n_residues < self.crop:
@@ -204,6 +186,17 @@ class PDBset(Dataset):
                     cys = -1
                 sub.ndata["ssbond_index"][i] = cys
         return sub
+
+    def augment_torsion(self, cg, cg_aug):
+        torsion = cg.torsion.copy()
+        for i in range(cg.n_residue):
+            chain_index = cg.chain_index[i] == cg_aug.chain_index
+            resSeq = cg.resSeq[i] == cg_aug.resSeq
+            j = np.where(chain_index & resSeq)[0]
+            if len(j) == 0:
+                continue
+            torsion[:, i] = cg_aug.torsion[:, j[0]]
+        cg.torsion = np.concatenate([cg.torsion, torsion], axis=-1)
 
 
 def create_topology_from_data(data: dgl.DGLGraph, write_native: bool = False) -> mdtraj.Topology:
@@ -303,12 +296,13 @@ def test():
         base_dir,
         pdblist,
         cg_model,
-        noise_level=0.0,
+        augment=True,
         # use_pt="CA_oh",
-        random_rotation=True,
     )
 
-    data = train_set[0]
+    pdb_id = "3eyi"
+    index = train_set.pdb_s.index(pdb_id)
+    data = train_set[index]
     print(data.ndata["node_feat_0"].size())
     print(data.ndata["node_feat_1"].size())
     return
@@ -340,9 +334,8 @@ def to_pt():
         base_dir,
         pdblist,
         cg_model,
-        noise_level=0.0,
-        random_rotation=True,
-        use_pt="CA",
+        use_pt="CA_aug",
+        augment=True,
         # use_md=True,
         # n_frame=10,
     )
