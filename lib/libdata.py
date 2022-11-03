@@ -330,7 +330,7 @@ def test():
 
 
 def to_pt():
-    base_dir = BASE / "pdb.6k"
+    base_dir = BASE / "pdb.27k"
     pdblist = base_dir / "targets"
     cg_model = libcg.CalphaBasedModel
     #

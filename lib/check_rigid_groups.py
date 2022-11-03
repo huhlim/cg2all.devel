@@ -65,6 +65,7 @@ class PDBset(torch.utils.data.Dataset):
         pdb_fn = self.pdb_fn_s[index]
         #
         cg = self.cg_model(pdb_fn)
+        cg.get_structure_information()
         #
         r_cg = torch.as_tensor(cg.R_cg[0], dtype=self.dtype)
         pos = r_cg[cg.atom_mask_cg > 0.0, :]
@@ -74,7 +75,7 @@ class PDBset(torch.utils.data.Dataset):
         #
         data.ndata["chain_index"] = torch.as_tensor(cg.chain_index, dtype=torch.long)
         data.ndata["residue_type"] = torch.as_tensor(cg.residue_index, dtype=torch.long)
-        data.ndata["continuous"] = torch.as_tensor(cg.continuous, dtype=self.dtype)
+        data.ndata["continuous"] = torch.as_tensor(cg.continuous[0], dtype=self.dtype)
         #
         ssbond_index = torch.full((data.num_nodes(),), -1, dtype=torch.long)
         for cys_i, cys_j in cg.ssbond_s:
@@ -85,7 +86,7 @@ class PDBset(torch.utils.data.Dataset):
         data.ndata["ssbond_index"] = ssbond_index
         #
         edge_feat = torch.zeros((data.num_edges(), 3), dtype=self.dtype)  # bonded / ssbond / space
-        for i, cont in enumerate(cg.continuous):
+        for i, cont in enumerate(cg.continuous[0]):
             if cont and data.has_edges_between(i - 1, i):  # i-1 and i is connected
                 eid = data.edge_ids(i - 1, i)
                 edge_feat[eid, 0] = 1.0
@@ -105,15 +106,16 @@ class PDBset(torch.utils.data.Dataset):
         data.ndata["input_atom_mask"] = torch.as_tensor(cg.atom_mask_cg, dtype=self.dtype)
         data.ndata["output_atom_mask"] = torch.as_tensor(cg.atom_mask, dtype=self.dtype)
         data.ndata["pdb_atom_mask"] = torch.as_tensor(cg.atom_mask_pdb, dtype=self.dtype)
+        data.ndata["heavy_atom_mask"] = torch.as_tensor(cg.atom_mask_heavy, dtype=self.dtype)
+        data.ndata["bfactors"] = torch.as_tensor(cg.bfactors[0], dtype=self.dtype)
         data.ndata["output_xyz"] = torch.as_tensor(cg.R[0], dtype=self.dtype)
+        data.ndata["output_xyz_alt"] = torch.as_tensor(cg.R_alt[0], dtype=self.dtype)
         #
         r_cntr = libcg.get_residue_center_of_mass(
             data.ndata["output_xyz"], data.ndata["atomic_mass"]
         )
         v_cntr = r_cntr - data.ndata["output_xyz"][:, ATOM_INDEX_CA]
         data.ndata["v_cntr"] = v_cntr
-        #
-        cg.get_structure_information()
         #
         data.ndata["correct_bb"] = torch.as_tensor(cg.bb[0], dtype=self.dtype)
         data.ndata["correct_torsion"] = torch.as_tensor(cg.torsion[0], dtype=self.dtype)
@@ -124,7 +126,7 @@ class PDBset(torch.utils.data.Dataset):
         tr = 0.1 * (bb[:, 3] - pos)
         data.ndata["input_rot"] = rot
         data.ndata["input_tr"] = tr
-        sc = torch.as_tensor(cg.torsion[self.input_index], dtype=self.dtype)
+        sc = torch.as_tensor(cg.torsion[self.input_index][..., 0], dtype=self.dtype)
         data.ndata["input_sc"] = torch.zeros((sc.size(0), MAX_TORSION, 2), dtype=self.dtype)
         data.ndata["input_sc"][..., 0] = torch.cos(sc)
         data.ndata["input_sc"][..., 1] = torch.sin(sc)
@@ -147,7 +149,7 @@ def run(pdb_fn, batch, RIGID_OPs, TORSION_PARs):
     ret["sc"] = sc
     ret["R"], ret["opr_bb"] = libmodel.build_structure(RIGID_OPs, batch, bb, sc)
     #
-    traj_s, ssbond_s = create_trajectory_from_batch(batch, ret["R"], write_native=True)
+    traj_s, ssbond_s, _ = create_trajectory_from_batch(batch, ret["R"], write_native=True)
 
     traj = traj_s[0]
     traj.save(out_f)
