@@ -269,7 +269,7 @@ def get_rigid_body_transformation_between_frames(rigid_group_s, ss_index=0):
         fout.write(json.dumps(to_json, indent=2))
 
 
-def build_torsion_energy_table(residue_s, par_dihed_s):
+def build_torsion_energy_table(residue_s, par_dihed_s, ss_index=0):
     def get_min_value(p):
         t_ang = np.linspace(-np.pi, np.pi, 36001)
         x = (t_ang[..., None] + p[..., 3]) * p[..., 1] - p[..., 2]
@@ -360,7 +360,8 @@ def build_torsion_energy_table(residue_s, par_dihed_s):
             table_s[residue_name][0].append(torsion_atom_index)
             table_s[residue_name][1].append(par_s)
 
-    with open(DATA_HOME / "torsion_energy_terms.json", "wt") as fout:
+    ss = ["", "_H", "_E", "_C"][ss_index]
+    with open(DATA_HOME / f"torsion_energy_terms{ss}.json", "wt") as fout:
         fout.write(json.dumps(table_s, indent=2))
 
 
@@ -396,16 +397,16 @@ def write_residue(pdb_fn, residue, R):
 def main():
     override_ic(residue_s)
 
-    for ss_index in [0]:  # , 1, 2, 3]:
+    for ss_index in [0, 1, 2, 3]:
         for residue in residue_s.values():
             residue.R = build_structure_from_ic(residue, ss_index=ss_index)
-            if not os.path.exists(f"{residue.residue_name}.pdb"):
-                write_residue(f"{residue.residue_name}.pdb", residue, residue.R)
+            if not os.path.exists(f"{residue.residue_name}_{ss_index}.pdb"):
+                write_residue(f"{residue.residue_name}_{ss_index}.pdb", residue, residue.R)
         #
         rigid_group_s = get_rigid_groups(residue_s, torsion_s, ss_index=ss_index)
         get_rigid_body_transformation_between_frames(rigid_group_s, ss_index=ss_index)
-    #
-    build_torsion_energy_table(residue_s, par_dihed_s)
+        #
+        build_torsion_energy_table(residue_s, par_dihed_s, ss_index=ss_index)
 
 
 if __name__ == "__main__":

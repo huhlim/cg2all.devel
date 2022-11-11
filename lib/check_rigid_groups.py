@@ -76,6 +76,7 @@ class PDBset(torch.utils.data.Dataset):
         data.ndata["chain_index"] = torch.as_tensor(cg.chain_index, dtype=torch.long)
         data.ndata["residue_type"] = torch.as_tensor(cg.residue_index, dtype=torch.long)
         data.ndata["continuous"] = torch.as_tensor(cg.continuous[0], dtype=self.dtype)
+        data.ndata["ss"] = torch.as_tensor(cg.ss[0], dtype=torch.long)
         #
         ssbond_index = torch.full((data.num_nodes(),), -1, dtype=torch.long)
         for cys_i, cys_j in cg.ssbond_s:
@@ -107,7 +108,6 @@ class PDBset(torch.utils.data.Dataset):
         data.ndata["output_atom_mask"] = torch.as_tensor(cg.atom_mask, dtype=self.dtype)
         data.ndata["pdb_atom_mask"] = torch.as_tensor(cg.atom_mask_pdb, dtype=self.dtype)
         data.ndata["heavy_atom_mask"] = torch.as_tensor(cg.atom_mask_heavy, dtype=self.dtype)
-        data.ndata["bfactors"] = torch.as_tensor(cg.bfactors[0], dtype=self.dtype)
         data.ndata["output_xyz"] = torch.as_tensor(cg.R[0], dtype=self.dtype)
         data.ndata["output_xyz_alt"] = torch.as_tensor(cg.R_alt[0], dtype=self.dtype)
         #
@@ -143,13 +143,14 @@ def run(pdb_fn, batch, RIGID_OPs, TORSION_PARs):
     rot0 = batch.ndata["input_rot"].clone()
     tr0 = batch.ndata["input_tr"].clone()
     sc0 = batch.ndata["input_sc"].clone()
+    ss = batch.ndata["ss"].clone()
     bb, sc = output_to_opr(rot0, tr0, sc0)
     #
     ret["bb"] = bb
     ret["sc"] = sc
-    ret["R"], ret["opr_bb"] = libmodel.build_structure(RIGID_OPs, batch, bb, sc)
+    ret["R"], ret["opr_bb"] = libmodel.build_structure(RIGID_OPs, batch, ss, bb, sc)
     #
-    traj_s, ssbond_s, _ = create_trajectory_from_batch(batch, ret["R"], write_native=True)
+    traj_s, ssbond_s = create_trajectory_from_batch(batch, ret["R"], write_native=True)
 
     traj = traj_s[0]
     traj.save(out_f)

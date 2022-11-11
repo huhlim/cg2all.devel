@@ -149,7 +149,6 @@ class PDBset(Dataset):
         data.ndata["output_atom_mask"] = torch.as_tensor(cg.atom_mask, dtype=self.dtype)
         data.ndata["pdb_atom_mask"] = torch.as_tensor(cg.atom_mask_pdb, dtype=self.dtype)
         data.ndata["heavy_atom_mask"] = torch.as_tensor(cg.atom_mask_heavy, dtype=self.dtype)
-        data.ndata["bfactors"] = torch.as_tensor(cg.bfactors[0], dtype=self.dtype)
         data.ndata["output_xyz"] = torch.as_tensor(cg.R[0], dtype=self.dtype)
         data.ndata["output_xyz_alt"] = torch.as_tensor(cg.R_alt[0], dtype=self.dtype)
         #
@@ -240,31 +239,24 @@ def create_topology_from_data(data: dgl.DGLGraph, write_native: bool = False) ->
 def create_trajectory_from_batch(
     batch: dgl.DGLGraph,
     R: torch.Tensor = None,
-    bfac: torch.Tensor = None,
     write_native: bool = False,
 ) -> List[mdtraj.Trajectory]:
     #
     if R is not None:
         R = R.cpu().detach().numpy()
-    if bfac is not None:
-        bfac = bfac.cpu().detach().numpy()
     #
     write_native = write_native or R is None
     #
     start = 0
     traj_s = []
     ssbond_s = []
-    bfac_s = []
     for idx, data in enumerate(dgl.unbatch(batch)):
         top = create_topology_from_data(data, write_native=write_native)
         #
         xyz = []
-        _bfacs = []
         if write_native:
             mask = data.ndata["pdb_atom_mask"].cpu().detach().numpy()
             xyz.append(data.ndata["output_xyz"].cpu().detach().numpy()[mask > 0.0])
-            if bfac is not None:
-                _bfacs.append(data.ndata["bfactors"].cpu().detach().numpy()[mask > 0.0])
         else:
             mask = data.ndata["output_atom_mask"].cpu().detach().numpy()
         #
@@ -277,19 +269,12 @@ def create_trajectory_from_batch(
         if R is not None:
             end = start + data.num_nodes()
             xyz.append(R[start:end][mask > 0.0])
-            if bfac is not None:
-                _bfacs.append(bfac[start:end][mask > 0.0])
             start = end
         xyz = np.array(xyz)
-        if bfac is not None:
-            _bfacs = np.array(_bfacs)
-        else:
-            _bfacs = None
         #
         traj = mdtraj.Trajectory(xyz=xyz, topology=top)
         traj_s.append(traj)
-        bfac_s.append(_bfacs)
-    return traj_s, ssbond_s, bfac_s
+    return traj_s, ssbond_s
 
 
 def test():

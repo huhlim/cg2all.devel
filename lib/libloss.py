@@ -91,8 +91,8 @@ def loss_f(
             )
             * loss_weight.atomic_clash
         )
-    if loss_weight.get("bfactors", 0.0) > 0.0:
-        loss["bfactors"] = loss_f_bfactors(batch, ret["bfactors"]) * loss_weight.bfactors
+    if loss_weight.get("ss", 0.0) > 0.0:
+        loss["ss"] = loss_f_ss(batch, ret["ss"]) * loss_weight.ss
     #
     if loss_prev is not None:
         for k, v in loss_prev.items():
@@ -430,6 +430,7 @@ def loss_f_atomic_clash(
 
 
 def loss_f_torsion_energy(batch: dgl.DGLGraph, R: torch.Tensor, TORSION_PARs, energy_clamp=0.0):
+    raise NotImplementedError("torsion_energy_terms is also dep. on SS")
     residue_type = batch.ndata["residue_type"]
     n_residue = residue_type.size(0)
     par = TORSION_PARs[0][residue_type]
@@ -444,10 +445,9 @@ def loss_f_torsion_energy(batch: dgl.DGLGraph, R: torch.Tensor, TORSION_PARs, en
     return torch.sum(energy) / n_residue
 
 
-def loss_f_bfactors(batch: dgl.DGLGraph, bfactors: torch.Tensor):
-    mask = batch.ndata["pdb_atom_mask"]
-    delta = bfactors - batch.ndata["bfactors"]
-    loss = torch.sum(torch.pow(delta, 2) * mask) / mask.sum() * 0.01
+def loss_f_ss(batch: dgl.DGLGraph, ss0: torch.Tensor):
+    ss0 = batch.ndata["ss"]
+    loss = torch.nn.functional.cross_entropy(ss0, batch.ndata["ss"], reduction="mean")
     return loss
 
 
@@ -565,7 +565,9 @@ def test():
     #
     import time
 
-    print(loss_f_v_cntr(native, R_model))
+    print(native.ndata["ss"])
+    ss = torch.randn((native.ndata["ss"].size(0), 4))
+    print(ss)
 
     # find_atomic_clash(model, R_model, RIGID_OPs)
     # loss_f_atomic_clash(batch, batch.ndata["output_xyz"], RIGID_OPs)

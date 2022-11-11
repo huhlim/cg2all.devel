@@ -48,9 +48,11 @@ class PDB(object):
         #
         if compute_dssp:
             ss = mdtraj.compute_dssp(traj, simplified=True)
-            self.ss = np.full_like(ss, 2, dtype=int)
-            self.ss[ss == "H"] = 0
-            self.ss[ss == "E"] = 1
+            self.ss = np.zeros_like(ss, dtype=int)
+            for i, s in enumerate(SECONDARY_STRUCTURE_s):
+                self.ss[ss == s] = i
+        else:
+            self.ss = np.zeros((self.n_frame, self.n_residue), dtype=int)
         #
         self.detect_ssbond(pdb_fn)
         #
@@ -265,6 +267,7 @@ class PDB(object):
     def get_torsion_angles(self, i_res):
         residue_name = self.residue_name[i_res]
         ref_res = residue_s[residue_name]
+        ss = [SECONDARY_STRUCTURE_s[s] for s in self.ss[:, i_res]]
         #
         torsion_mask = np.zeros(MAX_TORSION, dtype=float)
         torsion_angle_s = np.zeros((self.n_frame, MAX_TORSION, MAX_PERIODIC), dtype=float)
@@ -272,7 +275,10 @@ class PDB(object):
             if tor is None or tor.name in ["BB"]:
                 continue
             #
-            t_ang0, atom_s, rigid = get_rigid_group_by_torsion(residue_name, tor.name, tor.index)
+            t_ang0 = []
+            for s in ss:
+                t_ang0.append(get_rigid_group_by_torsion(s, residue_name, tor.name, tor.index)[0])
+            t_ang0 = np.asarray(t_ang0)
             #
             index = [ref_res.atom_s.index(atom) for atom in tor.atom_s[:4]]
             mask = self.atom_mask_pdb[i_res, index]
@@ -338,7 +344,7 @@ class PDB(object):
         #
         if dcd_fn is not None:
             traj = mdtraj.Trajectory(xyz, top)
-            traj.save(dcd_fn, bfactors=bfactors)
+            traj.save(dcd_fn)
 
 
 def get_HIS_state(residue):
@@ -397,7 +403,7 @@ def write_SSBOND(pdb_fn, top, ssbond_s):
             fout.writelines(model)
 
 
-def generate_structure_from_bb_and_torsion(residue_index, bb, torsion):
+def generate_structure_from_bb_and_torsion(residue_index, ss, bb, torsion):
     # convert from rigid body operations to coordinates
     n_frame = bb.shape[0]
     n_residue = bb.shape[1]
@@ -414,19 +420,18 @@ def generate_structure_from_bb_and_torsion(residue_index, bb, torsion):
         Y[..., 3, :] = rotate_vector(X[..., :3, :], Y[..., 3, :]) + X[..., 3, :]
         return Y
 
-    #
-    transforms = rigid_transforms_tensor[residue_index]
     transforms_dep = rigid_transforms_dep[residue_index]
-    #
-    rigids = rigid_groups_tensor[residue_index]
     rigids_dep = rigid_groups_dep[residue_index]
     #
     for frame in range(n_frame):
+        transforms = rigid_transforms_tensor[ss[frame], residue_index]
+        rigids = rigid_groups_tensor[ss[frame], residue_index]
+        #
         opr = np.zeros_like(transforms)
         opr[:, 0] = bb[frame]
         opr[:, 1:, 0, 0] = 1.0
-        sine = np.sin(torsion[frame])
-        cosine = np.cos(torsion[frame])
+        sine = np.sin(torsion[frame, ..., 0])
+        cosine = np.cos(torsion[frame, ..., 0])
         opr[:, 1:, 1, 1] = cosine
         opr[:, 1:, 1, 2] = -sine
         opr[:, 1:, 2, 1] = sine
@@ -446,6 +451,7 @@ def generate_structure_from_bb_and_torsion(residue_index, bb, torsion):
 if __name__ == "__main__":
     pdb = PDB("pdb.processed/1ab1_A.pdb")
     pdb.get_structure_information()
+    generate_structure_from_bb_and_torsion(pdb.residue_index, pdb.ss, pdb.bb, pdb.torsion)
     #
     # job = "../dyna/run/1a2p_B"
     # pdb = PDB(f"{job}/init/solute.pdb", dcd_fn=f"{job}/prod/0/0/solute.dcd")

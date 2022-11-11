@@ -196,8 +196,8 @@ class Model(pl.LightningModule):
         if log_dir is None:
             log_dir = pathlib.Path(self.logger.log_dir)
         #
-        traj_s, ssbond_s, bfac_s = create_trajectory_from_batch(
-            batch, out["R"], bfac=out["bfactors"], write_native=True
+        traj_s, ssbond_s = create_trajectory_from_batch(
+            batch, out["R"], write_native=True
         )
         #
         for i, (traj, ssbond) in enumerate(zip(traj_s, ssbond_s)):
@@ -207,7 +207,7 @@ class Model(pl.LightningModule):
                 out_f = log_dir / f"{prefix}_{i}.pdb"
             #
             try:
-                traj.save(out_f, bfactors=bfac_s[i])
+                traj.save(out_f)
                 if len(ssbond) > 0:
                     write_SSBOND(out_f, traj.top, ssbond)
             except:

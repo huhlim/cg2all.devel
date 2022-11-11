@@ -32,6 +32,9 @@ AMINO_ACID_s = (
 )
 PROLINE_INDEX = AMINO_ACID_s.index("PRO")
 
+SECONDARY_STRUCTURE_s = ("", "C", "H", "E")
+MAX_SS = len(SECONDARY_STRUCTURE_s)
+
 BACKBONE_ATOM_s = ("N", "CA", "C", "O")
 ATOM_INDEX_N = BACKBONE_ATOM_s.index("N")
 ATOM_INDEX_CA = BACKBONE_ATOM_s.index("CA")
@@ -410,24 +413,33 @@ for residue_name, residue in residue_s.items():
     residue.add_torsion_info(torsion_s[residue_name])
     residue.add_radius_info(radius_s)
 
-if os.path.exists(DATA_HOME / "rigid_groups.json") and os.path.exists(
-    DATA_HOME / "rigid_body_transformation_between_frames.json"
-):
-    with open(DATA_HOME / "rigid_groups.json") as fp:
-        rigid_groups = json.load(fp)
-    with open(DATA_HOME / "rigid_body_transformation_between_frames.json") as fp:
-        rigid_group_transformations = json.load(fp)
-for residue_name, residue in residue_s.items():
-    if (residue_name not in rigid_groups) or (residue_name not in rigid_group_transformations):
-        continue
-    residue.add_rigid_group_info(
-        rigid_groups[residue_name], rigid_group_transformations[residue_name]
-    )
+rigid_groups = {}
+rigid_group_transformations = {}
+for ss in SECONDARY_STRUCTURE_s:
+    if ss == "":
+        fn0 = DATA_HOME / f"rigid_groups.json"
+        fn1 = DATA_HOME / f"rigid_body_transformation_between_frames.json"
+    else:
+        fn0 = DATA_HOME / f"rigid_groups_{ss}.json"
+        fn1 = DATA_HOME / f"rigid_body_transformation_between_frames_{ss}.json"
+    if os.path.exists(fn0) and os.path.exists(fn1):
+        with open(fn0) as fp:
+            rigid_groups[ss] = json.load(fp)
+        with open(fn1) as fp:
+            rigid_group_transformations[ss] = json.load(fp)
+        for residue_name, residue in residue_s.items():
+            if residue_name not in rigid_groups[ss]:
+                continue
+            if residue_name not in rigid_group_transformations[ss]:
+                continue
+            residue.add_rigid_group_info(
+                rigid_groups[ss][residue_name], rigid_group_transformations[ss][residue_name]
+            )
 
 
-def get_rigid_group_by_torsion(residue_name, tor_name, index=-1, sub_index=-1):
+def get_rigid_group_by_torsion(ss, residue_name, tor_name, index=-1, sub_index=-1):
     rigid_group = [[], []]  # atom_name, coord
-    for X in rigid_groups[residue_name]:
+    for X in rigid_groups[ss][residue_name]:
         if X[1] == tor_name:
             if (index < 0 or X[2] == index) and (sub_index < 0 or X[3] == sub_index):
                 t_ang = X[5]
@@ -441,58 +453,64 @@ def get_rigid_group_by_torsion(residue_name, tor_name, index=-1, sub_index=-1):
     return t_ang, rigid_group[0], rigid_group[1]
 
 
-def get_rigid_transform_by_torsion(residue_name, tor_name, index, sub_index=-1):
+def get_rigid_transform_by_torsion(ss, residue_name, tor_name, index, sub_index=-1):
     rigid_transform = None
-    for X, Y, tR in rigid_group_transformations[residue_name]:
+    for X, Y, tR in rigid_group_transformations[ss][residue_name]:
         if (X[0] == tor_name and X[1] == index) and (sub_index < 0 or X[2] == sub_index):
             rigid_transform = (np.array(tR[1]), np.array(tR[0]) / 10.0)
             break
     return Y, rigid_transform
 
 
-rigid_transforms_tensor = np.zeros((MAX_RESIDUE_TYPE, MAX_RIGID, 4, 3), dtype=float)
+rigid_transforms_tensor = np.zeros((MAX_SS, MAX_RESIDUE_TYPE, MAX_RIGID, 4, 3), dtype=float)
 rigid_transforms_tensor[:, :, :3, :3] = np.eye(3)
 rigid_transforms_dep = np.full((MAX_RESIDUE_TYPE, MAX_RIGID), -1, dtype=int)
-for i, residue_name in enumerate(AMINO_ACID_s):
-    if residue_name == "UNK":
-        continue
-    #
-    for tor in torsion_s[residue_name]:
-        if tor is None or tor.name == "BB":
+for s, ss in enumerate(SECONDARY_STRUCTURE_s):
+    for i, residue_name in enumerate(AMINO_ACID_s):
+        if residue_name == "UNK":
             continue
-        if tor.name != "XI":
-            prev, (R, t) = get_rigid_transform_by_torsion(residue_name, tor.name, tor.index)
-        else:
-            prev, (R, t) = get_rigid_transform_by_torsion(
-                residue_name, tor.name, tor.index, tor.sub_index
-            )
-        rigid_transforms_tensor[i, tor.i, :3] = R
-        rigid_transforms_tensor[i, tor.i, 3] = t
-        if prev[0] == "CHI":
-            dep = prev[1] + 2
-        elif prev[0] == "BB":
-            dep = 0
-        rigid_transforms_dep[i, tor.i] = dep
+        #
+        for tor in torsion_s[residue_name]:
+            if tor is None or tor.name == "BB":
+                continue
+            if tor.name != "XI":
+                prev, (R, t) = get_rigid_transform_by_torsion(ss, residue_name, tor.name, tor.index)
+            else:
+                prev, (R, t) = get_rigid_transform_by_torsion(
+                    ss, residue_name, tor.name, tor.index, tor.sub_index
+                )
+            rigid_transforms_tensor[s, i, tor.i, :3] = R
+            rigid_transforms_tensor[s, i, tor.i, 3] = t
+            if prev[0] == "CHI":
+                dep = prev[1] + 2
+            elif prev[0] == "BB":
+                dep = 0
+            if s == 0:
+                rigid_transforms_dep[i, tor.i] = dep
 
-rigid_groups_tensor = np.zeros((MAX_RESIDUE_TYPE, MAX_ATOM, 3), dtype=float)
+rigid_groups_tensor = np.zeros((MAX_SS, MAX_RESIDUE_TYPE, MAX_ATOM, 3), dtype=float)
 rigid_groups_dep = np.full((MAX_RESIDUE_TYPE, MAX_ATOM), -1, dtype=int)
-for i, residue_name in enumerate(AMINO_ACID_s):
-    if residue_name == "UNK":
-        continue
-    #
-    residue_atom_s = residue_s[residue_name].atom_s
-    for tor in torsion_s[residue_name]:
-        if tor is None:
+for s, ss in enumerate(SECONDARY_STRUCTURE_s):
+    for i, residue_name in enumerate(AMINO_ACID_s):
+        if residue_name == "UNK":
             continue
-        if tor.name != "XI":
-            _, atom_names, coords = get_rigid_group_by_torsion(residue_name, tor.name, tor.index)
-        else:
-            _, atom_names, coords = get_rigid_group_by_torsion(
-                residue_name, tor.name, tor.index, tor.sub_index
-            )
-        index = tuple([residue_atom_s.index(x) for x in atom_names])
-        rigid_groups_tensor[i, index] = coords
-        rigid_groups_dep[i, index] = tor.i
+        #
+        residue_atom_s = residue_s[residue_name].atom_s
+        for tor in torsion_s[residue_name]:
+            if tor is None:
+                continue
+            if tor.name != "XI":
+                _, atom_names, coords = get_rigid_group_by_torsion(
+                    ss, residue_name, tor.name, tor.index
+                )
+            else:
+                _, atom_names, coords = get_rigid_group_by_torsion(
+                    ss, residue_name, tor.name, tor.index, tor.sub_index
+                )
+            index = tuple([residue_atom_s.index(x) for x in atom_names])
+            rigid_groups_tensor[s, i, index] = coords
+            if s == 0:
+                rigid_groups_dep[i, index] = tor.i
 
 RIGID_TRANSFORMS_TENSOR = torch.as_tensor(rigid_transforms_tensor)
 RIGID_TRANSFORMS_DEP = torch.as_tensor(rigid_transforms_dep, dtype=torch.long)

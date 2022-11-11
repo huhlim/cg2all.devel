@@ -22,6 +22,7 @@ except ImportError:
     from se3_transformer.model_no_cuda.layers import LinearSE3, NormSE3
 
 from residue_constants import (
+    MAX_SS,
     MAX_RESIDUE_TYPE,
     MAX_ATOM,
     MAX_TORSION,
@@ -56,6 +57,7 @@ CONFIG["train"]["augment"] = ""
 
 CONFIG["globals"] = ConfigDict()
 CONFIG["globals"]["radius"] = 1.0
+CONFIG["globals"]["ss_dep"] = True
 CONFIG["globals"]["loss_weight"] = ConfigDict()
 CONFIG["globals"]["loss_weight"].update(
     {
@@ -73,7 +75,7 @@ CONFIG["globals"]["loss_weight"].update(
         "atomic_clash": 5.0,
         "atomic_clash_vdw": 1.0,
         "atomic_clash_clamp": 0.0,
-        "bfactors": 0.0,
+        "ss": 0.0,
     }
 )
 
@@ -91,7 +93,6 @@ STRUCTURE_MODULE["num_linear_layers"] = 4
 STRUCTURE_MODULE["num_heads"] = 8  # number of attention heads
 STRUCTURE_MODULE["norm"] = [True, True]  # norm between attention blocks / within attention blocks
 STRUCTURE_MODULE["nonlinearity"] = "elu"
-STRUCTURE_MODULE["output_bfactors"] = False
 
 # fiber_in: is determined by input features
 STRUCTURE_MODULE["fiber_init"] = None
@@ -125,7 +126,7 @@ STRUCTURE_MODULE["loss_weight"].update(
         "torsion_energy": 0.1,
         "torsion_energy_clamp": 0.6,
         "atomic_clash": 5.0,
-        "bfactors": 0.0,
+        "ss": 0.0,
     }
 )
 CONFIG["structure_module"] = STRUCTURE_MODULE
@@ -162,11 +163,11 @@ def set_model_config(arg: dict, cg_model) -> ConfigDict:
             for d in range(config.structure_module.num_degrees)
         ]
     #
-    if config.structure_module.output_bfactors:
+    if config.globals.ss_dep:
         fiber_out = []
         for degree, n_feats in config.structure_module.fiber_out:
             if degree == 0:
-                n_feats += MAX_ATOM
+                n_feats += MAX_SS
             fiber_out.append((degree, n_feats))
         config.structure_module.fiber_out = fiber_out
     #
@@ -278,7 +279,6 @@ class StructureModule(nn.Module):
         super().__init__()
         #
         self.loss_weight = config.loss_weight
-        self.output_bfactors = config.output_bfactors
         #
         if config.nonlinearity == "elu":
             nonlinearity = nn.ELU()
@@ -306,7 +306,7 @@ class StructureModule(nn.Module):
         out = self.linear_module(feats)
         return out
 
-    def output_to_opr(self, output):
+    def output_to_opr(self, output, ss_dep=False):
         bb0 = output["1"][:, :2]
         v0 = bb0[:, 0]
         v1 = bb0[:, 1]
@@ -323,11 +323,15 @@ class StructureModule(nn.Module):
         sc0 = output["0"][:, :n_torsion_output].reshape(-1, MAX_TORSION, 2)
         sc = v_norm_safe(sc0)
         #
-        if self.output_bfactors:
-            bfactors = torch.sigmoid(output["0"][:, n_torsion_output:, 0]) * 100.0
+        if ss_dep:
+            ss0 = output["0"][:, n_torsion_output:]
         else:
-            bfactors = None
-        return bb, sc, bb0, sc0, bfactors
+            device = output["0"].device
+            dtype = output["0"].dtype
+            ss0 = torch.zeros((output["0"].size(0), MAX_SS), dtype=dtype, device=device)
+            ss0[:, 0] = 1.0
+
+        return bb, sc, bb0, sc0, ss0
 
 
 class Model(nn.Module):
@@ -335,6 +339,7 @@ class Model(nn.Module):
         super().__init__()
         #
         self.cg_model = cg_model
+        self.ss_dep = _config.globals.ss_dep
         self.compute_loss = compute_loss
         self.loss_weight = _config.globals.loss_weight
         #
@@ -386,14 +391,15 @@ class Model(nn.Module):
         #
         out = self.structure_module(out)
         #
-        bb, sc, bb0, sc0, bfactors = self.structure_module.output_to_opr(out)
+        bb, sc, bb0, sc0, ss0 = self.structure_module.output_to_opr(out, ss_dep=self.ss_dep)
         ret["bb"] = bb
         ret["sc"] = sc
         ret["bb0"] = bb0
         ret["sc0"] = sc0
-        ret["bfactors"] = bfactors
+        ret["ss0"] = ss0
         #
-        ret["R"], ret["opr_bb"] = build_structure(self.RIGID_OPs, batch, bb, sc=sc)
+        ss = torch.argmax(ss0, dim=-1)
+        ret["R"], ret["opr_bb"] = build_structure(self.RIGID_OPs, batch, ss, bb, sc=sc)
         #
         if self.compute_loss or self.training:
             loss["final"] = loss_f(
@@ -406,9 +412,6 @@ class Model(nn.Module):
         metrics = self.calc_metrics(batch, ret)
         #
         return ret, loss, metrics
-
-    def update_graph(self, batch, ret):
-        raise NotImplementedError
 
     def calc_metrics(self, batch, ret):
         R = ret["R"]
@@ -439,16 +442,18 @@ def combine_operations(X: torch.Tensor, Y: torch.Tensor) -> torch.Tensor:
 def build_structure(
     RIGID_OPs,
     batch: dgl.DGLGraph,
+    ss: torch.Tensor,
     bb: torch.Tensor,
     sc: Optional[torch.Tensor] = None,
     stop_grad: bool = False,
 ) -> tuple[torch.Tensor, torch.Tensor]:
+
     dtype = bb.dtype
     device = bb.device
     residue_type = batch.ndata["residue_type"]
     #
-    transforms = RIGID_OPs[0][0][residue_type]
-    rigids = RIGID_OPs[0][1][residue_type]
+    transforms = RIGID_OPs[0][0][ss, residue_type]
+    rigids = RIGID_OPs[0][1][ss, residue_type]
     transforms_dep = RIGID_OPs[1][0][residue_type]
     rigids_dep = RIGID_OPs[1][1][residue_type]
     #
