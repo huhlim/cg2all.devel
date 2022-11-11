@@ -76,7 +76,11 @@ def loss_f(
     if loss_weight.get("torsion_energy", 0.0) > 0.0:
         loss["torsion_energy"] = (
             loss_f_torsion_energy(
-                batch, R, TORSION_PARs, energy_clamp=loss_weight.get("torsion_energy_clamp", 0.0)
+                batch,
+                R,
+                ret["ss"],
+                TORSION_PARs,
+                energy_clamp=loss_weight.get("torsion_energy_clamp", 0.0),
             )
             * loss_weight.torsion_energy
         )
@@ -429,11 +433,12 @@ def loss_f_atomic_clash(
     return energy
 
 
-def loss_f_torsion_energy(batch: dgl.DGLGraph, R: torch.Tensor, TORSION_PARs, energy_clamp=0.0):
-    raise NotImplementedError("torsion_energy_terms is also dep. on SS")
+def loss_f_torsion_energy(
+    batch: dgl.DGLGraph, R: torch.Tensor, ss: torch.Tensor, TORSION_PARs, energy_clamp=0.0
+):
     residue_type = batch.ndata["residue_type"]
     n_residue = residue_type.size(0)
-    par = TORSION_PARs[0][residue_type]
+    par = TORSION_PARs[0][ss, residue_type]
     atom_index = TORSION_PARs[1][residue_type]
     #
     r = torch.take_along_dim(R, atom_index.view(n_residue, -1, 1), 1).view(n_residue, -1, 4, 3)

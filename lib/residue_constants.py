@@ -522,18 +522,24 @@ RIGID_GROUPS_DEP[RIGID_GROUPS_DEP == -1] = MAX_RIGID - 1
 MAX_TORSION_ENERGY = 5
 MAX_TORSION_ENERGY_TERM = 17
 torsion_energy_tensor = np.zeros(
-    (MAX_RESIDUE_TYPE, MAX_TORSION_ENERGY, MAX_TORSION_ENERGY_TERM, 5), dtype=float
+    (MAX_SS, MAX_RESIDUE_TYPE, MAX_TORSION_ENERGY, MAX_TORSION_ENERGY_TERM, 5), dtype=float
 )
 torsion_energy_dep = np.tile(np.array([0, 1, 2, 3]), [MAX_RESIDUE_TYPE, MAX_TORSION_ENERGY, 1])
-if os.path.exists(DATA_HOME / "torsion_energy_terms.json"):
-    with open(DATA_HOME / "torsion_energy_terms.json") as fp:
-        X = json.load(fp)
-    for i, residue_name in enumerate(AMINO_ACID_s):
-        if residue_name == "UNK":
-            continue
-        for j in range(len(X[residue_name][0])):
-            torsion_energy_dep[i, j] = np.array(X[residue_name][0][j])
-            for k, term in enumerate(X[residue_name][1][j]):
-                torsion_energy_tensor[i, j, k] = np.array(term)
+for s, ss in enumerate(SECONDARY_STRUCTURE_s):
+    if ss == "":
+        fn = DATA_HOME / "torsion_energy_terms.json"
+    else:
+        fn = DATA_HOME / f"torsion_energy_terms_{ss}.json"
+    if os.path.exists(fn):
+        with open(fn) as fp:
+            X = json.load(fp)
+        for i, residue_name in enumerate(AMINO_ACID_s):
+            if residue_name == "UNK":
+                continue
+            for j in range(len(X[residue_name][0])):
+                if s == 0:
+                    torsion_energy_dep[i, j] = np.array(X[residue_name][0][j])
+                for k, term in enumerate(X[residue_name][1][j]):
+                    torsion_energy_tensor[s, i, j, k] = np.array(term)
 TORSION_ENERGY_TENSOR = torch.as_tensor(torsion_energy_tensor)
 TORSION_ENERGY_DEP = torch.as_tensor(torsion_energy_dep, dtype=torch.long)
