@@ -183,8 +183,8 @@ class Model(pl.LightningModule):
         out, loss, metric = self.forward(batch)
         loss_sum, loss_s = self.get_loss_sum(loss)
         #
-        if self.current_epoch % 10 == 9 or batch_idx == 0:
-            self.write_pdb(batch, out, f"val_{self.current_epoch}_{batch_idx}")
+        # if self.current_epoch % 10 == 9 or batch_idx == 0:
+        #     self.write_pdb(batch, out, f"val_{self.current_epoch}_{batch_idx}")
         #
         bs = batch.batch_size
         self.log("val_loss_sum", loss_sum, batch_size=bs, on_epoch=True, on_step=False)
