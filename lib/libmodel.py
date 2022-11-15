@@ -75,7 +75,7 @@ CONFIG["globals"]["loss_weight"].update(
         "atomic_clash": 5.0,
         "atomic_clash_vdw": 1.0,
         "atomic_clash_clamp": 0.0,
-        "ss": 0.0,
+        "ss": 0.1,
     }
 )
 
@@ -324,7 +324,7 @@ class StructureModule(nn.Module):
         sc = v_norm_safe(sc0)
         #
         if ss_dep:
-            ss0 = output["0"][:, n_torsion_output:]
+            ss0 = output["0"][:, n_torsion_output:, 0]
         else:
             device = output["0"].device
             dtype = output["0"].dtype
@@ -396,9 +396,11 @@ class Model(nn.Module):
         ret["sc"] = sc
         ret["bb0"] = bb0
         ret["sc0"] = sc0
-        ret["ss0"] = ss0
         #
         ss = torch.argmax(ss0, dim=-1)
+        ret["ss"] = ss
+        ret["ss0"] = ss0
+        #
         ret["R"], ret["opr_bb"] = build_structure(self.RIGID_OPs, batch, ss, bb, sc=sc)
         #
         if self.compute_loss or self.training:

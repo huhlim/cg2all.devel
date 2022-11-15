@@ -96,7 +96,7 @@ def loss_f(
             * loss_weight.atomic_clash
         )
     if loss_weight.get("ss", 0.0) > 0.0:
-        loss["ss"] = loss_f_ss(batch, ret["ss"]) * loss_weight.ss
+        loss["ss"] = loss_f_ss(batch, ret["ss0"]) * loss_weight.ss
     #
     if loss_prev is not None:
         for k, v in loss_prev.items():
@@ -451,7 +451,6 @@ def loss_f_torsion_energy(
 
 
 def loss_f_ss(batch: dgl.DGLGraph, ss0: torch.Tensor):
-    ss0 = batch.ndata["ss"]
     loss = torch.nn.functional.cross_entropy(ss0, batch.ndata["ss"], reduction="mean")
     return loss
 
