@@ -5,7 +5,7 @@ import sys
 import pathlib
 import numpy as np
 from seqName import stdres
-from plot_geometry import PERIODIC, Data, read_dat
+from plot_geometry import PERIODIC, Data, read_dat, join
 import multiprocessing
 
 
@@ -56,7 +56,9 @@ def assess_per_target(name, dat):
         for j in range(4):
             if len(delta_chi_s[i][j]) > 0:
                 mae.append(np.mean(delta_chi_s[i][j]))
-                acc.append(np.array(correct_s[i][j]).astype(float).sum() / len(correct_s[i][j]) * 100.0)
+                acc.append(
+                    np.array(correct_s[i][j]).astype(float).sum() / len(correct_s[i][j]) * 100.0
+                )
             else:
                 mae.append(180.0)
                 acc.append(0.0)
@@ -223,16 +225,18 @@ def main():
         keyword = "test"
     dat_fn_s = list(log_dir.glob(f"{keyword}*.geom.dat"))
     #
-    data = [Data(), Data()]
-    data[0].to_np()
-    data[1].to_np()
+    data = [[Data()], [Data()]]
+    data[0][0].to_np()
+    data[1][0].to_np()
     #
     n_proc = min(N_PROC, len(dat_fn_s))
     with multiprocessing.Pool(n_proc) as pool:
         dat_s = pool.map(read_dat, dat_fn_s)
     for dat in dat_s:
         for i in range(2):
-            data[i].join(dat[i])
+            data[i].append(dat[i])
+    data[0] = join(data[0])
+    data[1] = join(data[1])
     assess_distr(log_dir, keyword, data)
 
     with multiprocessing.Pool(n_proc) as pool:

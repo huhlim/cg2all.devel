@@ -96,6 +96,20 @@ class Data(object):
         return data
 
 
+def join(dat_s):
+    out = dat_s[0]
+    out.ss = np.concatenate([x.ss for x in dat_s[1:]])
+    out.asa = np.concatenate([x.asa for x in dat_s[1:]])
+    out.resName = np.concatenate([x.resName for x in dat_s[1:]])
+    out.resName_prev = np.concatenate([x.resName_prev for x in dat_s[1:]])
+    out.resName_next = np.concatenate([x.resName_next for x in dat_s[1:]])
+    out.b_len = np.concatenate([x.b_len for x in dat_s[1:]])
+    out.b_ang = np.concatenate([x.b_ang for x in dat_s[1:]])
+    out.t_ang = np.concatenate([x.t_ang for x in dat_s[1:]])
+    out.c_ang = np.concatenate([x.c_ang for x in dat_s[1:]])
+    return out
+
+
 def read_dat(fn):
     data = [Data(), Data()]
     with open(fn) as fp:
@@ -260,14 +274,16 @@ def main():
         keyword = "test"
     dat_fn_s = log_dir.glob(f"{keyword}*.geom.dat")
     #
-    data = [Data(), Data()]
-    data[0].to_np()
-    data[1].to_np()
+    data = [[Data()], [Data()]]
+    data[0][0].to_np()
+    data[1][0].to_np()
     #
     for dat_fn in list(dat_fn_s):
         dat = read_dat(dat_fn)
         for i in range(2):
-            data[i].join(dat[i])
+            data[i].append(dat[i])
+    data[0] = join(data[0])
+    data[1] = join(data[1])
     #
     for i, xr in enumerate([(1.2, 1.5), (1.3, 1.6), (1.4, 1.7)]):
         plot_1d(
