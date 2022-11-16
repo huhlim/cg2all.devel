@@ -251,10 +251,11 @@ def main():
     config = libmodel.set_model_config(config, cg_model)
     #
     # set file paths
-    pdb_dir = pathlib.Path(config.train.dataset)
-    pdblist_train = pdb_dir / "targets.train"
-    pdblist_test = pdb_dir / "targets.test"
-    pdblist_val = pdb_dir / "targets.valid"
+    dataset = config.train.dataset
+    pdb_dir = pathlib.Path(dataset)
+    pdblist_train = f"set/targets.train.{dataset}"
+    pdblist_test = f"set/targets.test.{dataset}"
+    pdblist_val = f"set/targets.valid.{dataset}"
     #
     if config.train.md_frame > 0:
         use_md = True
