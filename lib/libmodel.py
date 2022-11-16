@@ -64,7 +64,6 @@ CONFIG["globals"]["loss_weight"].update(
         "rigid_body": 1.0,
         "FAPE_CA": 5.0,
         "FAPE_all": 5.0,
-        "mse_R": 0.0,
         "v_cntr": 1.0,
         "bonded_energy": 1.0,
         "rotation_matrix": 1.0,

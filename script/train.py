@@ -183,8 +183,8 @@ class Model(pl.LightningModule):
         out, loss, metric = self.forward(batch)
         loss_sum, loss_s = self.get_loss_sum(loss)
         #
-        if self.current_epoch % 10 == 9 or batch_idx == 0:
-            self.write_pdb(batch, out, f"val_{self.current_epoch}_{batch_idx}")
+        # if self.current_epoch % 10 == 9 or batch_idx == 0:
+        #     self.write_pdb(batch, out, f"val_{self.current_epoch}_{batch_idx}")
         #
         bs = batch.batch_size
         self.log("val_loss_sum", loss_sum, batch_size=bs, on_epoch=True, on_step=False)
@@ -251,10 +251,11 @@ def main():
     config = libmodel.set_model_config(config, cg_model)
     #
     # set file paths
-    pdb_dir = pathlib.Path(config.train.dataset)
-    pdblist_train = pdb_dir / "targets.train"
-    pdblist_test = pdb_dir / "targets.test"
-    pdblist_val = pdb_dir / "targets.valid"
+    dataset = config.train.dataset
+    pdb_dir = pathlib.Path(dataset)
+    pdblist_train = f"set/targets.train.{dataset}"
+    pdblist_test = f"set/targets.test.{dataset}"
+    pdblist_val = f"set/targets.valid.{dataset}"
     #
     if config.train.md_frame > 0:
         use_md = True
