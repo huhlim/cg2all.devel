@@ -57,7 +57,7 @@ CONFIG["train"]["augment"] = ""
 
 CONFIG["globals"] = ConfigDict()
 CONFIG["globals"]["radius"] = 1.0
-CONFIG["globals"]["ss_dep"] = True
+CONFIG["globals"]["ss_dep"] = False
 CONFIG["globals"]["loss_weight"] = ConfigDict()
 CONFIG["globals"]["loss_weight"].update(
     {
