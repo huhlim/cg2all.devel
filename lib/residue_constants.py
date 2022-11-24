@@ -397,6 +397,30 @@ def read_CHARMM_prm(fn):
     return radius_s, par_dihedrals
 
 
+def read_martini_topology():
+    top_s = {}
+    with open(DATA_HOME / "martini.top") as fp:
+        for line in fp:
+            if line.startswith("RESI"):
+                resName = line.strip().split()[1]
+                top_s[resName] = []
+            elif line.startswith("BEAD"):
+                atmName_s = line.strip().split()[2:]
+                top_s[resName].append(atmName_s)
+    #
+    martini_map = np.full((MAX_RESIDUE_TYPE, MAX_ATOM), -1, dtype=int)
+    for i_res, resName in enumerate(AMINO_ACID_s):
+        if resName not in top_s:
+            continue
+        #
+        top = top_s[resName]
+        for k, bead in enumerate(top):
+            for atmName in bead:
+                i_atm = residue_s[resName].atom_s.index(atmName)
+                martini_map[i_res, i_atm] = k
+    return martini_map
+
+
 residue_s = read_CHARMM_rtf(DATA_HOME / "toppar/top_all36_prot.rtf")
 ATOM_INDEX_PRO_CD = residue_s["PRO"].atom_s.index("CD")
 ATOM_INDEX_CYS_CB = residue_s["CYS"].atom_s.index("CB")

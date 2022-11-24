@@ -243,7 +243,7 @@ def main():
         wrt = pool.starmap(
             assess_per_target, [(dat_fn.stem[:-5], dat) for dat_fn, dat in zip(dat_fn_s, dat_s)]
         )
-    with open(f"{keyword}.chi_accuracy.dat", "wt") as fout:
+    with open(log_dir / f"{keyword}.chi_accuracy.dat", "wt") as fout:
         fout.writelines(wrt)
 
 

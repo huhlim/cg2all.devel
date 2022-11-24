@@ -6,7 +6,6 @@ import json
 import logging
 import pathlib
 import functools
-import subprocess as sp
 import argparse
 
 import numpy as np
