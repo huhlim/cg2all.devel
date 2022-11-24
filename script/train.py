@@ -195,9 +195,7 @@ class Model(pl.LightningModule):
         if log_dir is None:
             log_dir = pathlib.Path(self.logger.log_dir)
         #
-        traj_s, ssbond_s = create_trajectory_from_batch(
-            batch, out["R"], write_native=True
-        )
+        traj_s, ssbond_s = create_trajectory_from_batch(batch, out["R"], write_native=True)
         #
         for i, (traj, ssbond) in enumerate(zip(traj_s, ssbond_s)):
             try:
@@ -284,6 +282,9 @@ def main():
     val_loader = _DataLoader(val_set, shuffle=False)
     test_set = _PDBset(pdb_dir, pdblist_test)
     test_loader = _DataLoader(test_set, shuffle=False)
+    #
+    if arg.ckpt_fn is not None:
+        arg.max_epochs += torch.load(arg.ckpt_fn)["epoch"]
     #
     # define model
     model = Model(config, cg_model, compute_loss=True)  # , memcheck=True)

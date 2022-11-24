@@ -58,25 +58,6 @@ CONFIG["train"]["augment"] = ""
 CONFIG["globals"] = ConfigDict()
 CONFIG["globals"]["radius"] = 1.0
 CONFIG["globals"]["ss_dep"] = False
-CONFIG["globals"]["loss_weight"] = ConfigDict()
-CONFIG["globals"]["loss_weight"].update(
-    {
-        "rigid_body": 1.0,
-        "FAPE_CA": 5.0,
-        "FAPE_all": 5.0,
-        "v_cntr": 1.0,
-        "bonded_energy": 1.0,
-        "rotation_matrix": 1.0,
-        "backbone_torsion": 0.0,
-        "torsion_angle": 5.0,
-        "torsion_energy": 0.1,
-        "torsion_energy_clamp": 0.6,
-        "atomic_clash": 5.0,
-        "atomic_clash_vdw": 1.0,
-        "atomic_clash_clamp": 0.0,
-        "ss": 0.1,
-    }
-)
 
 # embedding module
 EMBEDDING_MODULE = ConfigDict()
@@ -113,19 +94,20 @@ STRUCTURE_MODULE["fiber_edge"] = None
 STRUCTURE_MODULE["loss_weight"] = ConfigDict()
 STRUCTURE_MODULE["loss_weight"].update(
     {
-        "rigid_body": 0.0,
-        "FAPE_CA": 0.0,
+        "rigid_body": 1.0,
+        "FAPE_CA": 5.0,
         "FAPE_all": 0.0,
-        "mse_R": 0.0,
-        "v_cntr": 0.0,
-        "bonded_energy": 0.0,
-        "rotation_matrix": 0.0,
+        "v_cntr": 1.0,
+        "bonded_energy": 1.0,
+        "rotation_matrix": 1.0,
         "backbone_torsion": 0.0,
         "torsion_angle": 5.0,
         "torsion_energy": 0.1,
         "torsion_energy_clamp": 0.6,
         "atomic_clash": 5.0,
-        "ss": 0.0,
+        "atomic_clash_vdw": 1.0,
+        "atomic_clash_clamp": 0.0,
+        "ss": 0.1,
     }
 )
 CONFIG["structure_module"] = STRUCTURE_MODULE
@@ -340,7 +322,6 @@ class Model(nn.Module):
         self.cg_model = cg_model
         self.ss_dep = _config.globals.ss_dep
         self.compute_loss = compute_loss
-        self.loss_weight = _config.globals.loss_weight
         #
         self.embedding_module = EmbeddingModule(_config.embedding_module)
         #
@@ -406,7 +387,7 @@ class Model(nn.Module):
             loss["final"] = loss_f(
                 batch,
                 ret,
-                self.loss_weight,
+                self.structure_module.loss_weight,
                 RIGID_OPs=self.RIGID_OPs,
                 TORSION_PARs=self.TORSION_PARs,
             )

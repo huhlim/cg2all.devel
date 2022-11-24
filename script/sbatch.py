@@ -85,7 +85,7 @@ def main():
         cmd = [arg.EXEC]
         cmd.extend(["--name", arg.name])
         cmd.extend(["--config", str(arg.config_json_fn)])
-        cmd.extend(["--epoch", str(arg.n_epoch * (k + 1))])
+        cmd.extend(["--epoch", str(arg.n_epoch)])
         #
         if arg.ckpt is not None:
             cmd.extend(["--ckpt", str(arg.ckpt)])
