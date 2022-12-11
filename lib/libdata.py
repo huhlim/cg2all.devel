@@ -315,16 +315,17 @@ def test():
 
 
 def to_pt():
-    base_dir = BASE / "pdb.27k"
-    pdblist = base_dir / "targets"
-    cg_model = libcg.CalphaBasedModel
+    base_dir = BASE / "pdb.29"
+    pdblist = "set/targets.pdb.29k"
+    cg_model = libcg.ResidueBasedModel
     #
     for use_pt, augment in [
-        ("CA", ""),
-        ("CA_aug+FLIP", "augment+FLIP"),
-        ("CA_aug_min+FLIP", "augment_min+FLIP"),
-        ("CA_aug", "augment"),
-        ("CA_aug_min", "augment_min"),
+        ("Res", ""),
+        # ("CA", ""),
+        # ("CA_aug+FLIP", "augment+FLIP"),
+        # ("CA_aug_min+FLIP", "augment_min+FLIP"),
+        # ("CA_aug", "augment"),
+        # ("CA_aug_min", "augment_min"),
     ]:
         train_set = PDBset(
             base_dir,

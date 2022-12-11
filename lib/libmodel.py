@@ -80,7 +80,8 @@ STRUCTURE_MODULE["fiber_struct"] = None
 # fiber_out: is determined by outputs
 # - degree 0: cosine/sine values of torsion angles
 # - degree 1: two for BB rigid body rotation matrix and one for CA translation
-STRUCTURE_MODULE["fiber_out"] = [(0, MAX_TORSION * 2), (1, 3)]
+STRUCTURE_MODULE["rotation_rep"] = "6D"
+STRUCTURE_MODULE["fiber_out"] = None
 STRUCTURE_MODULE["fiber_pass"] = [(0, 64), (1, 32)]
 # num_degrees and num_channels are for fiber_hidden
 # - they will be converted to Fiber using Fiber.create(num_degrees, num_channels)
@@ -97,6 +98,7 @@ STRUCTURE_MODULE["loss_weight"].update(
         "rigid_body": 1.0,
         "FAPE_CA": 5.0,
         "FAPE_all": 0.0,
+        "FAPE_d_clamp": 1.0,
         "v_cntr": 1.0,
         "bonded_energy": 1.0,
         "rotation_matrix": 1.0,
@@ -144,6 +146,17 @@ def set_model_config(arg: dict, cg_model) -> ConfigDict:
             for d in range(config.structure_module.num_degrees)
         ]
     #
+    if config.structure_module.rotation_rep == "6D":
+        config.structure_module["fiber_out"] = [(0, MAX_TORSION * 2), (1, 3)]
+    elif config.structure_module.rotation_rep.startswith("quat"):
+        x = config.structure_module.rotation_rep.split("_")[1:]
+        config.structure_module["fiber_out"] = [
+            (0, MAX_TORSION * 2 + int(x[0])),
+            (1, 1 + int(x[1])),
+        ]
+    else:
+        raise ValueError(f"Unknown rotation representation, {config.structure_module.rotation_rep}")
+    #
     if config.globals.ss_dep:
         fiber_out = []
         for degree, n_feats in config.structure_module.fiber_out:
@@ -187,6 +200,8 @@ class InitializationModule(nn.Module):
             nonlinearity = nn.ELU()
         elif config.nonlinearity == "relu":
             nonlinearity = nn.ReLU()
+        elif config.nonlinearity == "tanh":
+            nonlinearity = nn.Tanh()
         #
         linear_module = []
         if config.norm[0]:
@@ -213,6 +228,8 @@ class EdgeModule(nn.Module):
             nonlinearity = nn.ELU()
         elif config.nonlinearity == "relu":
             nonlinearity = nn.ReLU()
+        elif config.nonlinearity == "tanh":
+            nonlinearity = nn.Tanh()
         #
         linear_module = []
         for _ in range(config.num_linear_layers):
@@ -235,6 +252,8 @@ class InteractionModule(nn.Module):
             nonlinearity = nn.ELU()
         elif config.nonlinearity == "relu":
             nonlinearity = nn.ReLU()
+        elif config.nonlinearity == "tanh":
+            nonlinearity = nn.Tanh()
         #
         self.graph_module = SE3Transformer(
             num_layers=config.num_graph_layers,
@@ -260,11 +279,14 @@ class StructureModule(nn.Module):
         super().__init__()
         #
         self.loss_weight = config.loss_weight
+        self.rotation_rep = config.rotation_rep
         #
         if config.nonlinearity == "elu":
             nonlinearity = nn.ELU()
         elif config.nonlinearity == "relu":
             nonlinearity = nn.ReLU()
+        elif config.nonlinearity == "tanh":
+            nonlinearity = nn.Tanh()
         #
         linear_module = []
         #
@@ -288,6 +310,13 @@ class StructureModule(nn.Module):
         return out
 
     def output_to_opr(self, output, ss_dep=False):
+        if self.rotation_rep == "6D":
+            return self.output_to_opr_6D(output, ss_dep=ss_dep)
+        elif self.rotation_rep.startswith("quat"):
+            deg_0, deg_1 = self.rotation_rep.split("_")[1:]
+            return self.output_to_opr_quat(output, int(deg_0), int(deg_1), ss_dep=ss_dep)
+
+    def output_to_opr_6D(self, output, ss_dep=False):
         bb0 = output["1"][:, :2]
         v0 = bb0[:, 0]
         v1 = bb0[:, 1]
@@ -313,6 +342,51 @@ class StructureModule(nn.Module):
             ss0[:, 0] = 1.0
 
         return bb, sc, bb0, sc0, ss0
+
+    def output_to_opr_quat(self, output, deg_0, deg_1, ss_dep=False):
+        n_residue = output["0"].size(0)
+        n_torsion_output = MAX_TORSION * 2
+        sc0 = output["0"][:, :n_torsion_output].reshape(-1, MAX_TORSION, 2)
+        sc = v_norm_safe(sc0)
+        #
+        device = output["0"].device
+        dtype = output["0"].dtype
+        #
+        if deg_0 == 4 and deg_1 == 0:
+            q = output["0"][:, n_torsion_output : n_torsion_output + deg_0, 0]
+        elif deg_0 == 3 and deg_1 == 0:
+            q = torch.ones((n_residue, 4), dtype=dtype, device=device)
+            q[:, 1:] = output["0"][:, n_torsion_output : n_torsion_output + deg_0, 0]
+        elif deg_0 == 1 and deg_1 == 1:
+            angle = output["0"][:, n_torsion_output, 0]
+            axis = v_norm_safe(output["1"][:, 1, :])
+            #
+            q = torch.zeros((n_residue, 4), dtype=dtype, device=device)
+            q[:, 0] = torch.cos(angle / 2.0)
+            q[:, 1:] = axis * torch.sin(angle / 2.0)[:, None]
+        q = v_norm_safe(q)
+        #
+        rot = torch.zeros((n_residue, 3, 3), dtype=dtype, device=device)
+        rot[:, 0, 0] = q[:, 0] ** 2 + q[:, 1] ** 2 - q[:, 2] ** 2 - q[:, 3] ** 2
+        rot[:, 1, 1] = q[:, 0] ** 2 - q[:, 1] ** 2 + q[:, 2] ** 2 - q[:, 3] ** 2
+        rot[:, 2, 2] = q[:, 0] ** 2 - q[:, 1] ** 2 - q[:, 2] ** 2 + q[:, 3] ** 2
+        rot[:, 0, 1] = 2 * (q[:, 1] * q[:, 2] - q[:, 0] * q[:, 3])
+        rot[:, 0, 2] = 2 * (q[:, 1] * q[:, 3] + q[:, 0] * q[:, 2])
+        rot[:, 1, 0] = 2 * (q[:, 1] * q[:, 2] + q[:, 0] * q[:, 3])
+        rot[:, 1, 2] = 2 * (q[:, 2] * q[:, 3] - q[:, 0] * q[:, 1])
+        rot[:, 2, 0] = 2 * (q[:, 1] * q[:, 3] - q[:, 0] * q[:, 2])
+        rot[:, 2, 1] = 2 * (q[:, 2] * q[:, 3] + q[:, 0] * q[:, 1])
+        #
+        t = 0.1 * output["1"][:, 0][..., None, :]
+        bb = torch.cat([rot, t], dim=1)
+        #
+        if ss_dep:
+            ss0 = output["0"][:, n_torsion_output + deg_0 :, 0]
+        else:
+            ss0 = torch.zeros((n_residue, MAX_SS), dtype=dtype, device=device)
+            ss0[:, 0] = 1.0
+        #
+        return bb, sc, None, sc0, ss0
 
 
 class Model(nn.Module):
@@ -427,7 +501,6 @@ def build_structure(
     ss: torch.Tensor,
     bb: torch.Tensor,
     sc: Optional[torch.Tensor] = None,
-    stop_grad: bool = False,
 ) -> tuple[torch.Tensor, torch.Tensor]:
 
     dtype = bb.dtype
@@ -442,10 +515,7 @@ def build_structure(
     opr = torch.zeros_like(transforms, device=device)
     #
     # backbone operations
-    if stop_grad:
-        opr[:, 0, :3] = bb[:, :3].detach()
-    else:
-        opr[:, 0, :3] = bb[:, :3]
+    opr[:, 0, :3] = bb[:, :3]
     opr[:, 0, 3] = bb[:, 3] + batch.ndata["pos"]
 
     # sidechain operations

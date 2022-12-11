@@ -29,13 +29,7 @@ warnings.filterwarnings("ignore")
 # torch.autograd.set_detect_anomaly(True)
 
 torch.multiprocessing.set_sharing_strategy("file_system")
-
-
 N_PROC = int(os.getenv("OMP_NUM_THREADS", "8"))
-IS_DEVELOP = False
-if IS_DEVELOP:
-    logger = logging.getLogger()
-    logger.setLevel(logging.DEBUG)
 
 
 class Model(pl.LightningModule):
@@ -96,21 +90,13 @@ class Model(pl.LightningModule):
                 else:
                     parameters[0].append(param)
         #
-        if IS_DEVELOP:
-            if lr_sc is None:
-                optimizer = torch.optim.Adam(self.parameters(), lr=0.01)
-            else:
-                optimizer = torch.optim.Adam(
-                    [{"params": parameters[0]}, {"params": parameters[1], "lr": lr_sc}], lr=0.01
-                )
+        if lr_sc is None:
+            optimizer = torch.optim.Adam(self.parameters(), lr=self._config.train.lr)
         else:
-            if lr_sc is None:
-                optimizer = torch.optim.Adam(self.parameters(), lr=self._config.train.lr)
-            else:
-                optimizer = torch.optim.Adam(
-                    [{"params": parameters[0]}, {"params": parameters[1], "lr": lr_sc}],
-                    lr=self._config.train.lr,
-                )
+            optimizer = torch.optim.Adam(
+                [{"params": parameters[0]}, {"params": parameters[1], "lr": lr_sc}],
+                lr=self._config.train.lr,
+            )
 
         lr_scheduler = torch.optim.lr_scheduler.SequentialLR(
             optimizer,
@@ -159,7 +145,7 @@ class Model(pl.LightningModule):
         bs = batch.batch_size
         self.log("train_loss", loss_s, batch_size=bs, on_epoch=True, on_step=False)
         self.log(
-            "train_metric", metric, batch_size=bs, on_epoch=True, on_step=False, prog_bar=IS_DEVELOP
+            "train_metric", metric, batch_size=bs, on_epoch=True, on_step=False, prog_bar=False
         )
         return {"loss": loss_sum, "metric": metric, "out": out}
 
@@ -176,14 +162,15 @@ class Model(pl.LightningModule):
 
     def predict_step(self, batch, batch_idx):
         out, loss, metric = self.forward(batch)
-        self.write_pdb(batch, out, f"test_{batch_idx}", log_dir=self.output_dir)
+        self.write_pdb(batch, out, f"pred_{batch_idx}", log_dir=self.output_dir)
 
     def validation_step(self, batch, batch_idx):
         out, loss, metric = self.forward(batch)
         loss_sum, loss_s = self.get_loss_sum(loss)
         #
-        # if self.current_epoch % 10 == 9 or batch_idx == 0:
-        #     self.write_pdb(batch, out, f"val_{self.current_epoch}_{batch_idx}")
+        if self.write_validation_pdb:
+            if self.current_epoch % 10 == 9 or batch_idx == 0:
+                self.write_pdb(batch, out, f"val_{self.current_epoch}_{batch_idx}")
         #
         bs = batch.batch_size
         self.log("val_loss_sum", loss_sum, batch_size=bs, on_epoch=True, on_step=False)
@@ -217,11 +204,13 @@ def main():
     arg.add_argument("--config", dest="config_json_fn", default=None)
     arg.add_argument("--ckpt", dest="ckpt_fn", default=None)
     arg.add_argument("--epoch", dest="max_epochs", default=100, type=int)
+    arg.add_argument("--overfit", dest="overfit_batches", default=0, type=int)
+    arg.add_argument("--write", dest="write_validation_pdb", default=False, action="store_true")
     arg.add_argument(
         "--cg",
         dest="cg_model",
         default="CalphaBasedModel",
-        choices=["CalphaBasedModel", "ResidueBasedModel"],
+        choices=["CalphaBasedModel", "ResidueBasedModel", "Martini"],
     )
     arg.add_argument("--requeue", dest="requeue", action="store_true", default=False)
     arg = arg.parse_args()
@@ -237,7 +226,10 @@ def main():
         else:
             arg.name = "devel"
     #
-    pl.seed_everything(25, workers=True)
+    if arg.ckpt_fn is not None:
+        arg.max_epochs += torch.load(arg.ckpt_fn)["epoch"]
+    #
+    # pl.seed_everything(25, workers=True)
     #
     # configure
     config["cg_model"] = config.get("cg_model", arg.cg_model)
@@ -245,14 +237,22 @@ def main():
         cg_model = CalphaBasedModel
     elif config["cg_model"] == "ResidueBasedModel":
         cg_model = ResidueBasedModel
+    elif config["cg_model"] == "Martini":
+        cg_model = Martini
     config = libmodel.set_model_config(config, cg_model)
+    #
+    overfit = arg.overfit_batches > 0
     #
     # set file paths
     dataset = config.train.dataset
     pdb_dir = pathlib.Path(dataset)
     pdblist_train = f"set/targets.train.{dataset}"
-    pdblist_test = f"set/targets.test.{dataset}"
-    pdblist_val = f"set/targets.valid.{dataset}"
+    if overfit:
+        pdblist_test = f"set/targets.train.{dataset}"
+        pdblist_val = f"set/targets.train.{dataset}"
+    else:
+        pdblist_test = f"set/targets.test.{dataset}"
+        pdblist_val = f"set/targets.valid.{dataset}"
     #
     if config.train.md_frame > 0:
         use_md = True
@@ -277,22 +277,23 @@ def main():
     )
     # define train/val/test sets
     train_set = _PDBset(pdb_dir, pdblist_train, crop=config.train.crop_size)
-    train_loader = _DataLoader(train_set, shuffle=True)
+    train_loader = _DataLoader(train_set, shuffle=(not overfit))
     val_set = _PDBset(pdb_dir, pdblist_val)
     val_loader = _DataLoader(val_set, shuffle=False)
     test_set = _PDBset(pdb_dir, pdblist_test)
     test_loader = _DataLoader(test_set, shuffle=False)
     #
-    if arg.ckpt_fn is not None:
-        arg.max_epochs += torch.load(arg.ckpt_fn)["epoch"]
-    #
     # define model
     model = Model(config, cg_model, compute_loss=True)  # , memcheck=True)
+    model.write_validation_pdb = arg.write_validation_pdb
     #
     trainer_kwargs = {}
     trainer_kwargs["max_epochs"] = arg.max_epochs
     trainer_kwargs["gradient_clip_val"] = 1.0
     trainer_kwargs["check_val_every_n_epoch"] = 1
+    trainer_kwargs["num_sanity_val_steps"] = 0
+    if arg.overfit_batches > 0:
+        trainer_kwargs["overfit_batches"] = arg.overfit_batches
     trainer_kwargs["logger"] = pl.loggers.TensorBoardLogger("lightning_logs", name=arg.name)
     trainer_kwargs["callbacks"] = [
         pl.callbacks.ModelCheckpoint(
@@ -312,8 +313,10 @@ def main():
     #
     trainer = pl.Trainer(**trainer_kwargs)
     trainer.fit(model, train_loader, val_loader, ckpt_path=arg.ckpt_fn)
-    trainer.test(model, test_loader)
-    #
+
+    if not overfit:
+        trainer.test(model, test_loader)
+
     trainer.save_checkpoint(pathlib.Path(trainer_kwargs["logger"].log_dir) / "last.ckpt")
 
 

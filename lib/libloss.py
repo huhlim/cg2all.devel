@@ -54,9 +54,9 @@ def loss_f(
     if loss_weight.get("v_cntr", 0.0) > 0.0:
         loss["v_cntr"] = loss_f_v_cntr(batch, R) * loss_weight.v_cntr
     if loss_weight.get("FAPE_CA", 0.0) > 0.0:
-        loss["FAPE_CA"] = loss_f_FAPE_CA(batch, R, opr_bb, d_clamp=1.0) * loss_weight.FAPE_CA
+        loss["FAPE_CA"] = loss_f_FAPE_CA(batch, R, opr_bb, d_clamp=loss_weight.FAPE_d_clamp) * loss_weight.FAPE_CA
     if loss_weight.get("FAPE_all", 0.0) > 0.0:
-        loss["FAPE_all"] = loss_f_FAPE_all(batch, R, opr_bb, d_clamp=1.0) * loss_weight.FAPE_all
+        loss["FAPE_all"] = loss_f_FAPE_all(batch, R, opr_bb, d_clamp=loss_weight.FAPE_d_clamp) * loss_weight.FAPE_all
     if loss_weight.get("rotation_matrix", 0.0) > 0.0:
         loss["rotation_matrix"] = (
             loss_f_rotation_matrix(batch, ret["bb"], ret.get("bb0", None))
@@ -165,7 +165,7 @@ def loss_f_rotation_matrix(
 
 
 def loss_f_FAPE_CA(
-    batch: dgl.DGLGraph, R: torch.Tensor, bb: torch.Tensor, d_clamp: float = 2.0
+    batch: dgl.DGLGraph, R: torch.Tensor, bb: torch.Tensor, d_clamp: float = 1.0
 ) -> torch.Tensor:
     # time: ~30% vs. loss_f_FAPE_CA_old
     # memory: O(N^2) vs. O(N) for loss_f_FAPE_CA_old
@@ -194,7 +194,7 @@ def loss_f_FAPE_CA(
 
 
 def loss_f_FAPE_all(
-    batch: dgl.DGLGraph, R: torch.Tensor, bb: torch.Tensor, d_clamp: float = 2.0
+    batch: dgl.DGLGraph, R: torch.Tensor, bb: torch.Tensor, d_clamp: float = 1.0
 ) -> torch.Tensor:
     # time: ~30% vs. loss_f_FAPE_all_old
     # memory: O(N^2) vs. O(N) for loss_f_FAPE_all_old
@@ -394,8 +394,11 @@ def loss_f_atomic_clash(
         cys_i = torch.nonzero(data.ndata["ssbond_index"] >= 0)[:, 0]
         if cys_i.size(0) > 0:
             cys_j = data.ndata["ssbond_index"][cys_i]
-            eids = g.edge_ids(cys_i, cys_j)
-            ssbond[eids] = True
+            try:
+                eids = g.edge_ids(cys_i, cys_j)
+                ssbond[eids] = True
+            except:
+                pass
         #
         subset = edges[0] > edges[1]
         edges = (edges[0][subset], edges[1][subset])

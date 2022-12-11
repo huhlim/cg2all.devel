@@ -65,8 +65,9 @@ def main():
     config = libmodel.set_model_config(config, cg_model)
     #
     # set file paths
-    pdb_dir = pathlib.Path(config.train.dataset)
-    pdblist_test = pdb_dir / "targets.test"
+    dataset = config.train.dataset
+    pdb_dir = pathlib.Path(dataset)
+    pdblist_test = f"set/targets.test.{dataset}"
     #
     if config.train.md_frame > 0:
         use_md = True
@@ -79,9 +80,8 @@ def main():
         PDBset,
         cg_model=cg_model,
         radius=config.globals.radius,
-        noise_level=0.0,
-        random_rotation=True,
-        use_pt="CA",
+        use_pt=config.train.get("use_pt", "CA"),
+        augment=config.train.get("augment", ""),
         use_md=use_md,
         n_frame=n_frame,
     )
