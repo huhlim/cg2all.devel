@@ -2,6 +2,7 @@
 
 import sys
 import copy
+import random
 import numpy as np
 import pathlib
 import mdtraj
@@ -33,6 +34,7 @@ class PDBset(Dataset):
         radius=1.0,
         self_loop=False,
         augment="",
+        min_cg="",
         use_pt=None,
         crop=-1,
         use_md=False,
@@ -55,6 +57,7 @@ class PDBset(Dataset):
         self.radius = radius
         self.self_loop = self_loop
         self.augment = augment
+        self.min_cg = min_cg
         self.use_pt = use_pt
         self.crop = crop
         #
@@ -70,10 +73,14 @@ class PDBset(Dataset):
         pdb_id = self.pdb_s[pdb_index]
         #
         if self.use_pt is not None:
-            if self.use_md:
-                pt_fn = self.basedir / f"{pdb_id}_{self.use_pt}.{frame_index}.pt"
+            if isinstance(self.use_pt, str):
+                pt_name = self.use_pt
             else:
-                pt_fn = self.basedir / f"{pdb_id}_{self.use_pt}.pt"
+                pt_name = random.choice(self.use_pt)
+            if self.use_md:
+                pt_fn = self.basedir / f"{pdb_id}_{pt_name}.{frame_index}.pt"
+            else:
+                pt_fn = self.basedir / f"{pdb_id}_{pt_name}.pt"
             #
             if pt_fn.exists():
                 data = torch.load(pt_fn)
@@ -99,7 +106,16 @@ class PDBset(Dataset):
             else:
                 sys.stderr.write(f"WARNING: augment PDB does NOT exist, {str(pdb_fn_aug)}\n")
         #
-        r_cg = torch.as_tensor(cg.R_cg[0], dtype=self.dtype)
+        if self.min_cg != "":
+            pdb_fn_cg = self.basedir / f"cg/{pdb_id}/{pdb_id}.{self.min_cg}.pdb"
+            if pdb_fn_cg.exists():
+                cg_min = self.cg_model(pdb_fn_cg, check_validity=False)
+                assert cg_min.R_cg[0].shape == cg.R_cg[0].shape
+                r_cg = torch.as_tensor(cg_min.R_cg[0], dtype=self.dtype)
+            else:
+                sys.stderr.write(f"WARNING: min_cg PDB does NOT exist, {str(pdb_fn_cg)}\n")
+        else:
+            r_cg = torch.as_tensor(cg.R_cg[0], dtype=self.dtype)
         #
         pos = r_cg[cg.atom_mask_cg > 0.0, :]
         geom_s = cg.get_geometry(pos, cg.continuous[0])
@@ -315,7 +331,7 @@ def test():
 
 
 def to_pt():
-    base_dir = BASE / "pdb.29"
+    base_dir = BASE / "pdb.29k"
     pdblist = "set/targets.pdb.29k"
     cg_model = libcg.ResidueBasedModel
     #

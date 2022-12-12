@@ -266,6 +266,7 @@ def main():
         cg_model=cg_model,
         radius=config.globals.radius,
         use_pt=config.train.get("use_pt", "CA"),
+        min_cg=config.train.get("min_cg", ""),
         augment=config.train.get("augment", ""),
         use_md=use_md,
         n_frame=n_frame,

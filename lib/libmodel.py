@@ -54,6 +54,7 @@ CONFIG["train"]["lr_sc"] = 1e-2
 CONFIG["train"]["lr_gamma"] = 0.995
 CONFIG["train"]["use_pt"] = "CA"
 CONFIG["train"]["augment"] = ""
+CONFIG["train"]["min_cg"] = ""
 
 CONFIG["globals"] = ConfigDict()
 CONFIG["globals"]["radius"] = 1.0

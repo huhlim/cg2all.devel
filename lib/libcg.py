@@ -319,10 +319,10 @@ class Martini(PDB):
         f_in["0"] = torch.as_tensor(torch.cat(f_in["0"], axis=1), dtype=dtype)  # 17
         #
         # 1d: unit vectors from adjacent residues to the current residue
-        f_in["1"].append(geom_s["bond_vector"][1][0][:,None,:])
-        f_in["1"].append(geom_s["bond_vector"][1][1][:,None,:])
-        f_in["1"].append(geom_s["bond_vector"][2][0][:,None,:])
-        f_in["1"].append(geom_s["bond_vector"][2][1][:,None,:])
+        f_in["1"].append(geom_s["bond_vector"][1][0][:, None, :])
+        f_in["1"].append(geom_s["bond_vector"][1][1][:, None, :])
+        f_in["1"].append(geom_s["bond_vector"][2][0][:, None, :])
+        f_in["1"].append(geom_s["bond_vector"][2][1][:, None, :])
         f_in["1"].append(geom_s["sc_vector"])
         f_in["1"] = torch.as_tensor(torch.stack(f_in["1"], axis=1), dtype=dtype)  # 4
         #
@@ -358,12 +358,15 @@ def get_backbone_angles(R):
 
 
 def main():
-    pdb = Martini("martini/1ab1_A.pdb")
-    print(pdb.MAX_BEAD)
-    return
-    r_cg = torch.as_tensor(pdb.R_cg[0], dtype=DTYPE)
-    pos = r_cg[pdb.atom_mask_cg > 0.0, :]
-    pdb.get_geometry(pos, pdb.continuous[0])
+    pdb0 = CalphaBasedModel("pdb.6k/1a34.pdb")
+    pdb = CalphaBasedModel("pdb.6k/cg/1a34/1a34.min_010.pdb", check_validity=False)
+    print(pdb0.R_cg.shape, pdb.R_cg.shape)
+    # pdb = Martini("martini/1ab1_A.pdb")
+    # print(pdb.MAX_BEAD)
+    # return
+    # r_cg = torch.as_tensor(pdb.R_cg[0], dtype=DTYPE)
+    # pos = r_cg[pdb.atom_mask_cg > 0.0, :]
+    # pdb.get_geometry(pos, pdb.continuous[0])
 
 
 if __name__ == "__main__":
