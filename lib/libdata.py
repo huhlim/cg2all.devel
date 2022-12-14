@@ -6,7 +6,9 @@ import random
 import numpy as np
 import pathlib
 import mdtraj
+import functools
 from typing import List
+
 import warnings
 
 warnings.filterwarnings("ignore")
@@ -20,7 +22,13 @@ import dgl
 import libcg
 from libconfig import BASE, DTYPE
 from torch_basics import v_norm, v_size
-from residue_constants import AMINO_ACID_s, AMINO_ACID_REV_s, residue_s, ATOM_INDEX_CA
+from residue_constants import (
+    AMINO_ACID_s,
+    AMINO_ACID_REV_s,
+    residue_s,
+    ATOM_INDEX_CA,
+    read_martini_topology,
+)
 
 torch.multiprocessing.set_sharing_strategy("file_system")
 
@@ -58,7 +66,12 @@ class PDBset(Dataset):
         self.self_loop = self_loop
         self.augment = augment
         self.min_cg = min_cg
-        self.use_pt = use_pt
+        #
+        if use_pt is not None and use_pt.startswith("mixed"):
+            mixed_s = {"mixed_0": ["CA_aug_min+FLIP", "min_100", "min_010", "min_001"]}
+            self.use_pt = mixed_s[use_pt]
+        else:
+            self.use_pt = use_pt
         self.crop = crop
         #
         self.use_md = use_md
@@ -84,6 +97,10 @@ class PDBset(Dataset):
             #
             if pt_fn.exists():
                 data = torch.load(pt_fn)
+                # temporary
+                if "bfactors" in data.ndata:
+                    del data.ndata["bfactors"]
+                    torch.save(data, pt_fn)
                 if self.crop > 0:
                     return self.get_subgraph(data)
                 else:
@@ -117,18 +134,19 @@ class PDBset(Dataset):
         else:
             r_cg = torch.as_tensor(cg.R_cg[0], dtype=self.dtype)
         #
-        pos = r_cg[cg.atom_mask_cg > 0.0, :]
-        geom_s = cg.get_geometry(pos, cg.continuous[0])
+        valid_residue = cg.atom_mask_cg[:, 0] > 0.0
+        pos = r_cg[valid_residue, :]
+        geom_s = cg.get_geometry(pos, cg.atom_mask_cg, cg.continuous[0])
         #
         node_feat = cg.geom_to_feature(geom_s, cg.continuous, dtype=self.dtype)
-        data = dgl.radius_graph(pos, self.radius, self_loop=self.self_loop)
-        data.ndata["pos"] = pos
-        data.ndata["pos0"] = pos.clone()
+        data = dgl.radius_graph(pos[:, 0], self.radius, self_loop=self.self_loop)
+        data.ndata["pos"] = pos[:, 0]
+        data.ndata["pos0"] = pos[:, 0].clone()
         data.ndata["node_feat_0"] = node_feat["0"][..., None]  # shape=(N, 16, 1)
         data.ndata["node_feat_1"] = node_feat["1"]  # shape=(N, 4, 3)
         #
         edge_src, edge_dst = data.edges()
-        data.edata["rel_pos"] = pos[edge_dst] - pos[edge_src]
+        data.edata["rel_pos"] = pos[edge_dst, 0] - pos[edge_src, 0]
         #
         data.ndata["chain_index"] = torch.as_tensor(cg.chain_index, dtype=torch.long)
         data.ndata["residue_type"] = torch.as_tensor(cg.residue_index, dtype=torch.long)
@@ -295,69 +313,74 @@ def create_trajectory_from_batch(
 
 def test():
     base_dir = BASE / "pdb.6k"
-    pdblist = base_dir / "targets.train"
+    pdblist = "set/targets.pdb.6k"
     cg_model = libcg.CalphaBasedModel
     #
     train_set = PDBset(
         base_dir,
         pdblist,
         cg_model,
-        augment=True,
-        # use_pt="CA_oh",
+        augment="augment_min+FLIP",
+        use_pt="CA_aug_min+FLIP",
     )
-
-    pdb_id = "3eyi"
-    index = train_set.pdb_s.index(pdb_id)
-    data = train_set[index]
-    print(data.ndata["node_feat_0"].size())
-    print(data.ndata["node_feat_1"].size())
-    return
-    traj_s, ssbond_s = create_trajectory_from_batch(
-        data, data.ndata["output_xyz"], write_native=True
-    )
-
-    ssbond_s = []
-    for cys_i, cys_j in enumerate(data.ndata["ssbond_index"].cpu().detach().numpy()):
-        if cys_j == -1:
-            continue
-        ssbond_s.append((cys_j, cys_i))
-    ssbond_s.sort()
-    #
-    traj = traj_s[0]
-    traj.save("test.pdb")
-    import libpdb
-
-    libpdb.write_SSBOND("test.pdb", traj.top, ssbond_s)
+    print(train_set[0].ndata["pos"][0])
+    print(train_set[0].ndata["pos"][0])
+    print(train_set[0].ndata["pos"][0])
+    print(train_set[0].ndata["pos"][0])
+    print(train_set[0].ndata["pos"][0])
+    print(train_set[0].ndata["pos"][0])
+    print(train_set[0].ndata["pos"][0])
 
 
 def to_pt():
-    base_dir = BASE / "pdb.29k"
-    pdblist = "set/targets.pdb.29k"
-    cg_model = libcg.ResidueBasedModel
+    base_dir = BASE / "pdb.6k"
+    pdblist = "set/targets.pdb.6k"
     #
-    for use_pt, augment in [
-        ("Res", ""),
-        # ("CA", ""),
-        # ("CA_aug+FLIP", "augment+FLIP"),
-        # ("CA_aug_min+FLIP", "augment_min+FLIP"),
-        # ("CA_aug", "augment"),
-        # ("CA_aug_min", "augment_min"),
-    ]:
-        train_set = PDBset(
-            base_dir,
-            pdblist,
-            cg_model,
-            use_pt=use_pt,
-            augment=augment,
-            # use_md=True,
-            # n_frame=10,
-        )
-        #
-        train_loader = dgl.dataloading.GraphDataLoader(
-            train_set, batch_size=8, shuffle=False, num_workers=16
-        )
-        for _ in tqdm.tqdm(train_loader, desc=use_pt):
-            pass
+    topology_file = read_martini_topology()
+    cg_model = functools.partial(libcg.Martini, martini_top=topology_file)
+    #
+    augment = ""
+    use_pt = "Martini"
+    #
+    # cg_model = libcg.ResidueBasedModel
+    use_pt = None
+    train_set = PDBset(
+        base_dir,
+        pdblist,
+        cg_model,
+        use_pt=use_pt,
+        augment=augment,
+    )
+    #
+    train_loader = dgl.dataloading.GraphDataLoader(
+        train_set, batch_size=8, shuffle=False, num_workers=16
+    )
+    batch = next(iter(train_loader))
+    print(batch)
+    return
+    for _ in tqdm.tqdm(train_loader, desc=use_pt):
+        pass
+    # for use_pt, min_cg in [
+    #     ("CA_aug+min_100", "min_100"),
+    #     ("CA_aug+min_010", "min_010"),
+    #     ("CA_aug+min_001", "min_001"),
+    # ]:
+    #     train_set = PDBset(
+    #         base_dir,
+    #         pdblist,
+    #         cg_model,
+    #         use_pt=use_pt,
+    #         min_cg=min_cg,
+    #         augment=augment,
+    #         # use_md=True,
+    #         # n_frame=10,
+    #     )
+    #     #
+    #     train_loader = dgl.dataloading.GraphDataLoader(
+    #         train_set, batch_size=8, shuffle=False, num_workers=16
+    #     )
+    #     for _ in tqdm.tqdm(train_loader, desc=use_pt):
+    #         pass
 
 
 if __name__ == "__main__":

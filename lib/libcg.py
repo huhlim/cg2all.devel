@@ -5,7 +5,7 @@ import numpy as np
 import torch
 import dgl
 
-from libconfig import DTYPE
+from libconfig import DTYPE, EPS
 from libpdb import PDB
 from sklearn.decomposition import PCA
 from torch_basics import v_size, inner_product, torsion_angle, one_hot_encoding, acos_safe
@@ -34,8 +34,8 @@ class ResidueBasedModel(PDB):
         self.top_cg = self.top.subset(self.top.select("name CA"))
         self.bead_index = self.residue_index[:, None]  # deprecated
         #
-        self.R_cg = np.zeros((self.n_frame, self.n_residue, 1, 3))
-        self.atom_mask_cg = np.zeros((self.n_residue, 1), dtype=float)
+        # self.R_cg = np.zeros((self.n_frame, self.n_residue, 1, 3))
+        # self.atom_mask_cg = np.zeros((self.n_residue, 1), dtype=float)
         #
         mass_weighted_R = self.R * self.atomic_mass[None, ..., None]
         R_cg = mass_weighted_R.sum(axis=-2) / self.atomic_mass.sum(axis=-1)[None, ..., None]
@@ -61,8 +61,9 @@ class ResidueBasedModel(PDB):
             traj.save(dcd_fn)
 
     @staticmethod
-    def get_geometry(r: torch.Tensor, continuous: torch.Tensor):
-        device = r.device
+    def get_geometry(_r: torch.Tensor, _mask: torch.Tensor, continuous: torch.Tensor):
+        device = _r.device
+        r = _r[:, 0]
         #
         not_defined = continuous == 0.0
         geom_s = {}
@@ -324,7 +325,7 @@ class Martini(PDB):
         f_in["1"].append(geom_s["bond_vector"][2][0][:, None, :])
         f_in["1"].append(geom_s["bond_vector"][2][1][:, None, :])
         f_in["1"].append(geom_s["sc_vector"])
-        f_in["1"] = torch.as_tensor(torch.stack(f_in["1"], axis=1), dtype=dtype)  # 4
+        f_in["1"] = torch.as_tensor(torch.cat(f_in["1"], axis=1), dtype=dtype)  # 4
         #
         return f_in
 

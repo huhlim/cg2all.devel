@@ -21,6 +21,7 @@ sys.path.insert(0, LIB_HOME)
 from libdata import PDBset, create_trajectory_from_batch
 from libcg import ResidueBasedModel, CalphaBasedModel, Martini
 from libpdb import write_SSBOND
+from residue_constants import read_martini_topology
 import libmodel
 
 import warnings
@@ -238,7 +239,8 @@ def main():
     elif config["cg_model"] == "ResidueBasedModel":
         cg_model = ResidueBasedModel
     elif config["cg_model"] == "Martini":
-        cg_model = Martini
+        topology_file = read_martini_topology()
+        cg_model = functools.partial(Martini, martini_top=topology_file)
     config = libmodel.set_model_config(config, cg_model)
     #
     overfit = arg.overfit_batches > 0
