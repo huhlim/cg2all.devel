@@ -6,7 +6,6 @@ import random
 import numpy as np
 import pathlib
 import mdtraj
-import functools
 from typing import List
 
 import warnings
@@ -39,6 +38,7 @@ class PDBset(Dataset):
         basedir: str,
         pdblist: List[str],
         cg_model,
+        topology_file=None,
         radius=1.0,
         self_loop=False,
         augment="",
@@ -62,6 +62,7 @@ class PDBset(Dataset):
         #
         self.n_pdb = len(self.pdb_s)
         self.cg_model = cg_model
+        self.topology_file = topology_file
         self.radius = radius
         self.self_loop = self_loop
         self.augment = augment
@@ -79,6 +80,12 @@ class PDBset(Dataset):
 
     def __len__(self):
         return self.n_pdb * self.n_frame
+
+    def pdb_to_cg(self, *arg, **argv):
+        if self.topology_file is None:
+            return self.cg_model(*arg, **argv)
+        else:
+            return self.cg_model(*arg, **argv, martini_top=self.topology_file)
 
     def __getitem__(self, index):
         pdb_index = index // self.n_frame
@@ -109,15 +116,15 @@ class PDBset(Dataset):
         pdb_fn = self.basedir / f"{pdb_id}.pdb"
         if self.use_md:
             dcd_fn = self.basedir / f"{pdb_id}.dcd"
-            cg = self.cg_model(pdb_fn, dcd_fn=dcd_fn, frame_index=frame_index)
+            cg = self.pdb_to_cg(pdb_fn, dcd_fn=dcd_fn, frame_index=frame_index)
         else:
-            cg = self.cg_model(pdb_fn)
+            cg = self.pdb_to_cg(pdb_fn)
         cg.get_structure_information()
         #
         if self.augment != "":
             pdb_fn_aug = self.basedir / f"{self.augment}/{pdb_id}.pdb"
             if pdb_fn_aug.exists():
-                cg_aug = self.cg_model(pdb_fn_aug)
+                cg_aug = self.pdb_to_cg(pdb_fn_aug)
                 cg_aug.get_structure_information()
                 self.augment_torsion(cg, cg_aug)
             else:
@@ -126,7 +133,7 @@ class PDBset(Dataset):
         if self.min_cg != "":
             pdb_fn_cg = self.basedir / f"cg/{pdb_id}/{pdb_id}.{self.min_cg}.pdb"
             if pdb_fn_cg.exists():
-                cg_min = self.cg_model(pdb_fn_cg, check_validity=False)
+                cg_min = self.pdb_to_cg(pdb_fn_cg, check_validity=False)
                 assert cg_min.R_cg[0].shape == cg.R_cg[0].shape
                 r_cg = torch.as_tensor(cg_min.R_cg[0], dtype=self.dtype)
             else:
@@ -141,7 +148,6 @@ class PDBset(Dataset):
         node_feat = cg.geom_to_feature(geom_s, cg.continuous, dtype=self.dtype)
         data = dgl.radius_graph(pos[:, 0], self.radius, self_loop=self.self_loop)
         data.ndata["pos"] = pos[:, 0]
-        data.ndata["pos0"] = pos[:, 0].clone()
         data.ndata["node_feat_0"] = node_feat["0"][..., None]  # shape=(N, 16, 1)
         data.ndata["node_feat_1"] = node_feat["1"]  # shape=(N, 4, 3)
         #
@@ -311,6 +317,103 @@ def create_trajectory_from_batch(
     return traj_s, ssbond_s
 
 
+class PredictionData(Dataset):
+    def __init__(
+        self,
+        pdb_fn,
+        cg_model,
+        dcd_fn=None,
+        topology_file=None,
+        radius=1.0,
+        self_loop=False,
+        dtype=DTYPE,
+    ):
+        super().__init__()
+        #
+        self.pdb_fn = pdb_fn
+        self.dcd_fn = dcd_fn
+        #
+        self.cg_model = cg_model
+        self.topology_file = topology_file
+        #
+        self.radius = radius
+        self.self_loop = self_loop
+        self.dtype = dtype
+        #
+        if self.dcd_fn is None:
+            self.n_frame = 1
+        else:
+            self.n_frame = mdtraj.load(self.dcd_fn, top=self.pdb_fn, atom_indices=[0]).n_frames
+
+    def __len__(self):
+        return self.n_frame
+
+    def pdb_to_cg(self, *arg, **argv):
+        if self.topology_file is None:
+            return self.cg_model(
+                *arg, **argv, is_all=False
+            )
+        else:
+            return self.cg_model(
+                *arg,
+                **argv,
+                is_all=False,
+                martini_top=self.topology_file,
+            )
+
+    def __getitem__(self, index):
+        if self.dcd_fn is None:
+            cg = self.pdb_to_cg(self.pdb_fn)
+        else:
+            cg = self.pdb_to_cg(self.pdb_fn, dcd_fn=self.dcd_fn, frame_index=index)
+        #
+        r_cg = torch.as_tensor(cg.R_cg[0], dtype=self.dtype)
+        #
+        valid_residue = cg.atom_mask_cg[:, 0] > 0.0
+        pos = r_cg[valid_residue, :]
+        geom_s = cg.get_geometry(pos, cg.atom_mask_cg, cg.continuous[0])
+        #
+        node_feat = cg.geom_to_feature(geom_s, cg.continuous, dtype=self.dtype)
+        data = dgl.radius_graph(pos[:, 0], self.radius, self_loop=self.self_loop)
+        data.ndata["pos"] = pos[:, 0]
+        data.ndata["node_feat_0"] = node_feat["0"][..., None]  # shape=(N, 16, 1)
+        data.ndata["node_feat_1"] = node_feat["1"]  # shape=(N, 4, 3)
+        #
+        edge_src, edge_dst = data.edges()
+        data.edata["rel_pos"] = pos[edge_dst, 0] - pos[edge_src, 0]
+        #
+        data.ndata["chain_index"] = torch.as_tensor(cg.chain_index, dtype=torch.long)
+        data.ndata["residue_type"] = torch.as_tensor(cg.residue_index, dtype=torch.long)
+        data.ndata["continuous"] = torch.as_tensor(cg.continuous[0], dtype=self.dtype)
+        data.ndata["output_atom_mask"] = torch.as_tensor(cg.atom_mask, dtype=self.dtype)
+        #
+        ssbond_index = torch.full((data.num_nodes(),), -1, dtype=torch.long)
+        for cys_i, cys_j in cg.ssbond_s:
+            if cys_i < cys_j:  # because of loss_f_atomic_clash
+                ssbond_index[cys_j] = cys_i
+            else:
+                ssbond_index[cys_i] = cys_j
+        data.ndata["ssbond_index"] = ssbond_index
+        #
+        edge_feat = torch.zeros((data.num_edges(), 3), dtype=self.dtype)  # bonded / ssbond / space
+        for i, cont in enumerate(cg.continuous[0]):
+            if cont and data.has_edges_between(i - 1, i):  # i-1 and i is connected
+                eid = data.edge_ids(i - 1, i)
+                edge_feat[eid, 0] = 1.0
+                eid = data.edge_ids(i, i - 1)
+                edge_feat[eid, 0] = 1.0
+        for cys_i, cys_j in cg.ssbond_s:
+            if data.has_edges_between(cys_i, cys_j):
+                eid = data.edge_ids(cys_i, cys_j)
+                edge_feat[eid, 1] = 1.0
+                eid = data.edge_ids(cys_j, cys_i)
+                edge_feat[eid, 1] = 1.0
+        edge_feat[edge_feat.sum(dim=-1) == 0.0, 2] = 1.0
+        data.edata["edge_feat_0"] = edge_feat[..., None]
+
+        return data
+
+
 def test():
     base_dir = BASE / "pdb.6k"
     pdblist = "set/targets.pdb.6k"
@@ -332,32 +435,37 @@ def test():
     print(train_set[0].ndata["pos"][0])
 
 
+def pred():
+    pdb_fn = "baseline/calpha/1a2z.pdb"
+
+    input = PredictionData(pdb_fn, cg_model=libcg.CalphaBasedModel)[0]
+    print(input.ndata["continuous"])
+
+
 def to_pt():
     base_dir = BASE / "pdb.6k"
     pdblist = "set/targets.pdb.6k"
     #
+    cg_model = libcg.Martini
     topology_file = read_martini_topology()
-    cg_model = functools.partial(libcg.Martini, martini_top=topology_file)
     #
     augment = ""
-    use_pt = "Martini"
+    use_pt = None  # "Martini"
     #
-    # cg_model = libcg.ResidueBasedModel
-    use_pt = None
     train_set = PDBset(
         base_dir,
         pdblist,
         cg_model,
+        topology_file=topology_file,
         use_pt=use_pt,
         augment=augment,
     )
+    train_set[0]
+    return
     #
     train_loader = dgl.dataloading.GraphDataLoader(
         train_set, batch_size=8, shuffle=False, num_workers=16
     )
-    batch = next(iter(train_loader))
-    print(batch)
-    return
     for _ in tqdm.tqdm(train_loader, desc=use_pt):
         pass
     # for use_pt, min_cg in [
@@ -384,5 +492,6 @@ def to_pt():
 
 
 if __name__ == "__main__":
-    to_pt()
+    # to_pt()
     # test()
+    pred()

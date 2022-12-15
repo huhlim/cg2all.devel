@@ -466,7 +466,9 @@ class Model(nn.Module):
                 RIGID_OPs=self.RIGID_OPs,
                 TORSION_PARs=self.TORSION_PARs,
             )
-        metrics = self.calc_metrics(batch, ret)
+            metrics = self.calc_metrics(batch, ret)
+        else:
+            metrics = {}
         #
         return ret, loss, metrics
 

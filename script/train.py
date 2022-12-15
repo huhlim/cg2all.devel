@@ -236,11 +236,13 @@ def main():
     config["cg_model"] = config.get("cg_model", arg.cg_model)
     if config["cg_model"] == "CalphaBasedModel":
         cg_model = CalphaBasedModel
+        topology_file=None
     elif config["cg_model"] == "ResidueBasedModel":
         cg_model = ResidueBasedModel
+        topology_file=None
     elif config["cg_model"] == "Martini":
         topology_file = read_martini_topology()
-        cg_model = functools.partial(Martini, martini_top=topology_file)
+        cg_model = Martini
     config = libmodel.set_model_config(config, cg_model)
     #
     overfit = arg.overfit_batches > 0
@@ -266,6 +268,7 @@ def main():
     _PDBset = functools.partial(
         PDBset,
         cg_model=cg_model,
+        topology_file=topology_file,
         radius=config.globals.radius,
         use_pt=config.train.get("use_pt", "CA"),
         min_cg=config.train.get("min_cg", ""),

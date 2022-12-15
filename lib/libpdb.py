@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 
-# %%
 # load modules
 import sys
 import numpy as np
@@ -12,9 +11,9 @@ from residue_constants import *
 
 np.set_printoptions(suppress=True)
 
-# %%
+
 class PDB(object):
-    def __init__(self, pdb_fn, dcd_fn=None, stride=1, frame_index=None, **kwarg):
+    def __init__(self, pdb_fn, dcd_fn=None, stride=1, frame_index=None, is_all=True, **kwarg):
         self.pdb_name = str(pdb_fn).split("/")[-1][:-4]
 
         # read protein
@@ -32,9 +31,9 @@ class PDB(object):
                 traj = mdtraj.load_frame(
                     dcd_fn, frame_index, top=pdb.top, atom_indices=load_index, stride=stride
                 )
-        self.process(traj, pdb_fn, **kwarg)
+        self.process(traj, pdb_fn, is_all=is_all, **kwarg)
 
-    def process(self, traj, pdb_fn, check_validity=True, compute_dssp=True):
+    def process(self, traj, pdb_fn, is_all=True, check_validity=True, compute_dssp=True):
         self.traj = traj
         self.top = traj.top
         #
@@ -46,7 +45,7 @@ class PDB(object):
         self.residue_name = []
         self.residue_index = np.zeros(self.n_residue, dtype=int)
         #
-        if compute_dssp:
+        if compute_dssp and is_all:
             ss = mdtraj.compute_dssp(traj, simplified=True)
             self.ss = np.zeros_like(ss, dtype=int)
             for i, s in enumerate(SECONDARY_STRUCTURE_s):
@@ -54,7 +53,9 @@ class PDB(object):
         else:
             self.ss = np.zeros((self.n_frame, self.n_residue), dtype=int)
         #
-        self.detect_ssbond(pdb_fn)
+        self.detect_ssbond(pdb_fn, is_all=is_all)
+        if not is_all:
+            return
         #
         self.to_atom()
         self.get_continuity()
@@ -70,7 +71,7 @@ class PDB(object):
             traj_valid.bfactors = traj.bfactors[:, valid_index]
             self.process(traj_valid, pdb_fn)
 
-    def detect_ssbond(self, pdb_fn):
+    def detect_ssbond(self, pdb_fn, is_all=True):
         chain_s = []
         ssbond_from_pdb = []
         with open(pdb_fn) as fp:
@@ -94,21 +95,26 @@ class PDB(object):
             R = []
             for chain_id, resSeq in cys_s:
                 chain_index = chain_s.index(chain_id)
+                #
                 if resSeq[-1] in INSCODEs:
-                    index = self.top.select(
-                        f"chainid {chain_index} and resSeq '{resSeq}' and name SG"
-                    )
+                    selection = f"chainid {chain_index} and resSeq '{resSeq}'"
                 else:
-                    index = self.top.select(
-                        f"chainid {chain_index} and resSeq {resSeq} and name SG"
-                    )
-                if index.shape[0] == 1:
+                    selection = f"chainid {chain_index} and resSeq {resSeq}"
+                if is_all:
+                    selection = f"{selection} and name SG"
+                index = self.top.select(selection)
+                #
+                if is_all:
+                    if index.shape[0] == 1:
+                        residue_index.append(self.top.atom(index[0]).residue.index)
+                        R.append(self.traj.xyz[:, index[0]])
+                else:
                     residue_index.append(self.top.atom(index[0]).residue.index)
-                    R.append(self.traj.xyz[:, index[0]])
             residue_index = sorted(residue_index)
+            #
             if len(residue_index) == 2 and residue_index not in ssbond_s:
                 dist = np.linalg.norm(R[1] - R[0], axis=-1)
-                if np.any(dist > 1.0):
+                if is_all and np.any(dist > 1.0):
                     sys.stderr.write(
                         f"WARNING: invalid SSBOND distance between "
                         f"{cys_s[0][0]} {cys_s[0][1]} and {cys_s[1][0]} {cys_s[1][1]} "
@@ -452,8 +458,3 @@ if __name__ == "__main__":
     pdb = PDB("pdb.processed/1ab1_A.pdb")
     pdb.get_structure_information()
     generate_structure_from_bb_and_torsion(pdb.residue_index, pdb.ss, pdb.bb, pdb.torsion)
-    #
-    # job = "../dyna/run/1a2p_B"
-    # pdb = PDB(f"{job}/init/solute.pdb", dcd_fn=f"{job}/prod/0/0/solute.dcd")
-
-# %%

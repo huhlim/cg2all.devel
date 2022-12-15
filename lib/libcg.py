@@ -8,9 +8,14 @@ import dgl
 from libconfig import DTYPE, EPS
 from libpdb import PDB
 from sklearn.decomposition import PCA
+import numpy_basics
 from torch_basics import v_size, inner_product, torsion_angle, one_hot_encoding, acos_safe
 from residue_constants import (
     MAX_RESIDUE_TYPE,
+    AMINO_ACID_s,
+    AMINO_ACID_ALT_s,
+    residue_s,
+    MAX_ATOM,
     ATOM_INDEX_CA,
     ATOM_INDEX_N,
     ATOM_INDEX_C,
@@ -25,17 +30,69 @@ class ResidueBasedModel(PDB):
     n_edge_scalar = 3
     n_edge_vector = 0
 
-    def __init__(self, pdb_fn, dcd_fn=None, **kwarg):
-        super().__init__(pdb_fn, dcd_fn, **kwarg)
+    def __init__(self, pdb_fn, dcd_fn=None, is_all=True, **kwarg):
+        super().__init__(pdb_fn, dcd_fn, is_all=is_all, **kwarg)
         self.max_bead_type = MAX_RESIDUE_TYPE
-        self.convert_to_cg()
+        if is_all:
+            self.convert_to_cg()
+        else:
+            self.read_cg()
+            self.get_continuity()
+
+    def read_cg(self):
+        if len(self.ssbond_s) > 0:
+            ssbond_s = np.concatenate(self.ssbond_s, dtype=int)
+        else:
+            ssbond_s = []
+        #
+        self.R_cg = np.zeros((self.n_frame, self.n_residue, 1, 3))
+        self.atom_mask = np.zeros((self.n_residue, MAX_ATOM), dtype=float)
+        self.atom_mask_cg = np.zeros((self.n_residue, 1), dtype=float)
+        #
+        for residue in self.top.residues:
+            i_res = residue.index
+            if residue.name == "HIS":
+                residue_name = np.random.choice(["HSD", "HSE"], p=[0.5, 0.5])
+                residue.name = residue_name
+            else:
+                residue_name = AMINO_ACID_ALT_s.get(residue.name, residue.name)
+            if residue_name not in AMINO_ACID_s:
+                residue_name = "UNK"
+            #
+            self.residue_name.append(residue_name)
+            self.residue_index[i_res] = AMINO_ACID_s.index(residue_name)
+            if residue_name == "UNK":
+                continue
+            ref_res = residue_s[residue_name]
+            n_atom = len(ref_res.atom_s)
+            self.atom_mask[i_res, :n_atom] = 1.0
+            #
+            for atom in residue.atoms:
+                self.R_cg[:, i_res, 0] = self.traj.xyz[:, atom.index]
+                self.atom_mask_cg[i_res, 0] = 1.0
+            #
+            if i_res in ssbond_s:
+                HG1_index = ref_res.atom_s.index("HG1")
+                self.atom_mask[i_res, HG1_index] = 0.0
+
+    def get_continuity(self):
+        self.continuous = np.zeros((2, self.n_residue), dtype=bool)  # prev / next
+        #
+        # different chains
+        same_chain = self.chain_index[1:] == self.chain_index[:-1]
+        self.continuous[0, 1:] = same_chain
+        self.continuous[1, :-1] = same_chain
+
+        # chain breaks
+        dr = self.R_cg[:, 1:, 0] - self.R_cg[:, :-1, 0]
+        d = numpy_basics.v_size(dr).mean(axis=0)
+        chain_breaks = d > 0.5  # hard-coded
+        self.continuous[0, 1:][chain_breaks] = False
+        self.continuous[1, :-1][chain_breaks] = False
 
     def convert_to_cg(self):
         self.top_cg = self.top.subset(self.top.select("name CA"))
         self.bead_index = self.residue_index[:, None]  # deprecated
-        #
-        # self.R_cg = np.zeros((self.n_frame, self.n_residue, 1, 3))
-        # self.atom_mask_cg = np.zeros((self.n_residue, 1), dtype=float)
         #
         mass_weighted_R = self.R * self.atomic_mass[None, ..., None]
         R_cg = mass_weighted_R.sum(axis=-2) / self.atomic_mass.sum(axis=-1)[None, ..., None]
@@ -177,11 +234,66 @@ class Martini(PDB):
     n_edge_scalar = 3
     n_edge_vector = 0
 
-    def __init__(self, pdb_fn, dcd_fn=None, martini_top=None):
-        assert martini_top is not None
+    def __init__(self, pdb_fn, dcd_fn=None, is_all=True, martini_top=None, **kwarg):
+        super().__init__(pdb_fn, dcd_fn, is_all=is_all, **kwarg)
+        if is_all:
+            assert martini_top is not None
+            self.convert_to_cg(martini_top)
+        else:
+            self.read_cg()
+            self.get_continuity()
+
+    def read_cg(self):
+        if len(self.ssbond_s) > 0:
+            ssbond_s = np.concatenate(self.ssbond_s, dtype=int)
+        else:
+            ssbond_s = []
         #
-        super().__init__(pdb_fn, dcd_fn)
-        self.convert_to_cg(martini_top)
+        self.R_cg = np.zeros((self.n_frame, self.n_residue, 1, 3))
+        self.atom_mask = np.zeros((self.n_residue, MAX_ATOM), dtype=float)
+        self.atom_mask_cg = np.zeros((self.n_residue, 1), dtype=float)
+        #
+        for residue in self.top.residues:
+            i_res = residue.index
+            if residue.name == "HIS":
+                residue_name = np.random.choice(["HSD", "HSE"], p=[0.5, 0.5])
+                residue.name = residue_name
+            else:
+                residue_name = AMINO_ACID_ALT_s.get(residue.name, residue.name)
+            if residue_name not in AMINO_ACID_s:
+                residue_name = "UNK"
+            #
+            self.residue_name.append(residue_name)
+            self.residue_index[i_res] = AMINO_ACID_s.index(residue_name)
+            if residue_name == "UNK":
+                continue
+            ref_res = residue_s[residue_name]
+            n_atom = len(ref_res.atom_s)
+            self.atom_mask[i_res, :n_atom] = 1.0
+            #
+            for atom in residue.atoms:
+                i_atm = ["BB", "SC1", "SC2", "SC3", "SC4"].index(atom.name)
+                self.R_cg[:, i_res, i_atm] = self.traj.xyz[:, atom.index]
+                self.atom_mask_cg[i_res, i_atm] = 1.0
+            #
+            if i_res in ssbond_s:
+                HG1_index = ref_res.atom_s.index("HG1")
+                self.atom_mask[i_res, HG1_index] = 0.0
+
+    def get_continuity(self):
+        self.continuous = np.zeros((2, self.n_residue), dtype=bool)  # prev / next
+        #
+        # different chains
+        same_chain = self.chain_index[1:] == self.chain_index[:-1]
+        self.continuous[0, 1:] = same_chain
+        self.continuous[1, :-1] = same_chain
+
+        # chain breaks
+        dr = self.R_cg[:, 1:, 0] - self.R_cg[:, :-1, 0]
+        d = numpy_basics.v_size(dr).mean(axis=0)
+        chain_breaks = d > 0.5  # hard-coded
+        self.continuous[0, 1:][chain_breaks] = False
+        self.continuous[1, :-1][chain_breaks] = False
 
     def create_top_cg(self, martini_top):
         top = self.top.subset(self.top.select("name CA"))
@@ -359,9 +471,10 @@ def get_backbone_angles(R):
 
 
 def main():
-    pdb0 = CalphaBasedModel("pdb.6k/1a34.pdb")
-    pdb = CalphaBasedModel("pdb.6k/cg/1a34/1a34.min_010.pdb", check_validity=False)
-    print(pdb0.R_cg.shape, pdb.R_cg.shape)
+    cg = ResidueBasedModel("baseline/calpha/1a2z.pdb", is_all=False)
+    # pdb0 = CalphaBasedModel("pdb.6k/1a34.pdb")
+    # pdb = CalphaBasedModel("pdb.6k/cg/1a34/1a34.min_010.pdb", check_validity=False)
+    # print(pdb0.R_cg.shape, pdb.R_cg.shape)
     # pdb = Martini("martini/1ab1_A.pdb")
     # print(pdb.MAX_BEAD)
     # return
