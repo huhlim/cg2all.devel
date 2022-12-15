@@ -37,7 +37,6 @@ class Model(pl.LightningModule):
     def __init__(self, _config={}, cg_model=CalphaBasedModel, compute_loss=False, memcheck=False):
         super().__init__()
         self._config = _config
-        self.save_hyperparameters(_config.to_dict())
         self.model = libmodel.Model(_config, cg_model, compute_loss=compute_loss)
         self.memcheck = memcheck
 
@@ -52,6 +51,7 @@ class Model(pl.LightningModule):
         return self.model.forward(batch)
 
     def on_fit_start(self):
+        self.save_hyperparameters(self._config.to_dict())
         self.model.set_constant_tensors(self.device, dtype=self.dtype)
 
     def on_test_start(self):
@@ -236,10 +236,10 @@ def main():
     config["cg_model"] = config.get("cg_model", arg.cg_model)
     if config["cg_model"] == "CalphaBasedModel":
         cg_model = CalphaBasedModel
-        topology_file=None
+        topology_file = None
     elif config["cg_model"] == "ResidueBasedModel":
         cg_model = ResidueBasedModel
-        topology_file=None
+        topology_file = None
     elif config["cg_model"] == "Martini":
         topology_file = read_martini_topology()
         cg_model = Martini

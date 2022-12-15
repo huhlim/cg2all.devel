@@ -323,7 +323,6 @@ class PredictionData(Dataset):
         pdb_fn,
         cg_model,
         dcd_fn=None,
-        topology_file=None,
         radius=1.0,
         self_loop=False,
         dtype=DTYPE,
@@ -334,7 +333,6 @@ class PredictionData(Dataset):
         self.dcd_fn = dcd_fn
         #
         self.cg_model = cg_model
-        self.topology_file = topology_file
         #
         self.radius = radius
         self.self_loop = self_loop
@@ -349,17 +347,7 @@ class PredictionData(Dataset):
         return self.n_frame
 
     def pdb_to_cg(self, *arg, **argv):
-        if self.topology_file is None:
-            return self.cg_model(
-                *arg, **argv, is_all=False
-            )
-        else:
-            return self.cg_model(
-                *arg,
-                **argv,
-                is_all=False,
-                martini_top=self.topology_file,
-            )
+        return self.cg_model(*arg, **argv, is_all=False)
 
     def __getitem__(self, index):
         if self.dcd_fn is None:
