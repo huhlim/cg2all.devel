@@ -74,16 +74,16 @@ def main():
     #
     if arg.in_dcd_fn is None:
         t0 = time.time()
-        torch.save(input_s[0], "test.pt")
         batch = input_s[0].to(device)
         timing["loading_input"] += time.time() - t0
         #
         t0 = time.time()
-        R = model.forward(batch)[0]["R"]
+        with torch.no_grad():
+            R = model.forward(batch)[0]["R"]
         timing["forward_pass"] = time.time() - t0
         #
         timing["writing_output"] = time.time()
-        traj_s, ssbond_s = create_trajectory_from_batch(input_s[0], R)
+        traj_s, ssbond_s = create_trajectory_from_batch(batch, R)
         traj_s[0].save(arg.out_fn)
         if len(ssbond_s[0]) > 0:
             write_SSBOND(arg.out_fn, traj_s[0].top, ssbond_s[0])
@@ -96,8 +96,9 @@ def main():
             timing["loading_input"] += time.time() - t0
             #
             t0 = time.time()
-            R = model.forward(batch)[0]["R"].cpu().detach().numpy()
-            xyz.append(R)
+            with torch.no_grad():
+                R = model.forward(batch)[0]["R"].cpu().detach().numpy()
+                xyz.append(R)
             timing["forward_pass"] = time.time() - t0
         #
         timing["writing_output"] = time.time()
