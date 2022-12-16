@@ -37,7 +37,7 @@ class ResidueBasedModel(PDB):
             self.convert_to_cg()
         else:
             self.read_cg()
-            self.get_continuity()
+            self.get_continuity_cg()
 
     def read_cg(self):
         if len(self.ssbond_s) > 0:
@@ -76,7 +76,7 @@ class ResidueBasedModel(PDB):
                 HG1_index = ref_res.atom_s.index("HG1")
                 self.atom_mask[i_res, HG1_index] = 0.0
 
-    def get_continuity(self):
+    def get_continuity_cg(self):
         self.continuous = np.zeros((2, self.n_residue), dtype=bool)  # prev / next
         #
         # different chains
@@ -242,7 +242,7 @@ class Martini(PDB):
             self.convert_to_cg(martini_top)
         else:
             self.read_cg()
-            self.get_continuity()
+            self.get_continuity_cg()
 
     def read_cg(self):
         if len(self.ssbond_s) > 0:
@@ -281,7 +281,7 @@ class Martini(PDB):
                 HG1_index = ref_res.atom_s.index("HG1")
                 self.atom_mask[i_res, HG1_index] = 0.0
 
-    def get_continuity(self):
+    def get_continuity_cg(self):
         self.continuous = np.zeros((2, self.n_residue), dtype=bool)  # prev / next
         #
         # different chains
