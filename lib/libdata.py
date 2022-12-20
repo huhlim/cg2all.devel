@@ -448,8 +448,6 @@ def to_pt():
         use_pt=use_pt,
         augment=augment,
     )
-    train_set[0]
-    return
     #
     train_loader = dgl.dataloading.GraphDataLoader(
         train_set, batch_size=8, shuffle=False, num_workers=16
@@ -480,6 +478,6 @@ def to_pt():
 
 
 if __name__ == "__main__":
-    # to_pt()
+    to_pt()
     # test()
-    pred()
+    # pred()

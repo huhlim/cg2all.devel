@@ -45,9 +45,9 @@ class ResidueBasedModel(PDB):
         else:
             ssbond_s = []
         #
-        self.R_cg = np.zeros((self.n_frame, self.n_residue, 1, 3))
+        self.R_cg = np.zeros((self.n_frame, self.n_residue, self.MAX_BEAD, 3))
         self.atom_mask = np.zeros((self.n_residue, MAX_ATOM), dtype=float)
-        self.atom_mask_cg = np.zeros((self.n_residue, 1), dtype=float)
+        self.atom_mask_cg = np.zeros((self.n_residue, self.MAX_BEAD), dtype=float)
         #
         for residue in self.top.residues:
             i_res = residue.index
@@ -107,12 +107,13 @@ class ResidueBasedModel(PDB):
         R_cg = (mass_weighted_R.sum(dim=1) / mass.sum(dim=1)[..., None])[..., None, :]
         return R_cg
 
-    def write_cg(self, R, pdb_fn, dcd_fn=None):
+    def write_cg(self, R, pdb_fn=None, dcd_fn=None):
         mask = np.where(self.atom_mask_cg)
         xyz = R[:, mask[0], mask[1], :]
         #
-        traj = mdtraj.Trajectory(xyz[:1], self.top_cg)
-        traj.save(pdb_fn)
+        if pdb_fn is not None:
+            traj = mdtraj.Trajectory(xyz[:1], self.top_cg)
+            traj.save(pdb_fn)
         #
         if dcd_fn is not None:
             traj = mdtraj.Trajectory(xyz, self.top_cg)
@@ -250,9 +251,9 @@ class Martini(PDB):
         else:
             ssbond_s = []
         #
-        self.R_cg = np.zeros((self.n_frame, self.n_residue, 1, 3))
+        self.R_cg = np.zeros((self.n_frame, self.n_residue, self.MAX_BEAD, 3))
         self.atom_mask = np.zeros((self.n_residue, MAX_ATOM), dtype=float)
-        self.atom_mask_cg = np.zeros((self.n_residue, 1), dtype=float)
+        self.atom_mask_cg = np.zeros((self.n_residue, self.MAX_BEAD), dtype=float)
         #
         for residue in self.top.residues:
             i_res = residue.index
@@ -334,12 +335,13 @@ class Martini(PDB):
             self.R_cg[:, i_res] /= np.maximum(EPS, mass_sum[None, :, None])
             self.atom_mask_cg[i_res, mass_sum > EPS] = 1.0
 
-    def write_cg(self, R, pdb_fn, dcd_fn=None):
+    def write_cg(self, R, pdb_fn=None, dcd_fn=None):
         mask = np.where(self.atom_mask_cg)
         xyz = R[:, mask[0], mask[1], :]
         #
-        traj = mdtraj.Trajectory(xyz[:1], self.top_cg)
-        traj.save(pdb_fn)
+        if pdb_fn is not None:
+            traj = mdtraj.Trajectory(xyz[:1], self.top_cg)
+            traj.save(pdb_fn)
         #
         if dcd_fn is not None:
             traj = mdtraj.Trajectory(xyz, self.top_cg)

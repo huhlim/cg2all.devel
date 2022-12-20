@@ -113,13 +113,16 @@ class PDB(object):
             residue_index = sorted(residue_index)
             #
             if len(residue_index) == 2 and residue_index not in ssbond_s:
-                dist = np.linalg.norm(R[1] - R[0], axis=-1)
-                if is_all and np.any(dist > 1.0):
-                    sys.stderr.write(
-                        f"WARNING: invalid SSBOND distance between "
-                        f"{cys_s[0][0]} {cys_s[0][1]} and {cys_s[1][0]} {cys_s[1][1]} "
-                        f"{np.max(dist).round(3)*10.0:6.2f} {self.pdb_name}\n"
-                    )
+                if is_all:
+                    dist = np.linalg.norm(R[1] - R[0], axis=-1)
+                    if np.any(dist > 1.0):
+                        sys.stderr.write(
+                            f"WARNING: invalid SSBOND distance between "
+                            f"{cys_s[0][0]} {cys_s[0][1]} and {cys_s[1][0]} {cys_s[1][1]} "
+                            f"{np.max(dist).round(3)*10.0:6.2f} {self.pdb_name}\n"
+                        )
+                    else:
+                        ssbond_s.append(residue_index)
                 else:
                     ssbond_s.append(residue_index)
         #

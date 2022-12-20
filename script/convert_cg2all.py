@@ -2,18 +2,14 @@
 
 import os
 import sys
-import json
 import time
-import logging
 import pathlib
-import functools
 import argparse
 
 import numpy as np
 
 import torch
 import dgl
-import pytorch_lightning as pl
 
 BASE = pathlib.Path(__file__).parents[1].resolve()
 LIB_HOME = str(BASE / "lib")
@@ -23,7 +19,6 @@ from libdata import PredictionData, create_trajectory_from_batch
 from libcg import ResidueBasedModel, CalphaBasedModel, Martini
 from libpdb import write_SSBOND
 import libmodel
-from train import *
 
 import warnings
 
