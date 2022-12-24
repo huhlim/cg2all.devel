@@ -2,6 +2,7 @@
 
 import os
 import sys
+import json
 import time
 import pathlib
 import argparse
@@ -23,7 +24,6 @@ import libmodel
 import warnings
 
 warnings.filterwarnings("ignore")
-N_PROC = int(os.getenv("OMP_NUM_THREADS", "8"))
 
 
 def main():
@@ -32,6 +32,7 @@ def main():
     arg.add_argument("--dcd", dest="in_dcd_fn", default=None)
     arg.add_argument("-o", "--out", "--output", dest="out_fn", required=True)
     arg.add_argument("--ckpt", dest="ckpt_fn", default=None, required=True)
+    arg.add_argument("--time", dest="time_json", default=None)
     arg = arg.parse_args()
     #
     timing = {}
@@ -101,8 +102,15 @@ def main():
         traj = mdtraj.Trajectory(xyz=np.array(R), top=top)
         traj.save(arg.out_fn)
         timing["writing_output"] = time.time() - timing["writing_output"]
+
+    timing["total"] = 0.0
+    for step, t in timing.items():
+        timing["total"] += t
     #
     print(timing)
+    if arg.time_json is not None:
+        with open(arg.time_json, "wt") as fout:
+            fout.write(json.dumps(timing, indent=2))
 
 
 if __name__ == "__main__":
