@@ -46,11 +46,14 @@ class LinearSE3(nn.Module):
 
     def __init__(self, fiber_in: Fiber, fiber_out: Fiber):
         super().__init__()
-        self.weights = nn.ParameterDict({
-            str(degree_out): nn.Parameter(
-                torch.randn(channels_out, fiber_in[degree_out]) / np.sqrt(fiber_in[degree_out]))
-            for degree_out, channels_out in fiber_out
-        })
+        self.weights = nn.ParameterDict(
+            {
+                str(degree_out): nn.Parameter(
+                    torch.randn(channels_out, fiber_in[degree_out]) / np.sqrt(fiber_in[degree_out])
+                )
+                for degree_out, channels_out in fiber_out
+            }
+        )
 
     def forward(self, features: Dict[str, Tensor], *args, **kwargs) -> Dict[str, Tensor]:
         return {

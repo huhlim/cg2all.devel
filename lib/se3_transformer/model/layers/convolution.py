@@ -93,7 +93,7 @@ class RadialProfile(nn.Module):
         edge_dim: int = 1,
         mid_dim: int = 32,
         use_layer_norm: bool = False,
-        nonlinearity: nn.Module=nn.ReLU(),
+        nonlinearity: nn.Module = nn.ReLU(),
     ):
         """
         :param num_freq:         Number of frequencies
