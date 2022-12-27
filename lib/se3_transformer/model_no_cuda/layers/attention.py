@@ -79,7 +79,9 @@ class AttentionSE3(nn.Module):
             v = value.view(value.shape[0], self.num_heads, -1, value.shape[-1])
             weights = edge_weights * v
             feat_out = dgl.ops.copy_e_sum(graph, weights)
-            feat_out = feat_out.view(feat_out.shape[0], -1, feat_out.shape[-1])  # merge heads
+            feat_out = feat_out.view(
+                feat_out.shape[0], -1, feat_out.shape[-1]
+            )  # merge heads
             out = unfuse_features(feat_out, self.value_fiber.degrees)
         else:
             out = {}
@@ -89,7 +91,9 @@ class AttentionSE3(nn.Module):
                 )
                 weights = edge_weights * v
                 res = dgl.ops.copy_e_sum(graph, weights)
-                out[str(degree)] = res.view(-1, channels, degree_to_dim(degree))  # merge heads
+                out[str(degree)] = res.view(
+                    -1, channels, degree_to_dim(degree)
+                )  # merge heads
 
         return out
 

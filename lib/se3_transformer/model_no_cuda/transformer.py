@@ -61,6 +61,8 @@ def get_populated_edge_features(
     return edge_features
 
 
+# This module contains only first parts of SE3Transformer
+# fiber_in --> fiber_hidden
 class SE3Transformer(nn.Module):
     def __init__(
         self,
@@ -122,6 +124,7 @@ class SE3Transformer(nn.Module):
                     num_heads=num_heads,
                     channels_div=channels_div,
                     use_layer_norm=use_layer_norm,
+                    nonlinearity=nonlinearity,
                     max_degree=self.max_degree,
                     fuse_level=self.fuse_level,
                     low_memory=low_memory,
