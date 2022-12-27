@@ -33,12 +33,16 @@ def main():
     arg.add_argument("-o", "--out", "--output", dest="out_fn", required=True)
     arg.add_argument("--ckpt", dest="ckpt_fn", default=None, required=True)
     arg.add_argument("--time", dest="time_json", default=None)
+    arg.add_argument("--device", dest="device", default=None)
     arg = arg.parse_args()
     #
     timing = {}
     #
     timing["loading_ckpt"] = time.time()
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if arg.device is None:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    else:
+        device = torch.device(arg.device)
     ckpt = torch.load(arg.ckpt_fn, map_location=device)
     config = ckpt["hyper_parameters"]
     timing["loading_ckpt"] = time.time() - timing["loading_ckpt"]
@@ -103,9 +107,10 @@ def main():
         traj.save(arg.out_fn)
         timing["writing_output"] = time.time() - timing["writing_output"]
 
-    timing["total"] = 0.0
+    time_total = 0.0
     for step, t in timing.items():
-        timing["total"] += t
+        time_total += t
+    timing["total"] = time_total
     #
     print(timing)
     if arg.time_json is not None:

@@ -87,7 +87,7 @@ class ResidueBasedModel(PDB):
         # chain breaks
         dr = self.R_cg[:, 1:, 0] - self.R_cg[:, :-1, 0]
         d = numpy_basics.v_size(dr).mean(axis=0)
-        chain_breaks = d > 0.5  # hard-coded
+        chain_breaks = d > 1.0  # hard-coded
         self.continuous[0, 1:][chain_breaks] = False
         self.continuous[1, :-1][chain_breaks] = False
 
