@@ -1,10 +1,9 @@
-# %%
-# load modules
+#!/usr/bin/env python
+
 import numpy as np
 
 EPS = 1e-6
 
-# %%
 # Some basic functions
 v_size = lambda v: np.linalg.norm(v, axis=-1)
 v_norm = lambda v: v / v_size(v)[..., None]
@@ -26,7 +25,7 @@ def v_nonzero(v, index=0):
     return u
 
 
-def v_norm_safe_alt(v, index=0):
+def v_norm_safe_np(v, index=0):
     return v_norm(v_nonzero(v, index=index))
 
 
@@ -45,7 +44,6 @@ def angle_sign(x):
         return -1.0
 
 
-# %%
 # Some geometry functions
 def bond_length(R) -> float:
     return v_size(R[..., 1, :] - R[..., 0, :])
@@ -71,9 +69,9 @@ def torsion_angle_old(R) -> float:
 
 
 def torsion_angle(R) -> float:
-    b1 = v_norm_safe_alt(R[..., 1, :] - R[..., 0, :])
-    b2 = v_norm_safe_alt(R[..., 2, :] - R[..., 1, :])
-    b3 = v_norm_safe_alt(R[..., 3, :] - R[..., 2, :])
+    b1 = v_norm_safe_np(R[..., 1, :] - R[..., 0, :])
+    b2 = v_norm_safe_np(R[..., 2, :] - R[..., 1, :])
+    b3 = v_norm_safe_np(R[..., 3, :] - R[..., 2, :])
     #
     c1 = v_nonzero(np.cross(b2, b3))
     c2 = np.cross(b1, b2)
@@ -83,7 +81,6 @@ def torsion_angle(R) -> float:
     return np.arctan2(p1, p2)
 
 
-# %%
 # Algorithm 21. Rigid from 3 points using the Gram-Schmidt process
 def rigid_from_3points(x):
     v0 = x[2] - x[1]
@@ -97,7 +94,6 @@ def rigid_from_3points(x):
     return (R, t)
 
 
-# %%
 # Translate and rotate a set of coordinates
 def translate_and_rotate(x, R, t):
     if len(t.shape) > 1:
@@ -106,7 +102,6 @@ def translate_and_rotate(x, R, t):
         return x @ np.moveaxis(R, -1, -2) + t
 
 
-# %%
 # Rotate around the x-axis
 def rotate_x(t_ang):
     R = np.array(
@@ -119,3 +114,30 @@ def rotate_x(t_ang):
     )
     t = np.zeros(3, dtype=float)
     return (R, t)
+
+
+# internal_to_cartesian: X -- r0 -- r1 -- r2
+def internal_to_cartesian(
+    r0: np.ndarray, r1: np.ndarray, r2: np.ndarray, b_len: float, b_ang: float, t_ang: float
+) -> np.ndarray:
+
+    v1 = r0 - r1
+    v2 = r0 - r2
+
+    n1 = np.cross(v1, v2)
+    n2 = np.cross(v1, n1)
+
+    n1 = v_norm(n1)
+    n2 = v_norm(n2)
+
+    n1 *= -np.sin(t_ang)
+    n2 *= np.cos(t_ang)
+
+    v3 = v_norm(n1 + n2)
+    v3 *= b_len * np.sin(b_ang)
+
+    v1 = v_norm(v1)
+    v1 *= b_len * np.cos(b_ang)
+
+    x = r0 + v3 - v1
+    return x
