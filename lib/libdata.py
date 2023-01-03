@@ -156,7 +156,9 @@ class PDBset(Dataset):
         data.edata["rel_pos"] = pos[edge_dst, 0] - pos[edge_src, 0]
         #
         data.ndata["chain_index"] = torch.as_tensor(cg.chain_index, dtype=torch.long)
-        data.ndata["resSeq"] = torch.as_tensor(resSeq_to_number(cg.resSeq))
+        resSeq, resSeqIns = resSeq_to_number(cg.resSeq)
+        data.ndata["resSeq"] = torch.as_tensor(resSeq, dtype=torch.long)
+        data.ndata["resSeqIns"] = torch.as_tensor(resSeqIns, dtype=torch.long)
         data.ndata["residue_type"] = torch.as_tensor(cg.residue_index, dtype=torch.long)
         data.ndata["continuous"] = torch.as_tensor(cg.continuous[0], dtype=self.dtype)
         data.ndata["ss"] = torch.as_tensor(cg.ss[0], dtype=torch.long)
@@ -299,7 +301,9 @@ class PredictionData(Dataset):
         data.edata["rel_pos"] = pos[edge_dst, 0] - pos[edge_src, 0]
         #
         data.ndata["chain_index"] = torch.as_tensor(cg.chain_index, dtype=torch.long)
-        data.ndata["resSeq"] = torch.as_tensor(resSeq_to_number(cg.resSeq))
+        resSeq, resSeqIns = resSeq_to_number(cg.resSeq)
+        data.ndata["resSeq"] = torch.as_tensor(resSeq, dtype=torch.long)
+        data.ndata["resSeqIns"] = torch.as_tensor(resSeqIns, dtype=torch.long)
         data.ndata["residue_type"] = torch.as_tensor(cg.residue_index, dtype=torch.long)
         data.ndata["continuous"] = torch.as_tensor(cg.continuous[0], dtype=self.dtype)
         data.ndata["output_atom_mask"] = torch.as_tensor(cg.atom_mask, dtype=self.dtype)
@@ -333,14 +337,15 @@ class PredictionData(Dataset):
 
 def resSeq_to_number(resSeq_s: np.ndarray):
     resSeq_number_s = []
+    resSeqIns_s = []
     for resSeq in resSeq_s:
         if isinstance(resSeq, int):
             resSeq_number_s.append(resSeq)
+            resSeqIns_s.append(0)
         else:
-            num = int(resSeq[:-1])
-            ins = (1 + ascii_letters.index(resSeq[-1])) / 200.0
-            resSeq_number_s.append(num + ins)
-    return resSeq_number_s
+            resSeq_number_s.append(int(resSeq[:-1]))
+            resSeqIns_s.append(1 + ascii_letters.index(resSeq[-1]))
+    return resSeq_number_s, resSeqIns_s
 
 
 def create_topology_from_data(data: dgl.DGLGraph, write_native: bool = False) -> mdtraj.Topology:
@@ -349,13 +354,12 @@ def create_topology_from_data(data: dgl.DGLGraph, write_native: bool = False) ->
     chain_prev = -1
     for i_res in range(data.ndata["residue_type"].size(0)):
         chain_index = data.ndata["chain_index"][i_res]
-        resSeq = data.ndata["resSeq"][i_res].cpu().detach().item()
-        resNum = int(np.round(resSeq))
-        resIns = int((resSeq - resNum) * 200.0)
-        if resIns == 0:
+        resNum = data.ndata["resSeq"][i_res].cpu().detach().item()
+        resSeqIns = data.ndata["resSeqIns"][i_res].cpu().detach().item()
+        if resSeqIns == 0:
             resSeq = resNum
         else:
-            resSeq = f"{resNum}{ascii_letters[resIns]}"
+            resSeq = f"{resNum}{ascii_letters[resSeqIns-1]}"
         #
         if chain_index != chain_prev:
             chain_prev = chain_index
@@ -422,34 +426,6 @@ def create_trajectory_from_batch(
     return traj_s, ssbond_s
 
 
-def test():
-    base_dir = BASE / "pdb.6k"
-    pdblist = "set/targets.pdb.6k"
-    cg_model = libcg.CalphaBasedModel
-    #
-    train_set = PDBset(
-        base_dir,
-        pdblist,
-        cg_model,
-        augment="augment_min+FLIP",
-        use_pt="CA_aug_min+FLIP",
-    )
-    print(train_set[0].ndata["pos"][0])
-    print(train_set[0].ndata["pos"][0])
-    print(train_set[0].ndata["pos"][0])
-    print(train_set[0].ndata["pos"][0])
-    print(train_set[0].ndata["pos"][0])
-    print(train_set[0].ndata["pos"][0])
-    print(train_set[0].ndata["pos"][0])
-
-
-def pred():
-    pdb_fn = "baseline/calpha/1a2z.pdb"
-
-    input = PredictionData(pdb_fn, cg_model=libcg.CalphaBasedModel)[0]
-    print(input.ndata["continuous"])
-
-
 def to_pt():
     base_dir = BASE / "pdb.6k"
     pdblist = "set/targets.pdb.6k"
@@ -474,30 +450,11 @@ def to_pt():
     )
     for _ in tqdm.tqdm(train_loader, desc=use_pt):
         pass
-    # for use_pt, min_cg in [
-    #     ("CA_aug+min_100", "min_100"),
-    #     ("CA_aug+min_010", "min_010"),
-    #     ("CA_aug+min_001", "min_001"),
-    # ]:
-    #     train_set = PDBset(
-    #         base_dir,
-    #         pdblist,
-    #         cg_model,
-    #         use_pt=use_pt,
-    #         min_cg=min_cg,
-    #         augment=augment,
-    #         # use_md=True,
-    #         # n_frame=10,
-    #     )
-    #     #
-    #     train_loader = dgl.dataloading.GraphDataLoader(
-    #         train_set, batch_size=8, shuffle=False, num_workers=16
-    #     )
-    #     for _ in tqdm.tqdm(train_loader, desc=use_pt):
-    #         pass
+
+
+def test():
+    pass
 
 
 if __name__ == "__main__":
-    to_pt()
-    # test()
-    # pred()
+    test()
