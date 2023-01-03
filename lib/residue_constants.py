@@ -49,6 +49,36 @@ BOND_LENGTH_DISULFIDE = 0.2029
 BOND_ANGLE0 = (np.deg2rad(116.5), np.deg2rad(120.0))
 TORSION_ANGLE0 = (np.deg2rad(0.0), np.deg2rad(180.0))
 
+TER_PATCHes = {}
+TER_PATCHes[("NTER", "default")] = {
+    "b_len": 1.040,
+    "b_ang": np.deg2rad(109.5),
+    "t_ang": np.deg2rad([0.0, 120.0, 240.0]),
+    "append": ["HT1", "HT2", "HT3"],
+    "delete": ["HN"],
+    "define": ["N", "CA", "C"],
+    "t_ang0_atoms": ["HN"],
+}
+TER_PATCHes[("NTER", "PRO")] = {
+    "b_len": 1.006,
+    "b_ang": np.deg2rad(109.5),
+    "t_ang": np.deg2rad([0.0, -120.0]),
+    "append": ["HN1", "HN2"],
+    "delete": [],
+    "append_index": 1,
+    "define": ["N", "CA", "C"],
+    "t_ang0_atoms": [],
+}
+TER_PATCHes[("CTER", "default")] = {
+    "b_len": 1.260,
+    "b_ang": np.deg2rad(118.0),
+    "t_ang": np.deg2rad([0.0, 180.0]),
+    "append": ["OT1", "OT2"],
+    "delete": ["O"],
+    "define": ["C", "CA", "N"],
+    "t_ang0_atoms": ["O"],
+}
+
 AMINO_ACID_ALT_s = {"HIS": "HSD", "MSE": "MET"}
 AMINO_ACID_REV_s = {"HSD": "HIS", "HSE": "HIS"}
 ATOM_NAME_ALT_s = {}

@@ -19,6 +19,7 @@ sys.path.insert(0, LIB_HOME)
 from libdata import PredictionData, create_trajectory_from_batch
 from libcg import ResidueBasedModel, CalphaBasedModel, Martini
 from libpdb import write_SSBOND
+from libter import patch_termini
 import libmodel
 
 import warnings
@@ -84,9 +85,10 @@ def main():
         #
         timing["writing_output"] = time.time()
         traj_s, ssbond_s = create_trajectory_from_batch(batch, R)
-        traj_s[0].save(arg.out_fn)
+        output = patch_termini(traj_s[0])
+        output.save(arg.out_fn)
         if len(ssbond_s[0]) > 0:
-            write_SSBOND(arg.out_fn, traj_s[0].top, ssbond_s[0])
+            write_SSBOND(arg.out_fn, output.top, ssbond_s[0])
         timing["writing_output"] = time.time() - timing["writing_output"]
     else:
         xyz = []
@@ -104,7 +106,8 @@ def main():
         timing["writing_output"] = time.time()
         top = create_topology_from_data(batch)
         traj = mdtraj.Trajectory(xyz=np.array(R), top=top)
-        traj.save(arg.out_fn)
+        output = patch_terminni(traj)
+        output.save(arg.out_fn)
         timing["writing_output"] = time.time() - timing["writing_output"]
 
     time_total = 0.0
