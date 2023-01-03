@@ -181,7 +181,8 @@ class PDB(object):
                 if atom_name[0] != "H":
                     self.atom_mask_heavy[i_res, i_atm] = 1.0
                 self.atomic_mass[i_res, i_atm] = atom.element.mass
-                self.bfactors[:, i_res, i_atm] = self.traj.bfactors[:, atom.index]
+                if not self.is_dcd:
+                    self.bfactors[:, i_res, i_atm] = self.traj.bfactors[:, atom.index]
             #
             n_atom = len(ref_res.atom_s)
             self.atomic_radius[i_res, :n_atom] = ref_res.atomic_radius[:n_atom]

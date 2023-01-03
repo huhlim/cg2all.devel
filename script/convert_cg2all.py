@@ -4,6 +4,8 @@ import os
 import sys
 import json
 import time
+import tqdm
+import mdtraj
 import pathlib
 import argparse
 
@@ -16,7 +18,7 @@ BASE = pathlib.Path(__file__).parents[1].resolve()
 LIB_HOME = str(BASE / "lib")
 sys.path.insert(0, LIB_HOME)
 
-from libdata import PredictionData, create_trajectory_from_batch
+from libdata import PredictionData, create_trajectory_from_batch, create_topology_from_data
 from libcg import ResidueBasedModel, CalphaBasedModel, Martini
 from libpdb import write_SSBOND
 from libter import patch_termini
@@ -91,22 +93,25 @@ def main():
             write_SSBOND(arg.out_fn, output.top, ssbond_s[0])
         timing["writing_output"] = time.time() - timing["writing_output"]
     else:
+        timing["forward_pass"] = 0.0
         xyz = []
-        for batch in input_s:
-            t0 = time.time()
+        t0 = time.time()
+        for batch in tqdm.tqdm(input_s, total=len(input_s)):
             batch = batch.to(device)
             timing["loading_input"] += time.time() - t0
             #
             t0 = time.time()
             with torch.no_grad():
                 R = model.forward(batch)[0]["R"].cpu().detach().numpy()
-                xyz.append(R)
-            timing["forward_pass"] = time.time() - t0
+                mask = batch.ndata["output_atom_mask"].cpu().detach().numpy()
+                xyz.append(R[mask > 0.0])
+            timing["forward_pass"] += time.time() - t0
+            t0 = time.time()
         #
         timing["writing_output"] = time.time()
         top = create_topology_from_data(batch)
-        traj = mdtraj.Trajectory(xyz=np.array(R), top=top)
-        output = patch_terminni(traj)
+        traj = mdtraj.Trajectory(xyz=np.array(xyz), topology=top)
+        output = patch_termini(traj)
         output.save(arg.out_fn)
         timing["writing_output"] = time.time() - timing["writing_output"]
 
