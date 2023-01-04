@@ -7,18 +7,18 @@ license = "Apache-2.0 license"
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = ">=3.7"
-pytorch = ">=1.11"
-mdtraj = "1.9.7"
-dgl = ">=0.9"
-e3nn = ">=0.5"
-ml-collections = ">=0.1.1"
+python = "^3.8"
+torch = "^1.11"
+dgl = "^0.9"
+e3nn = "^0.5"
+ml-collections = "^0.1.1"
 biopython = "^1.80"
-numpy = ">=1.23"
+numpy = "^1.23"
+mdtraj = {git = "https://github.com/huhlim/mdtraj.git"}
 
 [tool.poetry.group.dev.dependencies]
 tqdm = "^4.64.1"
-pytorch-lightning = ">=1.7.3"
+pytorch-lightning = "^1.7.3"
 
 [build-system]
 requires = ["poetry-core"]
