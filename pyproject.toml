@@ -6,7 +6,7 @@ authors = [
     "Lim Heo <huhlim@gmail.com>",
     "Michael Feig <feiglab@gmail.com>",
 ]
-license = "Apache-2.0 license"
+license = "Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/huhlim/cg2all"
 
