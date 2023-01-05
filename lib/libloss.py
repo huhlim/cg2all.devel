@@ -5,6 +5,7 @@ import torch
 import dgl
 from typing import Optional, List
 
+from libconfig import DTYPE, EPS
 from residue_constants import (
     PROLINE_INDEX,
     ATOM_INDEX_N,
@@ -19,7 +20,6 @@ from residue_constants import (
     BOND_ANGLE0,
 )
 
-from libconfig import DTYPE, EPS
 from libcg import get_residue_center_of_mass
 from torch_basics import (
     v_size,

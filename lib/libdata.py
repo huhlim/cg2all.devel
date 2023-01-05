@@ -16,11 +16,10 @@ warnings.filterwarnings("ignore")
 import torch
 from torch.utils.data import Dataset
 
-import tqdm
 import dgl
 
-import libcg
 from libconfig import BASE, DTYPE
+import libcg
 from torch_basics import v_norm, v_size
 from residue_constants import (
     AMINO_ACID_s,
@@ -448,7 +447,7 @@ def to_pt():
     train_loader = dgl.dataloading.GraphDataLoader(
         train_set, batch_size=8, shuffle=False, num_workers=16
     )
-    for _ in tqdm.tqdm(train_loader, desc=use_pt):
+    for _ in train_loader:
         pass
 
 
