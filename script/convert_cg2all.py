@@ -31,8 +31,8 @@ warnings.filterwarnings("ignore")
 
 def main():
     arg = argparse.ArgumentParser(prog="cg2all")
-    arg.add_argument("--pdb", dest="in_pdb_fn", required=True)
-    arg.add_argument("--dcd", dest="in_dcd_fn", default=None)
+    arg.add_argument("-p", "--pdb", dest="in_pdb_fn", required=True)
+    arg.add_argument("-d", "--dcd", dest="in_dcd_fn", default=None)
     arg.add_argument("-o", "--out", "--output", dest="out_fn", required=True)
     arg.add_argument("--ckpt", dest="ckpt_fn", default=None, required=True)
     arg.add_argument("--time", dest="time_json", default=None)

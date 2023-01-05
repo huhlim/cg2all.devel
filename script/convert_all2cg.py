@@ -17,22 +17,26 @@ from residue_constants import read_martini_topology
 
 def main():
     arg = argparse.ArgumentParser(prog="all2cg")
-    arg.add_argument("--pdb", dest="in_pdb_fn", required=True)
-    arg.add_argument("--dcd", dest="in_dcd_fn", default=None)
+    arg.add_argument("-p", "--pdb", dest="in_pdb_fn", required=True)
+    arg.add_argument("-d", "--dcd", dest="in_dcd_fn", default=None)
     arg.add_argument("-o", "--out", "--output", dest="out_fn", required=True)
     arg.add_argument(
         "--cg",
         dest="cg_model",
         default="CalphaBasedModel",
-        choices=["CalphaBasedModel", "ResidueBasedModel", "Martini", "CA", "RES"],
+        #fmt:off
+        choices=["CalphaBasedModel", "CA", "ca", \
+                "ResidueBasedModel", "RES", "res", \
+                "Martini", "martini"]
+        #fmt:on
     )
     arg = arg.parse_args()
     #
-    if arg.cg_model in ["CA", "CalphaBasedModel"]:
+    if arg.cg_model in ["CA", "ca", "CalphaBasedModel"]:
         cg_model = CalphaBasedModel
-    elif arg.cg_model in ["RES", "ResidueBasedModel"]:
+    elif arg.cg_model in ["RES", "res", "ResidueBasedModel"]:
         cg_model = ResidueBasedModel
-    elif arg.cg_model in ["Martini"]:
+    elif arg.cg_model in ["Martini", "martini"]:
         cg_model = functools.partial(Martini, martini_top=read_martini_topology())
     else:
         raise KeyError(f"Unknown CG model, {arg.cg_model}\n")
