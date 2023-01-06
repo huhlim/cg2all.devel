@@ -38,7 +38,9 @@ class ProcessPDB(PDB):
 
     def check_amb_valid(self, i_res, amb, ref_res):
         atom_index_s = [
-            ref_res.atom_s.index(atom) for atom in amb.atom_s if not atom.startswith("H")
+            ref_res.atom_s.index(atom)
+            for atom in amb.atom_s
+            if not atom.startswith("H")
         ]
         if len(atom_index_s) == 0:  # all hydrogens
             atom_index_s = [ref_res.atom_s.index(atom) for atom in amb.atom_s]
@@ -68,7 +70,9 @@ class ProcessPDB(PDB):
             opr_s[("BB", 0)] = opr_bb
             #
             # place BB atoms
-            t_ang0, atom_s, rigid = get_rigid_group_by_torsion(self.residue_name[i_res], "BB")
+            t_ang0, atom_s, rigid = get_rigid_group_by_torsion(
+                self.residue_name[i_res], "BB"
+            )
             rigid_s = translate_and_rotate(rigid, opr_bb[0], opr_bb[1])
             for atom in atom_s:
                 self.R_ideal[:, i_res, ref_res.atom_s.index(atom), :] = rigid_s[
@@ -89,7 +93,9 @@ class ProcessPDB(PDB):
                     continue
                 #
                 if tor.name == "XI":
-                    amb = get_ambiguous_atom_list(residue_name, tor.name, tor.index, tor.sub_index)
+                    amb = get_ambiguous_atom_list(
+                        residue_name, tor.name, tor.index, tor.sub_index
+                    )
                 else:
                     amb = get_ambiguous_atom_list(residue_name, tor.name, tor.index)
                 #
@@ -100,11 +106,25 @@ class ProcessPDB(PDB):
                 #
                 if amb is None or amb.method in ["closest", "xi"]:
                     opr_sc, atom_s, rigid_s = update_by_closest_method(
-                        self.R, self.bfactors, self.atom_mask_pdb, i_res, ref_res, tor, amb, opr_s
+                        self.R,
+                        self.bfactors,
+                        self.atom_mask_pdb,
+                        i_res,
+                        ref_res,
+                        tor,
+                        amb,
+                        opr_s,
                     )
                 elif amb.method == "permute":
                     opr_sc, atom_s, rigid_s = update_by_permute_method(
-                        self.R, self.bfactors, self.atom_mask_pdb, i_res, ref_res, tor, amb, opr_s
+                        self.R,
+                        self.bfactors,
+                        self.atom_mask_pdb,
+                        i_res,
+                        ref_res,
+                        tor,
+                        amb,
+                        opr_s,
                     )
                 elif amb.method == "periodic":
                     opr_sc, atom_s, rigid_s = update_by_periodic_method(
@@ -121,7 +141,9 @@ class ProcessPDB(PDB):
                 opr_s[(tor.name, tor.index)] = opr_sc
                 for atom in atom_s:
                     atom_index = ref_res.atom_s.index(atom)
-                    self.R_ideal[:, i_res, atom_index, :] = rigid_s[:, atom_s.index(atom), :]
+                    self.R_ideal[:, i_res, atom_index, :] = rigid_s[
+                        :, atom_s.index(atom), :
+                    ]
             #
             # amide torsion angles, only for Asn, Gln, Arg
             if residue_name in ["ASN", "GLN"]:
@@ -146,11 +168,19 @@ def main():
         help="input PDB file/topology file",
         required=True,
     )
-    arg.add_argument("-o", "--output", dest="output_fn", help="output file", required=True)
     arg.add_argument(
-        "--indcd", dest="in_dcd_fn", help="input trajectory file", default=None, nargs="*"
+        "-o", "--output", dest="output_fn", help="output file", required=True
     )
-    arg.add_argument("--outdcd", dest="out_dcd_fn", help="input trajectory file", default=None)
+    arg.add_argument(
+        "--indcd",
+        dest="in_dcd_fn",
+        help="input trajectory file",
+        default=None,
+        nargs="*",
+    )
+    arg.add_argument(
+        "--outdcd", dest="out_dcd_fn", help="input trajectory file", default=None
+    )
     arg.add_argument("--stride", dest="stride", default=1, type=int)
     if len(sys.argv) == 1:
         arg.print_help()

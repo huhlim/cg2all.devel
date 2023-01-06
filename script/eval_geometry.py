@@ -57,7 +57,9 @@ def assess_per_target(name, dat):
             if len(delta_chi_s[i][j]) > 0:
                 mae.append(np.mean(delta_chi_s[i][j]))
                 acc.append(
-                    np.array(correct_s[i][j]).astype(float).sum() / len(correct_s[i][j]) * 100.0
+                    np.array(correct_s[i][j]).astype(float).sum()
+                    / len(correct_s[i][j])
+                    * 100.0
                 )
             else:
                 mae.append(180.0)
@@ -82,7 +84,9 @@ def distr_1d(xlim, bins, SS, native, model):
 
 def distr_omega(native, model):
     kl_s = {}
-    for i, selection in enumerate([native.resName_next != "PRO", native.resName_next == "PRO"]):
+    for i, selection in enumerate(
+        [native.resName_next != "PRO", native.resName_next == "PRO"]
+    ):
         SS = native.select_by(selection).ss
         #
         native_sel = native.select_by(selection).t_ang[:, 2]
@@ -103,9 +107,13 @@ def distr_omega(native, model):
                 for ss, color in zip([0, 1, 2], ["red", "blue", "green"]):
                     subset = SS == ss
                     factor = len(SS) / (subset.astype(int).sum())
-                    h_native, X = np.histogram(native_sel[subset], 30, xlim, density=False)
+                    h_native, X = np.histogram(
+                        native_sel[subset], 30, xlim, density=False
+                    )
                     h_native = h_native.astype(float) / n_residue * factor
-                    h_model, X = np.histogram(model_sel[subset], 30, xlim, density=False)
+                    h_model, X = np.histogram(
+                        model_sel[subset], 30, xlim, density=False
+                    )
                     h_model = h_model.astype(float) / n_residue * factor
                     kl = kl_div(h_model, h_native)
                     kl_s[(i, j, ss)] = kl
@@ -129,7 +137,9 @@ def distr_2d(native, model, periodic=False):
             X[X > xy[1]] = X[X > xy[1]] - dxy
             X[X < xy[0]] = X[X < xy[0]] + dxy
             data[:, k] = X
-        h = np.histogram2d(data[:, 0], data[:, 1], bins=bins, range=xylim, density=True)[0]
+        h = np.histogram2d(
+            data[:, 0], data[:, 1], bins=bins, range=xylim, density=True
+        )[0]
         return h
 
     #
@@ -241,7 +251,8 @@ def main():
 
     with multiprocessing.Pool(n_proc) as pool:
         wrt = pool.starmap(
-            assess_per_target, [(dat_fn.stem[:-5], dat) for dat_fn, dat in zip(dat_fn_s, dat_s)]
+            assess_per_target,
+            [(dat_fn.stem[:-5], dat) for dat_fn, dat in zip(dat_fn_s, dat_s)],
         )
     with open(log_dir / f"{keyword}.chi_accuracy.dat", "wt") as fout:
         fout.writelines(wrt)

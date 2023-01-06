@@ -79,7 +79,9 @@ def minimize(output_prefix, solv_fn, psf_fn, crd_fn, options):
     #
     sys.addForce(construct_restraint(psf, crd, 1.0, ["N", "CA", "C", "O", "CB"]))
     #
-    integrator = LangevinIntegrator(298.15 * kelvin, 1.0 / picosecond, 0.002 * picosecond)
+    integrator = LangevinIntegrator(
+        298.15 * kelvin, 1.0 / picosecond, 0.002 * picosecond
+    )
     #
     simulation = Simulation(psf.topology, sys, integrator)
     simulation.context.setPositions(crd.positions)

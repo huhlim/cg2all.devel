@@ -156,7 +156,9 @@ def plot_1d(png_fn, xlim, bins, SS, native, model):
 def plot_omega(png_fn, native, model):
     fig, axes = plt.subplots(2, 2, figsize=(9.6, 4.8), sharey=False)
     #
-    for i, selection in enumerate([native.resName_next != "PRO", native.resName_next == "PRO"]):
+    for i, selection in enumerate(
+        [native.resName_next != "PRO", native.resName_next == "PRO"]
+    ):
         SS = native.select_by(selection).ss
         #
         native_sel = native.select_by(selection).t_ang[:, 2]
@@ -181,9 +183,13 @@ def plot_omega(png_fn, native, model):
                 for ss, color in zip([0, 1, 2], ["red", "blue", "green"]):
                     subset = SS == ss
                     factor = len(SS) / (subset.astype(int).sum())
-                    h_native, X = np.histogram(native_sel[subset], 30, xlim, density=False)
+                    h_native, X = np.histogram(
+                        native_sel[subset], 30, xlim, density=False
+                    )
                     h_native = h_native.astype(float) / n_residue * factor
-                    h_model, X = np.histogram(model_sel[subset], 30, xlim, density=False)
+                    h_model, X = np.histogram(
+                        model_sel[subset], 30, xlim, density=False
+                    )
                     h_model = h_model.astype(float) / n_residue * factor
                     ax.plot(X_cntr, h_native, "--", color=color, linewidth=1)
                     ax.plot(X_cntr, h_model, "-", color=color, linewidth=1)
@@ -224,7 +230,9 @@ def plot_2d(png_fn, native, model, kT=8, periodic=False):
             X[X < xy[0]] = X[X < xy[0]] + dxy
             data[:, k] = X
 
-        h, X, Y = np.histogram2d(data[:, 0], data[:, 1], bins=bins, range=xylim, density=True)
+        h, X, Y = np.histogram2d(
+            data[:, 0], data[:, 1], bins=bins, range=xylim, density=True
+        )
         X = np.concatenate([[X[0] - dxy], X, [X[-1] + dxy]])
         Y = np.concatenate([[Y[0] - dxy], Y, [Y[-1] + dxy]])
         X_cntr = 0.5 * (X[1:] + X[:-1])
@@ -245,10 +253,19 @@ def plot_2d(png_fn, native, model, kT=8, periodic=False):
         fe[-1, -1] = fe[1, 1]
         #
         axes[i].contourf(
-            xy[0], xy[1], fe, cmap=plt.get_cmap("nipy_spectral"), levels=np.arange(0, kT, 0.5)
+            xy[0],
+            xy[1],
+            fe,
+            cmap=plt.get_cmap("nipy_spectral"),
+            levels=np.arange(0, kT, 0.5),
         )
         axes[i].contour(
-            xy[0], xy[1], fe, colors="black", levels=np.arange(0, kT, 0.5), linewidths=0.2
+            xy[0],
+            xy[1],
+            fe,
+            colors="black",
+            levels=np.arange(0, kT, 0.5),
+            linewidths=0.2,
         )
     #
     for ax in axes:
@@ -306,7 +323,9 @@ def main():
 
     plot_omega(log_dir / f"{keyword}.omega.png", data[0], data[1])
 
-    plot_2d(log_dir / f"{keyword}.rama_all.png", data[0].t_ang[:, :2], data[1].t_ang[:, :2])
+    plot_2d(
+        log_dir / f"{keyword}.rama_all.png", data[0].t_ang[:, :2], data[1].t_ang[:, :2]
+    )
     for i, name in enumerate(["helix", "sheet", "coil"]):
         select = data[0].ss == i
         plot_2d(

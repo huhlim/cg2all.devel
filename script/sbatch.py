@@ -55,7 +55,9 @@ def main():
     arg.add_argument("--epoch", dest="n_epoch", default=100, type=int)
     arg.add_argument("--ckpt", dest="ckpt", default=None)
     arg.add_argument("--dep", dest="has_dep", default=False, action="store_true")
-    arg.add_argument("--continue", dest="continue_run", default=False, action="store_true")
+    arg.add_argument(
+        "--continue", dest="continue_run", default=False, action="store_true"
+    )
     #
     arg.add_argument("--exec", dest="EXEC", default="./script/train.py")
     #

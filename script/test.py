@@ -88,7 +88,9 @@ def main():
     batch_size = config.train.batch_size
     n_runner = max(1, torch.cuda.device_count())
     _DataLoader = functools.partial(
-        dgl.dataloading.GraphDataLoader, batch_size=batch_size, num_workers=(N_PROC // n_runner)
+        dgl.dataloading.GraphDataLoader,
+        batch_size=batch_size,
+        num_workers=(N_PROC // n_runner),
     )
     # define train/val/test sets
     test_set = _PDBset(pdb_dir, pdblist_test)

@@ -34,7 +34,9 @@ N_PROC = int(os.getenv("OMP_NUM_THREADS", "8"))
 
 
 class Model(pl.LightningModule):
-    def __init__(self, _config={}, cg_model=CalphaBasedModel, compute_loss=False, memcheck=False):
+    def __init__(
+        self, _config={}, cg_model=CalphaBasedModel, compute_loss=False, memcheck=False
+    ):
         super().__init__()
         self._config = _config
         self.model = libmodel.Model(_config, cg_model, compute_loss=compute_loss)
@@ -146,7 +148,12 @@ class Model(pl.LightningModule):
         bs = batch.batch_size
         self.log("train_loss", loss_s, batch_size=bs, on_epoch=True, on_step=False)
         self.log(
-            "train_metric", metric, batch_size=bs, on_epoch=True, on_step=False, prog_bar=False
+            "train_metric",
+            metric,
+            batch_size=bs,
+            on_epoch=True,
+            on_step=False,
+            prog_bar=False,
         )
         return {"loss": loss_sum, "metric": metric, "out": out}
 
@@ -158,7 +165,14 @@ class Model(pl.LightningModule):
         #
         bs = batch.batch_size
         self.log("test_loss", loss_s, batch_size=bs, on_epoch=True, on_step=False)
-        self.log("test_metric", metric, prog_bar=True, batch_size=bs, on_epoch=True, on_step=False)
+        self.log(
+            "test_metric",
+            metric,
+            prog_bar=True,
+            batch_size=bs,
+            on_epoch=True,
+            on_step=False,
+        )
         return {"loss": loss_sum, "metric": metric, "out": out}
 
     def predict_step(self, batch, batch_idx):
@@ -176,14 +190,23 @@ class Model(pl.LightningModule):
         bs = batch.batch_size
         self.log("val_loss_sum", loss_sum, batch_size=bs, on_epoch=True, on_step=False)
         self.log("val_loss", loss_s, batch_size=bs, on_epoch=True, on_step=False)
-        self.log("val_metric", metric, prog_bar=True, batch_size=bs, on_epoch=True, on_step=False)
+        self.log(
+            "val_metric",
+            metric,
+            prog_bar=True,
+            batch_size=bs,
+            on_epoch=True,
+            on_step=False,
+        )
         return {"loss": loss_sum, "metric": metric, "out": out}
 
     def write_pdb(self, batch, out, prefix, write_native=True, log_dir=None):
         if log_dir is None:
             log_dir = pathlib.Path(self.logger.log_dir)
         #
-        traj_s, ssbond_s = create_trajectory_from_batch(batch, out["R"], write_native=True)
+        traj_s, ssbond_s = create_trajectory_from_batch(
+            batch, out["R"], write_native=True
+        )
         #
         for i, (traj, ssbond) in enumerate(zip(traj_s, ssbond_s)):
             try:
@@ -206,7 +229,9 @@ def main():
     arg.add_argument("--ckpt", dest="ckpt_fn", default=None)
     arg.add_argument("--epoch", dest="max_epochs", default=100, type=int)
     arg.add_argument("--overfit", dest="overfit_batches", default=0, type=int)
-    arg.add_argument("--write", dest="write_validation_pdb", default=False, action="store_true")
+    arg.add_argument(
+        "--write", dest="write_validation_pdb", default=False, action="store_true"
+    )
     arg.add_argument(
         "--cg",
         dest="cg_model",
@@ -279,7 +304,9 @@ def main():
     batch_size = config.train.batch_size
     n_runner = max(1, torch.cuda.device_count())
     _DataLoader = functools.partial(
-        dgl.dataloading.GraphDataLoader, batch_size=batch_size, num_workers=(N_PROC // n_runner)
+        dgl.dataloading.GraphDataLoader,
+        batch_size=batch_size,
+        num_workers=(N_PROC // n_runner),
     )
     # define train/val/test sets
     train_set = _PDBset(pdb_dir, pdblist_train, crop=config.train.crop_size)
@@ -300,7 +327,9 @@ def main():
     trainer_kwargs["num_sanity_val_steps"] = 0
     if arg.overfit_batches > 0:
         trainer_kwargs["overfit_batches"] = arg.overfit_batches
-    trainer_kwargs["logger"] = pl.loggers.TensorBoardLogger("lightning_logs", name=arg.name)
+    trainer_kwargs["logger"] = pl.loggers.TensorBoardLogger(
+        "lightning_logs", name=arg.name
+    )
     trainer_kwargs["callbacks"] = [
         pl.callbacks.ModelCheckpoint(
             dirpath=trainer_kwargs["logger"].log_dir, monitor="val_loss_sum"
@@ -314,7 +343,9 @@ def main():
         trainer_kwargs["devices"] = n_gpu
     else:
         trainer_kwargs["plugins"] = (
-            [pl.plugins.environments.SLURMEnvironment(auto_requeue=True)] if arg.requeue else []
+            [pl.plugins.environments.SLURMEnvironment(auto_requeue=True)]
+            if arg.requeue
+            else []
         )
     #
     trainer = pl.Trainer(**trainer_kwargs)
@@ -323,7 +354,9 @@ def main():
     if not overfit:
         trainer.test(model, test_loader)
 
-    trainer.save_checkpoint(pathlib.Path(trainer_kwargs["logger"].log_dir) / "last.ckpt")
+    trainer.save_checkpoint(
+        pathlib.Path(trainer_kwargs["logger"].log_dir) / "last.ckpt"
+    )
 
 
 if __name__ == "__main__":

@@ -33,7 +33,9 @@ def _run(_pdb_fn):
     out_fn = pdb_fn.parent / f"{pdb_fn.stem}.geom.dat"
     #
     traj = mdtraj.load(_pdb_fn, standard_names=True)
-    load_index = traj.top.select("protein or (resname HSD or resname HSE or resname MSE)")
+    load_index = traj.top.select(
+        "protein or (resname HSD or resname HSE or resname MSE)"
+    )
     traj = traj.atom_slice(load_index)
     #
     atom_N = traj.top.select("name N")
@@ -61,7 +63,9 @@ def _run(_pdb_fn):
     data["ss"] = mdtraj.compute_dssp(traj, simplified=True)
     data["asa"] = np.zeros((n_frames, n_residues), dtype=int)
     for k_frame in range(n_frames):
-        d_ij = v_size(traj.xyz[k_frame, atom_CA][None, :] - traj.xyz[k_frame, atom_CA][:, None])
+        d_ij = v_size(
+            traj.xyz[k_frame, atom_CA][None, :] - traj.xyz[k_frame, atom_CA][:, None]
+        )
         residue_index, n_count = np.unique(np.where(d_ij < 1.0)[0], return_counts=True)
         data["asa"][k_frame, residue_index] = n_count - 1
     #
@@ -113,7 +117,9 @@ def _run(_pdb_fn):
         resName_s.append(residue.name)
         #
         chain_id = CHAIN_IDs[chain_curr % len(CHAIN_IDs)]
-        residue_s.append(f"CHAIN {chain_id} : RESIDUE {residue.resSeq:4d} {residue.name}")
+        residue_s.append(
+            f"CHAIN {chain_id} : RESIDUE {residue.resSeq:4d} {residue.name}"
+        )
     chain_break[-1] = True
     #
     data["b_len"][:, chain_break, 0] = 0.0
@@ -134,7 +140,9 @@ def _run(_pdb_fn):
             out.append(":")
             #
             out.append(
-                {"H": "HELIX", "E": "SHEET", "C": "COIL ", "NA": "COIL "}[data["ss"][k_frame, i]]
+                {"H": "HELIX", "E": "SHEET", "C": "COIL ", "NA": "COIL "}[
+                    data["ss"][k_frame, i]
+                ]
             )
             out.append(f"{data['asa'][k_frame, i]:2d}")
             out.append(":")

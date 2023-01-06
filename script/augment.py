@@ -45,9 +45,13 @@ def detect_ssbond(pdb_fn, pdb):
         for chain_id, resSeq in cys_s:
             chain_index = chain_s.index(chain_id)
             if resSeq[-1] in INSCODEs:
-                index = pdb.top.select(f"chainid {chain_index} and resSeq '{resSeq}' and name SG")
+                index = pdb.top.select(
+                    f"chainid {chain_index} and resSeq '{resSeq}' and name SG"
+                )
             else:
-                index = pdb.top.select(f"chainid {chain_index} and resSeq {resSeq} and name SG")
+                index = pdb.top.select(
+                    f"chainid {chain_index} and resSeq {resSeq} and name SG"
+                )
             if index.shape[0] == 1:
                 residue_index.append(pdb.top.atom(index[0]).residue.index)
         residue_index = sorted(residue_index)
@@ -179,7 +183,9 @@ def run_reduce(in_pdb, out_pdb, trim=False):
 
     if not os.path.exists(out_pdb):
         with open(out_pdb, "wt") as fout:
-            call(["reduce.sh", "-Quiet", "-OH", "-ROTEXOH", "-HIS", in_pdb], stdout=fout)
+            call(
+                ["reduce.sh", "-Quiet", "-OH", "-ROTEXOH", "-HIS", in_pdb], stdout=fout
+            )
     with open(out_pdb) as fp:
         n_atoms = 0
         for line in fp:
@@ -199,7 +205,10 @@ def run_minimize(in_pdb, out_pdb):
     if not os.path.exists(out_pdb):
         BASE = f"{os.getenv('work')}/ml/cg2all"
         EXEC = f"{BASE}/script/minimize_structure.py"
-        FFs = [f"{BASE}/data/toppar/par_all36m_prot.prm", f"{BASE}/data/toppar/top_all36_prot.rtf"]
+        FFs = [
+            f"{BASE}/data/toppar/par_all36m_prot.prm",
+            f"{BASE}/data/toppar/top_all36_prot.rtf",
+        ]
         call([EXEC, out_pdb[:-4], in_pdb, "--toppar"] + FFs, stdout=sys.stdout)
     #
     pdb0 = mdtraj.load(in_pdb)
@@ -245,7 +254,9 @@ def main():
     ssbond_s = detect_ssbond(in_pdb, pdb)
     resNo_s, segNo_s = get_new_residue_numbers(pdb)
     #
-    update_residue_number(str(in_pdb), "input.pdb", resNo_s=resNo_s[0], ssbond_s=ssbond_s)
+    update_residue_number(
+        str(in_pdb), "input.pdb", resNo_s=resNo_s[0], ssbond_s=ssbond_s
+    )
     #
     run_scwrl("input.pdb", "scwrl.pdb")
     if run_reduce("scwrl.pdb", "reduce.pdb", trim=trim_reduce):
@@ -258,11 +269,15 @@ def main():
     update_residue_number("output.pdb", out_pdb, resNo_s=resNo_s[1], ssbond_s=ssbond_s)
     #
     if not min_pdb.exists():
-        update_residue_number("output.pdb", "md_input.pdb", segNo_s=segNo_s, ssbond_s=ssbond_s)
+        update_residue_number(
+            "output.pdb", "md_input.pdb", segNo_s=segNo_s, ssbond_s=ssbond_s
+        )
         run_minimize("md_input.pdb", "md_output.pdb")
         run_process_pdb("md_output.pdb", "minimized.pdb")
         #
-        update_residue_number("minimized.pdb", min_pdb, resNo_s=resNo_s[1], ssbond_s=ssbond_s)
+        update_residue_number(
+            "minimized.pdb", min_pdb, resNo_s=resNo_s[1], ssbond_s=ssbond_s
+        )
 
 
 if __name__ == "__main__":

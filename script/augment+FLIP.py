@@ -57,7 +57,9 @@ def main():
     ssbond_s = detect_ssbond(in_pdb, pdb)
     resNo_s, segNo_s = get_new_residue_numbers(pdb)
     #
-    update_residue_number(str(in_pdb), "input.pdb", resNo_s=resNo_s[0], ssbond_s=ssbond_s)
+    update_residue_number(
+        str(in_pdb), "input.pdb", resNo_s=resNo_s[0], ssbond_s=ssbond_s
+    )
     #
     run_scwrl("input.pdb", "scwrl.pdb")
     if run_reduce("scwrl.pdb", "reduce.pdb", trim=trim_reduce):
@@ -70,11 +72,15 @@ def main():
     update_residue_number("output.pdb", out_pdb, resNo_s=resNo_s[1], ssbond_s=ssbond_s)
     #
     if not min_pdb.exists():
-        update_residue_number("output.pdb", "md_input.pdb", segNo_s=segNo_s, ssbond_s=ssbond_s)
+        update_residue_number(
+            "output.pdb", "md_input.pdb", segNo_s=segNo_s, ssbond_s=ssbond_s
+        )
         run_minimize("md_input.pdb", "md_output.pdb")
         run_process_pdb("md_output.pdb", "minimized.pdb")
         #
-        update_residue_number("minimized.pdb", min_pdb, resNo_s=resNo_s[1], ssbond_s=ssbond_s)
+        update_residue_number(
+            "minimized.pdb", min_pdb, resNo_s=resNo_s[1], ssbond_s=ssbond_s
+        )
 
 
 if __name__ == "__main__":
