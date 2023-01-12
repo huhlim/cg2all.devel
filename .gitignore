@@ -3,7 +3,7 @@ data/toppar_c36_jul21.tgz
 .vscode
 pdb/r0.*
 pdb/*.dat
-pdb.processed/*.dat
+pdb.processed
 pdb.pisces
 pdb.top8000
 pdb.27k
