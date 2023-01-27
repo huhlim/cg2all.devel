@@ -23,17 +23,17 @@ def write_list(fn, set):
 
 def main():
     pdb_s = {}
-    for size in ["6k", "27k"]:
+    for size in ["6k", "29k"]:
         pdb_s[size] = read_list(f"pdb.{size}/targets")
     #
-    pdb_common = list(pdb_s["6k"].intersection(pdb_s["27k"]))
+    pdb_common = list(pdb_s["6k"].intersection(pdb_s["29k"]))
     #
     random.shuffle(pdb_common)
     #
     test_set = set(pdb_common[:n_test])
     valid_set = set(pdb_common[-n_valid:])
     #
-    for size in ["6k", "27k"]:
+    for size in ["6k", "29k"]:
         pdb_s[size] -= test_set
         pdb_s[size] -= valid_set
         #

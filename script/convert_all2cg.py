@@ -6,6 +6,8 @@ import argparse
 import pathlib
 import functools
 
+os.environ["OPENMM_PLUGIN_DIR"] = "/dev/null"
+
 BASE = pathlib.Path(__file__).parents[1].resolve()
 LIB_HOME = str(BASE / "lib")
 sys.path.insert(0, LIB_HOME)

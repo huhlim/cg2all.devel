@@ -5,7 +5,6 @@ import sys
 import json
 import time
 import tqdm
-import mdtraj
 import pathlib
 import argparse
 
@@ -13,6 +12,9 @@ import numpy as np
 
 import torch
 import dgl
+
+os.environ["OPENMM_PLUGIN_DIR"] = "/dev/null"
+import mdtraj
 
 BASE = pathlib.Path(__file__).parents[1].resolve()
 LIB_HOME = str(BASE / "lib")
@@ -39,6 +41,7 @@ def main():
     arg.add_argument("-p", "--pdb", dest="in_pdb_fn", required=True)
     arg.add_argument("-d", "--dcd", dest="in_dcd_fn", default=None)
     arg.add_argument("-o", "--out", "--output", dest="out_fn", required=True)
+    arg.add_argument("-opdb", dest="outpdb_fn")
     arg.add_argument(
         "--cg",
         dest="cg_model",
@@ -52,6 +55,7 @@ def main():
     arg.add_argument("--ckpt", dest="ckpt_fn", default=None)
     arg.add_argument("--time", dest="time_json", default=None)
     arg.add_argument("--device", dest="device", default=None)
+    arg.add_argument("--batch", dest="batch_size", default=1, type=int)
     arg.add_argument(
         "--proc", dest="n_proc", default=int(os.getenv("OMP_NUM_THREADS", 1)), type=int
     )
@@ -108,7 +112,7 @@ def main():
         unitcell_angles = input_s.cg.unitcell_angles
     if len(input_s) > 1 and arg.n_proc > 1:
         input_s = dgl.dataloading.GraphDataLoader(
-            input_s, batch_size=1, num_workers=arg.n_proc, shuffle=False
+            input_s, batch_size=arg.batch_size, num_workers=arg.n_proc, shuffle=False
         )
     timing["loading_input"] = time.time() - timing["loading_input"]
     #
@@ -146,8 +150,12 @@ def main():
             t0 = time.time()
         #
         timing["writing_output"] = time.time()
+        xyz = np.array(xyz)
+        if arg.batch_size > 1:
+            batch = dgl.unbatch(batch)[0]
+            xyz = xyz.reshape((xyz.shape[0] * arg.batch_size, -1, 3))
         top, atom_index = create_topology_from_data(batch)
-        xyz = np.array(xyz)[:, atom_index]
+        xyz = xyz[:, atom_index]
         traj = mdtraj.Trajectory(
             xyz=xyz,
             topology=top,
@@ -156,6 +164,10 @@ def main():
         )
         output = patch_termini(traj)
         output.save(arg.out_fn)
+        #
+        if arg.outpdb_fn is not None:
+            output[-1].save(arg.outpdb_fn)
+        #
         timing["writing_output"] = time.time() - timing["writing_output"]
 
     time_total = 0.0
