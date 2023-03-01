@@ -38,7 +38,7 @@ class PDBset(Dataset):
         basedir: str,
         pdblist: List[str],
         cg_model,
-        topology_file=None,
+        topology_map=None,
         radius=1.0,
         self_loop=False,
         augment="",
@@ -63,7 +63,7 @@ class PDBset(Dataset):
         #
         self.n_pdb = len(self.pdb_s)
         self.cg_model = cg_model
-        self.topology_file = topology_file
+        self.topology_map = topology_map
         self.radius = radius
         self.self_loop = self_loop
         self.augment = augment
@@ -84,10 +84,10 @@ class PDBset(Dataset):
         return self.n_pdb * self.n_frame
 
     def pdb_to_cg(self, *arg, **argv):
-        if self.topology_file is None:
+        if self.topology_map is None:
             return self.cg_model(*arg, **argv)
         else:
-            return self.cg_model(*arg, **argv, martini_top=self.topology_file)
+            return self.cg_model(*arg, **argv, topology_map=self.topology_map)
 
     def __getitem__(self, index):
         pdb_index = index // self.n_frame
@@ -551,7 +551,7 @@ def to_pt():
     pdblist = "set/targets.pdb.6k"
     #
     cg_model = libcg.Martini
-    topology_file = read_coarse_grained_topology("martini")
+    topology_map = read_coarse_grained_topology("martini")
     #
     augment = ""
     use_pt = None  # "Martini"
@@ -560,7 +560,7 @@ def to_pt():
         base_dir,
         pdblist,
         cg_model,
-        topology_file=topology_file,
+        topology_map=topology_map,
         use_pt=use_pt,
         augment=augment,
     )
@@ -578,7 +578,7 @@ def test():
     pdblist = "set/targets.pdb.6k"
     #
     cg_model = libcg.Martini
-    topology_file = read_coarse_grained_topology("martini")
+    topology_map = read_coarse_grained_topology("martini")
     #
     augment = ""
     use_pt = None  # "Martini"
@@ -587,7 +587,7 @@ def test():
         base_dir,
         pdblist,
         cg_model,
-        topology_file=topology_file,
+        topology_map=topology_map,
         use_pt=use_pt,
         augment=augment,
     )

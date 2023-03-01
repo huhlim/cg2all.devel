@@ -35,7 +35,7 @@ N_PROC = int(os.getenv("OMP_NUM_THREADS", "8"))
 
 class Model(pl.LightningModule):
     def __init__(
-        self, _config={}, cg_model=CalphaBasedModel, compute_loss=False, memcheck=False
+        self, _config={}, cg_model=libcg.CalphaBasedModel, compute_loss=False, memcheck=False
     ):
         super().__init__()
         self._config = _config
@@ -261,22 +261,25 @@ def main():
     config["cg_model"] = config.get("cg_model", arg.cg_model)
     if config["cg_model"] == "CalphaBasedModel":
         cg_model = libcg.CalphaBasedModel
-        topology_file = None
+        topology_map = None
     elif config["cg_model"] == "ResidueBasedModel":
         cg_model = libcg.ResidueBasedModel
-        topology_file = None
+        topology_map = None
     elif config["cg_model"] == "Martini":
-        topology_file = read_coarse_grained_topology("martini")
+        topology_map = read_coarse_grained_topology("martini")
         cg_model = libcg.Martini
     elif config["cg_model"] == "BackboneModel":
         cg_model = libcg.BackboneModel
-        topology_file = None
+        topology_map = None
     elif config["cg_model"] == "MainchainModel":
         cg_model = libcg.MainchainModel
-        topology_file = None
-    elif config["cg_model"] == "PRIMO"
-        topology_file = read_coarse_grained_topology("primo")
+        topology_map = None
+    elif config["cg_model"] == "PRIMO":
+        topology_map = read_coarse_grained_topology("primo")
         cg_model = libcg.PRIMO
+    elif config["cg_model"] == "CalphaCMModel":
+        cg_model = libcg.CalphaCMModel
+        topology_map = None
     config = libmodel.set_model_config(config, cg_model)
     #
     overfit = arg.overfit_batches > 0
@@ -302,7 +305,7 @@ def main():
     _PDBset = functools.partial(
         PDBset,
         cg_model=cg_model,
-        topology_file=topology_file,
+        topology_map=topology_map,
         radius=config.globals.radius,
         use_pt=config.train.get("use_pt", "CA"),
         min_cg=config.train.get("min_cg", ""),

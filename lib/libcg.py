@@ -308,10 +308,10 @@ class Martini(BaseClass):
 
     def __init__(self, pdb_fn, dcd_fn=None, is_all=True, **kwarg):
         if is_all:
-            assert "martini_top" in kwarg
+            assert "topology_map" in kwarg
         super().__init__(pdb_fn, dcd_fn, is_all=is_all, **kwarg)
 
-    def create_top_cg(self, martini_top):
+    def create_top_cg(self, topology_map):
         top = self.top.subset(self.top.select("name CA"))
         serial = 0
         for residue in top.residues:
@@ -321,21 +321,21 @@ class Martini(BaseClass):
                 atom.serial = serial
                 atom.name = "BB"
             #
-            n_sc = max(martini_top[self.residue_index[residue.index]])
+            n_sc = max(topology_map[self.residue_index[residue.index]])
             for i in range(n_sc):
                 top.add_atom(f"SC{i+1}", bb.element, residue)
             serial += n_sc
         return top
 
     def convert_to_cg(self, **kwarg):
-        martini_top = kwarg["martini_top"]
-        self.top_cg = self.create_top_cg(martini_top)
+        topology_map = kwarg["topology_map"]
+        self.top_cg = self.create_top_cg(topology_map)
         #
         self.R_cg = np.zeros((self.n_frame, self.n_residue, self.MAX_BEAD, 3))
         self.atom_mask_cg = np.zeros((self.n_residue, self.MAX_BEAD), dtype=float)
         #
         for i_res in range(self.n_residue):
-            index = martini_top[self.residue_index[i_res]]
+            index = topology_map[self.residue_index[i_res]]
             #
             mass_weighted_R = self.R[:, i_res] * self.atomic_mass[None, i_res, :, None]
             mass_weighted_R[:, index == -1] = 0.0
@@ -363,10 +363,10 @@ class PRIMO(BaseClass):
 
     def __init__(self, pdb_fn, dcd_fn=None, is_all=True, **kwarg):
         if is_all:
-            assert "primo_top" in kwarg
+            assert "topology_map" in kwarg
         super().__init__(pdb_fn, dcd_fn, is_all=is_all, **kwarg)
 
-    def create_top_cg(self, primo_top):
+    def create_top_cg(self, topology_map):
         top = mdtraj.Topology()
         #
         serial = 0
@@ -378,7 +378,7 @@ class PRIMO(BaseClass):
                     residue0.name, chain, residue0.resSeq, residue0.segment_id
                 )
                 #
-                n_bead = len(primo_top[self.residue_index[residue.index]])
+                n_bead = len(topology_map[self.residue_index[residue.index]])
                 for atom_name in self.WRITE_BEAD[:n_bead]:
                     serial += 1
                     element = mdtraj.core.element.Element.getBySymbol(atom_name[0])
@@ -386,14 +386,14 @@ class PRIMO(BaseClass):
         return top
 
     def convert_to_cg(self, **kwarg):
-        primo_top = kwarg["primo_top"]
-        self.top_cg = self.create_top_cg(primo_top)
+        topology_map = kwarg["topology_map"]
+        self.top_cg = self.create_top_cg(topology_map)
         #
         self.R_cg = np.zeros((self.n_frame, self.n_residue, self.MAX_BEAD, 3))
         self.atom_mask_cg = np.zeros((self.n_residue, self.MAX_BEAD), dtype=float)
         #
         for i_res in range(self.n_residue):
-            index_s = primo_top[self.residue_index[i_res]]
+            index_s = topology_map[self.residue_index[i_res]]
             #
             for k, index in enumerate(index_s):
                 is_valid = self.atom_mask[i_res, index].sum() > 0
@@ -403,7 +403,6 @@ class PRIMO(BaseClass):
 
     def write_cg(self, R, pdb_fn=None, dcd_fn=None):
         atom_order = [self.WRITE_BEAD.index(atom_name) for atom_name in self.NAME_BEAD]
-        print(atom_order)
 
         mask = np.where(self.atom_mask_cg[:, atom_order])
         xyz = R[:, :, atom_order][:, mask[0], mask[1]]
@@ -491,6 +490,76 @@ class MainchainModel(BackboneModel):
         self.atom_mask_cg = self.atom_mask_pdb[:, atom_index]
 
 
+class RosettaCentroidModel(BackboneModel):
+    NAME_BEAD = ["CA", "N", "C", "O", "CB", "CEN"]
+    WRITE_BEAD = ["N", "CA", "C", "O", "CB", "CEN"]
+    MAX_BEAD = 6
+
+    n_node_scalar = 17
+    n_node_vector = 9
+    n_edge_scalar = 3
+    n_edge_vector = 0
+
+    def __init__(self, pdb_fn, dcd_fn=None, is_all=True, **kwarg):
+        super().__init__(pdb_fn, dcd_fn, is_all=is_all, **kwarg)
+
+    def create_top_cg(self):
+        top = mdtraj.Topology()
+        #
+        serial = 0
+        for chain0 in self.top.chains:
+            chain = top.add_chain()
+            #
+            for residue0 in chain0.residues:
+                residue = top.add_residue(
+                    residue0.name, chain, residue0.resSeq, residue0.segment_id
+                )
+                #
+                for atom_name in self.WRITE_BEAD:
+                    if residue.name == "GLY" and atom_name == "CB":
+                        continue
+                    serial += 1
+                    element = mdtraj.core.element.Element.getBySymbol(atom_name[0])
+                    atom = top.add_atom(atom_name, element, residue, serial=serial)
+        return top
+
+    def convert_to_cg(self):
+        self.top_cg = self.create_top_cg()
+
+        self.R_cg = np.zeros((self.n_frame, self.n_residue, self.MAX_BEAD, 3))
+        self.atom_mask_cg = np.zeros((self.n_residue, self.MAX_BEAD), dtype=float)
+
+        atom_index = (ATOM_INDEX_CA, ATOM_INDEX_N, ATOM_INDEX_C, ATOM_INDEX_O)
+        self.R_cg[:, :, :4] = self.R[:, :, atom_index, :]
+        self.atom_mask_cg[:, :4] = self.atom_mask_pdb[:, atom_index]
+        #
+        for i_res in range(self.n_residue):
+            residue_name = self.residue_name[i_res]
+            if residue_name == "GLY":
+                R_CB = None
+                R_CEN = self.R[:, i_res, ATOM_INDEX_CA, :]
+            elif residue_name == "ALA":
+                R_CB = self.R[:, i_res, residue_s[residue_name].atom_s.index("CB")]
+                R_CEN = R_CB
+            else:
+                atom_index_CB = residue_s[residue_name].atom_s.index("CB")
+                R_CB = self.R[:, i_res, atom_index_CB]
+                mass = self.atomic_mass[i_res].copy()
+                mass[:4] = 0.0
+                mass[atom_index_CB] = 0.0
+                mass[mass < 4.0] = 0.0
+                mass_sum = mass.sum()
+                mass_weighted_R = self.R[:, i_res, :] * mass[None, :, None]
+                R_CEN = mass_weighted_R.sum(axis=-2) / mass_sum
+            #
+            if R_CB is not None:
+                self.R_cg[:, i_res, 4] = R_CB
+                self.atom_mask_cg[i_res, 4] = 1.0
+            if R_CEN is not None:
+                self.R_cg[:, i_res, 5] = R_CEN
+                self.atom_mask_cg[i_res, 5] = 1.0
+
+
 def get_residue_center_of_mass(r: torch.Tensor, mass: torch.Tensor) -> torch.Tensor:
     # r: (n_residue, MAX_ATOM, 3)
     # mass: (n_residue, MAX_ATOM)
@@ -519,3 +588,6 @@ def get_backbone_angles(R):
     return out
 
 
+if __name__ == "__main__":
+    m = RosettaCentroidModel("pdb.processed/1ab1_A.pdb")
+    m.write_cg(m.R_cg, pdb_fn="test.pdb")
