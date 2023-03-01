@@ -26,7 +26,7 @@ from residue_constants import (
     AMINO_ACID_REV_s,
     ATOM_INDEX_CA,
     residue_s,
-    read_martini_topology,
+    read_coarse_grained_topology,
 )
 
 torch.multiprocessing.set_sharing_strategy("file_system")
@@ -46,6 +46,7 @@ class PDBset(Dataset):
         use_pt=None,
         crop=-1,
         use_md=False,
+        perturb_pos=0.0,
         n_frame=1,
         dtype=DTYPE,
     ):
@@ -67,6 +68,7 @@ class PDBset(Dataset):
         self.self_loop = self_loop
         self.augment = augment
         self.min_cg = min_cg
+        self.perturb_pos = perturb_pos
         #
         if use_pt is not None and use_pt.startswith("mixed"):
             mixed_s = {"mixed_0": ["CA_aug_min+FLIP", "min_100", "min_010", "min_001"]}
@@ -147,6 +149,9 @@ class PDBset(Dataset):
         #
         valid_residue = cg.atom_mask_cg[:, 0] > 0.0
         pos = r_cg[valid_residue, :]
+        if self.perturb_pos > 0.0:
+            dx = torch.randn_like(pos) * self.perturb_pos
+            pos = pos + dx
         geom_s = cg.get_geometry(pos, cg.atom_mask_cg, cg.continuous[0])
         #
         node_feat = cg.geom_to_feature(geom_s, cg.continuous, dtype=self.dtype)
@@ -353,6 +358,77 @@ class PredictionData(Dataset):
         return data
 
 
+class MinimizableData(Dataset):
+    def __init__(self, pdb_fn, cg_model, radius=1.0, self_loop=False, dtype=DTYPE):
+        super().__init__()
+        #
+        self.pdb_fn = pdb_fn
+        self.cg_model = cg_model
+        #
+        self.radius = radius
+        self.self_loop = self_loop
+        self.dtype = dtype
+        #
+        self.cg = self.cg_model(self.pdb_fn, is_all=True)
+
+    def __len__(self):
+        return 1
+
+    def __getitem__(self, index):
+        cg = self.cg
+        r_cg = torch.as_tensor(cg.R_cg[index], dtype=self.dtype)
+        r_cg.requires_grad = True
+        #
+        valid_residue = cg.atom_mask_cg[:, 0] > 0.0
+        pos = r_cg[valid_residue, :]
+        geom_s = cg.get_geometry(pos, cg.atom_mask_cg, cg.continuous[0])
+        #
+        node_feat = cg.geom_to_feature(geom_s, cg.continuous, dtype=self.dtype)
+        data = dgl.radius_graph(pos[:, 0], self.radius, self_loop=self.self_loop)
+        data.ndata["pos"] = pos[:, 0]
+        data.ndata["node_feat_0"] = node_feat["0"][..., None]  # shape=(N, 16, 1)
+        data.ndata["node_feat_1"] = node_feat["1"]  # shape=(N, 4, 3)
+        #
+        edge_src, edge_dst = data.edges()
+        data.edata["rel_pos"] = pos[edge_dst, 0] - pos[edge_src, 0]
+        #
+        data.ndata["chain_index"] = torch.as_tensor(cg.chain_index, dtype=torch.long)
+        resSeq, resSeqIns = resSeq_to_number(cg.resSeq)
+        data.ndata["resSeq"] = torch.as_tensor(resSeq, dtype=torch.long)
+        data.ndata["resSeqIns"] = torch.as_tensor(resSeqIns, dtype=torch.long)
+        data.ndata["residue_type"] = torch.as_tensor(cg.residue_index, dtype=torch.long)
+        data.ndata["continuous"] = torch.as_tensor(cg.continuous[0], dtype=self.dtype)
+        data.ndata["output_atom_mask"] = torch.as_tensor(cg.atom_mask, dtype=self.dtype)
+        #
+        ssbond_index = torch.full((data.num_nodes(),), -1, dtype=torch.long)
+        for cys_i, cys_j in cg.ssbond_s:
+            if cys_i < cys_j:  # because of loss_f_atomic_clash
+                ssbond_index[cys_j] = cys_i
+            else:
+                ssbond_index[cys_i] = cys_j
+        data.ndata["ssbond_index"] = ssbond_index
+        #
+        edge_feat = torch.zeros(
+            (data.num_edges(), 3), dtype=self.dtype
+        )  # bonded / ssbond / space
+        for i, cont in enumerate(cg.continuous[0]):
+            if cont and data.has_edges_between(i - 1, i):  # i-1 and i is connected
+                eid = data.edge_ids(i - 1, i)
+                edge_feat[eid, 0] = 1.0
+                eid = data.edge_ids(i, i - 1)
+                edge_feat[eid, 0] = 1.0
+        for cys_i, cys_j in cg.ssbond_s:
+            if data.has_edges_between(cys_i, cys_j):
+                eid = data.edge_ids(cys_i, cys_j)
+                edge_feat[eid, 1] = 1.0
+                eid = data.edge_ids(cys_j, cys_i)
+                edge_feat[eid, 1] = 1.0
+        edge_feat[edge_feat.sum(dim=-1) == 0.0, 2] = 1.0
+        data.edata["edge_feat_0"] = edge_feat[..., None]
+
+        return data
+
+
 def resSeq_to_number(resSeq_s: np.ndarray):
     resSeq_number_s = []
     resSeqIns_s = []
@@ -475,7 +551,7 @@ def to_pt():
     pdblist = "set/targets.pdb.6k"
     #
     cg_model = libcg.Martini
-    topology_file = read_martini_topology()
+    topology_file = read_coarse_grained_topology("martini")
     #
     augment = ""
     use_pt = None  # "Martini"
@@ -497,11 +573,12 @@ def to_pt():
 
 
 def test():
+    return
     base_dir = BASE / "pdb.6k"
     pdblist = "set/targets.pdb.6k"
     #
     cg_model = libcg.Martini
-    topology_file = read_martini_topology()
+    topology_file = read_coarse_grained_topology("martini")
     #
     augment = ""
     use_pt = None  # "Martini"
@@ -521,4 +598,9 @@ def test():
 
 
 if __name__ == "__main__":
-    test()
+    m = MinimizableData("../pdb.processed/1ab1_A.pdb", libcg.CalphaBasedModel)
+    batch = m[0]
+    loss = 0.0
+    loss = loss + torch.sum(batch.ndata["node_feat_0"] ** 2)
+    # loss = loss + torch.sum(batch.ndata["node_feat_1"] ** 2)
+    loss.backward()

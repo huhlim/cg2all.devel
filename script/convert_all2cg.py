@@ -12,9 +12,9 @@ BASE = pathlib.Path(__file__).parents[1].resolve()
 LIB_HOME = str(BASE / "lib")
 sys.path.insert(0, LIB_HOME)
 
-from libcg import ResidueBasedModel, CalphaBasedModel, Martini
+import libcg
 from libpdb import write_SSBOND
-from residue_constants import read_martini_topology
+from residue_constants import read_coarse_grained_topology
 
 
 def main():
@@ -29,17 +29,31 @@ def main():
         # fmt:off
         choices=["CalphaBasedModel", "CA", "ca", \
                 "ResidueBasedModel", "RES", "res", \
-                "Martini", "martini"]
+                "Martini", "martini", \
+                "PRIMO", "primo", \
+                "BB", "bb", "backbone", "Backbone", "BackboneModel", \
+                "MC", "mc", "mainchain", "Mainchain", "MainchainModel",
+                ]
         # fmt:on
     )
     arg = arg.parse_args()
     #
     if arg.cg_model in ["CA", "ca", "CalphaBasedModel"]:
-        cg_model = CalphaBasedModel
+        cg_model = libcg.CalphaBasedModel
     elif arg.cg_model in ["RES", "res", "ResidueBasedModel"]:
-        cg_model = ResidueBasedModel
+        cg_model = libcg.ResidueBasedModel
     elif arg.cg_model in ["Martini", "martini"]:
-        cg_model = functools.partial(Martini, martini_top=read_martini_topology())
+        cg_model = functools.partial(
+            libcg.Martini, martini_top=read_coarse_grained_topology("martini")
+        )
+    elif arg.cg_model in ["PRIMO", "primo"]:
+        cg_model = functools.partial(
+            libcg.PRIMO, martini_top=read_coarse_grained_topology("primo")
+        )
+    elif arg.cg_model in ["BB", "bb", "backbone", "Backbone", "BackboneModel"]:
+        cg_model = libcg.BackboneModel
+    elif arg.cg_model in ["MC", "mc", "mainchain", "Mainchain", "MainchainModel"]:
+        cg_model = libcg.MainchainModel
     else:
         raise KeyError(f"Unknown CG model, {arg.cg_model}\n")
     #

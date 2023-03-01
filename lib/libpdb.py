@@ -47,7 +47,7 @@ class PDB(object):
         self.process(traj, pdb_fn, is_all=is_all, **kwarg)
 
     def process(
-        self, traj, pdb_fn, is_all=True, check_validity=True, compute_dssp=True
+        self, traj, pdb_fn, is_all=True, check_validity=True, compute_dssp=True, **kwarg
     ):
         self.traj = traj
         self.top = traj.top

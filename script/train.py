@@ -19,9 +19,9 @@ LIB_HOME = str(BASE / "lib")
 sys.path.insert(0, LIB_HOME)
 
 from libdata import PDBset, create_trajectory_from_batch
-from libcg import ResidueBasedModel, CalphaBasedModel, Martini
+import libcg
 from libpdb import write_SSBOND
-from residue_constants import read_martini_topology
+from residue_constants import read_coarse_grained_topology
 import libmodel
 
 import warnings
@@ -260,14 +260,23 @@ def main():
     # configure
     config["cg_model"] = config.get("cg_model", arg.cg_model)
     if config["cg_model"] == "CalphaBasedModel":
-        cg_model = CalphaBasedModel
+        cg_model = libcg.CalphaBasedModel
         topology_file = None
     elif config["cg_model"] == "ResidueBasedModel":
-        cg_model = ResidueBasedModel
+        cg_model = libcg.ResidueBasedModel
         topology_file = None
     elif config["cg_model"] == "Martini":
-        topology_file = read_martini_topology()
-        cg_model = Martini
+        topology_file = read_coarse_grained_topology("martini")
+        cg_model = libcg.Martini
+    elif config["cg_model"] == "BackboneModel":
+        cg_model = libcg.BackboneModel
+        topology_file = None
+    elif config["cg_model"] == "MainchainModel":
+        cg_model = libcg.MainchainModel
+        topology_file = None
+    elif config["cg_model"] == "PRIMO"
+        topology_file = read_coarse_grained_topology("primo")
+        cg_model = libcg.PRIMO
     config = libmodel.set_model_config(config, cg_model)
     #
     overfit = arg.overfit_batches > 0
@@ -298,6 +307,7 @@ def main():
         use_pt=config.train.get("use_pt", "CA"),
         min_cg=config.train.get("min_cg", ""),
         augment=config.train.get("augment", ""),
+        perturb_pos=config.train.get("perturb_pos", 0.0),
         use_md=use_md,
         n_frame=n_frame,
     )
