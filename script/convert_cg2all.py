@@ -7,6 +7,7 @@ import time
 import tqdm
 import pathlib
 import argparse
+import functools
 
 import numpy as np
 
@@ -21,12 +22,13 @@ LIB_HOME = str(BASE / "lib")
 sys.path.insert(0, LIB_HOME)
 
 from libconfig import MODEL_HOME
+from residue_constants import read_coarse_grained_topology
 from libdata import (
     PredictionData,
     create_trajectory_from_batch,
     create_topology_from_data,
 )
-from libcg import ResidueBasedModel, CalphaBasedModel, Martini
+import libcg
 from libpdb import write_SSBOND
 from libter import patch_termini
 import libmodel
@@ -49,8 +51,16 @@ def main():
         # fmt:off
         choices=["CalphaBasedModel", "CA", "ca", \
                 "ResidueBasedModel", "RES", "res", \
-                "Martini", "martini"]
+                "Martini", "martini", \
+                "PRIMO", "primo", \
+                "BB", "bb", "backbone", "Backbone", "BackboneModel", \
+                "MC", "mc", "mainchain", "Mainchain", "MainchainModel",
+                "CACM", "cacm", "CalphaCM", "CalphaCMModel",
+                ]
         # fmt:on
+    )
+    arg.add_argument(
+        "-a", "--all", "--is_all", dest="is_all", default=False, action="store_true"
     )
     arg.add_argument("--ckpt", dest="ckpt_fn", default=None)
     arg.add_argument("--time", dest="time_json", default=None)
@@ -73,24 +83,49 @@ def main():
         if arg.cg_model is None:
             raise ValueError("Either --cg or --ckpt argument should be given.")
         else:
+            # fmt:off
             if arg.cg_model in ["CalphaBasedModel", "CA", "ca"]:
                 model_type = "CalphaBasedModel"
             elif arg.cg_model in ["ResidueBasedModel", "RES", "res"]:
                 model_type = "ResidueBasedModel"
             elif arg.cg_model in ["Martini", "martini"]:
                 model_type = "Martini"
+            elif arg.cg_model in ["PRIMO", "primo"]:
+                model_type = "PRIMO"
+            elif arg.cg_model in ["CACM", "cacm", "CalphaCM", "CalphaCMModel"]:
+                model_type = "CalphaCMModel"
+            elif arg.cg_model in ["BB", "bb", "backbone", "Backbone", "BackboneModel"]:
+                model_type = "BackboneModel"
+            elif arg.cg_model in ["MC", "mc", "mainchain", "Mainchain", "MainchainModel"]:
+                model_type = "MainchainModel"
+            # fmt:on
             arg.ckpt_fn = MODEL_HOME / f"{model_type}.ckpt"
+
     ckpt = torch.load(arg.ckpt_fn, map_location=device)
     config = ckpt["hyper_parameters"]
     timing["loading_ckpt"] = time.time() - timing["loading_ckpt"]
     #
     timing["model_configuration"] = time.time()
     if config["cg_model"] == "CalphaBasedModel":
-        cg_model = CalphaBasedModel
+        cg_model = libcg.CalphaBasedModel
     elif config["cg_model"] == "ResidueBasedModel":
-        cg_model = ResidueBasedModel
+        cg_model = libcg.ResidueBasedModel
     elif config["cg_model"] == "Martini":
-        cg_model = Martini
+        cg_model = libcg.Martini
+    elif config["cg_model"] == "PRIMO":
+        cg_model = libcg.PRIMO
+    elif config["cg_model"] == "CalphaCMModel":
+        cg_model = libcg.CalphaCMModel
+    elif config["cg_model"] == "BackboneModel":
+        cg_model = libcg.BackboneModel
+    elif config["cg_model"] == "MainchainModel":
+        cg_model = libcg.MainchainModel
+    #
+    if arg.is_all and config["cg_model"] in ["PRIMO", "Martini"]:
+        topology_map = read_coarse_grained_topology(config["cg_model"].lower())
+    else:
+        topology_map = None
+    #
     config = libmodel.set_model_config(config, cg_model)
     model = libmodel.Model(config, cg_model, compute_loss=False)
     #
@@ -105,7 +140,12 @@ def main():
     #
     timing["loading_input"] = time.time()
     input_s = PredictionData(
-        arg.in_pdb_fn, cg_model, dcd_fn=arg.in_dcd_fn, radius=config.globals.radius
+        arg.in_pdb_fn,
+        cg_model,
+        topology_map=topology_map,
+        dcd_fn=arg.in_dcd_fn,
+        radius=config.globals.radius,
+        is_all=arg.is_all,
     )
     if arg.in_dcd_fn is not None:
         unitcell_lengths = input_s.cg.unitcell_lengths

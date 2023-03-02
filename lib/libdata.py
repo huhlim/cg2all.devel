@@ -270,9 +270,11 @@ class PredictionData(Dataset):
         self,
         pdb_fn,
         cg_model,
+        topology_map=None,
         dcd_fn=None,
         radius=1.0,
         self_loop=False,
+        is_all=False,
         dtype=DTYPE,
     ):
         super().__init__()
@@ -281,10 +283,12 @@ class PredictionData(Dataset):
         self.dcd_fn = dcd_fn
         #
         self.cg_model = cg_model
+        self.topology_map = topology_map
         #
         self.radius = radius
         self.self_loop = self_loop
         self.dtype = dtype
+        self.is_all = is_all
         #
         if self.dcd_fn is None:
             self.n_frame = 1
@@ -296,7 +300,10 @@ class PredictionData(Dataset):
         return self.n_frame
 
     def pdb_to_cg(self, *arg, **argv):
-        return self.cg_model(*arg, **argv, is_all=False)
+        if self.topology_map is None:
+            return self.cg_model(is_all=self.is_all, *arg, **argv)
+        else:
+            return self.cg_model(is_all=self.is_all, *arg, **argv, topology_map=self.topology_map)
 
     def __getitem__(self, index):
         if self.dcd_fn is None:

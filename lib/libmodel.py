@@ -186,7 +186,7 @@ def set_model_config(arg: dict, cg_model) -> ConfigDict:
     if cg_model.n_edge_vector > 0:
         config.structure_module.fiber_edge.append((1, cg_model.n_edge_vector))
     #
-    if config.train.perturb_pos > 0.0:
+    if config.train.get("perturb_pos", 0.0) > 0.0:
         config.train.use_pt = None
     #
     return config
