@@ -148,7 +148,8 @@ class BaseClass(PDB):
             dr[shift:-shift] = r[:-shift, :] - r[shift:, :]
             b_len[shift:-shift] = v_size(dr[shift:-shift])
             #
-            dr[shift:-shift] /= b_len[shift:-shift, None]
+            dr = dr / torch.clamp(b_len[:, None], min=EPS)
+            # dr[shift:-shift] = dr[shift:-shift] / b_len[shift:-shift, None]
             b_len = torch.clamp(b_len, max=1.0)
             #
             for s in range(shift):
@@ -163,12 +164,12 @@ class BaseClass(PDB):
         v2 = geom_s["bond_vector"][1][1]
         cosine = inner_product(v1, v2)
         sine = 1.0 - cosine**2
-        cosine[not_defined] = 0.0
-        sine[not_defined] = 0.0
-        cosine[:-1][not_defined[1:]] = 0.0
-        sine[:-1][not_defined[1:]] = 0.0
-        cosine[-1] = 0.0
-        sine[-1] = 0.0
+        mask = torch.ones_like(cosine)
+        mask[not_defined] = 0.0
+        mask[-1] = 0.0
+        mask[:-1][not_defined[1:]] = 0.0
+        cosine = cosine * mask
+        sine = sine * mask
         geom_s["bond_angle"] = (cosine, sine)
 
         # dihedral angles

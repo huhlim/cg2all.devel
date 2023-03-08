@@ -71,7 +71,7 @@ class ProcessPDB(PDB):
             #
             # place BB atoms
             t_ang0, atom_s, rigid = get_rigid_group_by_torsion(
-                self.residue_name[i_res], "BB"
+                "", self.residue_name[i_res], "BB"
             )
             rigid_s = translate_and_rotate(rigid, opr_bb[0], opr_bb[1])
             for atom in atom_s:
