@@ -491,76 +491,6 @@ class MainchainModel(BackboneModel):
         self.atom_mask_cg = self.atom_mask_pdb[:, atom_index]
 
 
-class RosettaCentroidModel(BackboneModel):
-    NAME_BEAD = ["CA", "N", "C", "O", "CB", "CEN"]
-    WRITE_BEAD = ["N", "CA", "C", "O", "CB", "CEN"]
-    MAX_BEAD = 6
-
-    n_node_scalar = 17
-    n_node_vector = 9
-    n_edge_scalar = 3
-    n_edge_vector = 0
-
-    def __init__(self, pdb_fn, dcd_fn=None, is_all=True, **kwarg):
-        super().__init__(pdb_fn, dcd_fn, is_all=is_all, **kwarg)
-
-    def create_top_cg(self):
-        top = mdtraj.Topology()
-        #
-        serial = 0
-        for chain0 in self.top.chains:
-            chain = top.add_chain()
-            #
-            for residue0 in chain0.residues:
-                residue = top.add_residue(
-                    residue0.name, chain, residue0.resSeq, residue0.segment_id
-                )
-                #
-                for atom_name in self.WRITE_BEAD:
-                    if residue.name == "GLY" and atom_name == "CB":
-                        continue
-                    serial += 1
-                    element = mdtraj.core.element.Element.getBySymbol(atom_name[0])
-                    atom = top.add_atom(atom_name, element, residue, serial=serial)
-        return top
-
-    def convert_to_cg(self):
-        self.top_cg = self.create_top_cg()
-
-        self.R_cg = np.zeros((self.n_frame, self.n_residue, self.MAX_BEAD, 3))
-        self.atom_mask_cg = np.zeros((self.n_residue, self.MAX_BEAD), dtype=float)
-
-        atom_index = (ATOM_INDEX_CA, ATOM_INDEX_N, ATOM_INDEX_C, ATOM_INDEX_O)
-        self.R_cg[:, :, :4] = self.R[:, :, atom_index, :]
-        self.atom_mask_cg[:, :4] = self.atom_mask_pdb[:, atom_index]
-        #
-        for i_res in range(self.n_residue):
-            residue_name = self.residue_name[i_res]
-            if residue_name == "GLY":
-                R_CB = None
-                R_CEN = self.R[:, i_res, ATOM_INDEX_CA, :]
-            elif residue_name == "ALA":
-                R_CB = self.R[:, i_res, residue_s[residue_name].atom_s.index("CB")]
-                R_CEN = R_CB
-            else:
-                atom_index_CB = residue_s[residue_name].atom_s.index("CB")
-                R_CB = self.R[:, i_res, atom_index_CB]
-                mass = self.atomic_mass[i_res].copy()
-                mass[:4] = 0.0
-                mass[atom_index_CB] = 0.0
-                mass[mass < 4.0] = 0.0
-                mass_sum = mass.sum()
-                mass_weighted_R = self.R[:, i_res, :] * mass[None, :, None]
-                R_CEN = mass_weighted_R.sum(axis=-2) / mass_sum
-            #
-            if R_CB is not None:
-                self.R_cg[:, i_res, 4] = R_CB
-                self.atom_mask_cg[i_res, 4] = 1.0
-            if R_CEN is not None:
-                self.R_cg[:, i_res, 5] = R_CEN
-                self.atom_mask_cg[i_res, 5] = 1.0
-
-
 def get_residue_center_of_mass(r: torch.Tensor, mass: torch.Tensor) -> torch.Tensor:
     # r: (n_residue, MAX_ATOM, 3)
     # mass: (n_residue, MAX_ATOM)
@@ -589,6 +519,3 @@ def get_backbone_angles(R):
     return out
 
 
-if __name__ == "__main__":
-    m = RosettaCentroidModel("pdb.processed/1ab1_A.pdb")
-    m.write_cg(m.R_cg, pdb_fn="test.pdb")

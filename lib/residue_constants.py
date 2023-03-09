@@ -284,6 +284,15 @@ def read_primo_topology():
     return primo_map
 
 
+def update_primo_names(pdb):
+    for residue in pdb.top.residues:
+        if len(residue.name) == 4 and residue.name[-1] == "2":
+            residue.name = residue.name[:3]
+        for atom in residue.atoms:
+            if atom.name in ["N1", "CA1"]:
+                atom.name = atom.name[:-1]
+
+
 def read_coarse_grained_topology(model):
     if model == "martini":
         return read_martini_topology()
