@@ -31,6 +31,7 @@ def main():
                 "ResidueBasedModel", "RES", "res", \
                 "Martini", "martini", \
                 "PRIMO", "primo", \
+                "CACM", "cacm", "CalphaCM", "CalphaCMModel",\
                 "BB", "bb", "backbone", "Backbone", "BackboneModel", \
                 "MC", "mc", "mainchain", "Mainchain", "MainchainModel",
                 ]
@@ -44,12 +45,14 @@ def main():
         cg_model = libcg.ResidueBasedModel
     elif arg.cg_model in ["Martini", "martini"]:
         cg_model = functools.partial(
-            libcg.Martini, martini_top=read_coarse_grained_topology("martini")
+            libcg.Martini, topology_map=read_coarse_grained_topology("martini")
         )
     elif arg.cg_model in ["PRIMO", "primo"]:
         cg_model = functools.partial(
-            libcg.PRIMO, martini_top=read_coarse_grained_topology("primo")
+            libcg.PRIMO, topology_map=read_coarse_grained_topology("primo")
         )
+    elif arg.cg_model in ["CACM", "cacm", "CalphaCM", "CalphaCMModel"]:
+        cg_model = libcg.CalphaCMModel
     elif arg.cg_model in ["BB", "bb", "backbone", "Backbone", "BackboneModel"]:
         cg_model = libcg.BackboneModel
     elif arg.cg_model in ["MC", "mc", "mainchain", "Mainchain", "MainchainModel"]:
