@@ -183,18 +183,28 @@ class PDBset(Dataset):
         edge_feat = torch.zeros(
             (data.num_edges(), 3), dtype=self.dtype
         )  # bonded / ssbond / space
-        for i, cont in enumerate(cg.continuous[0]):
-            if cont and data.has_edges_between(i - 1, i):  # i-1 and i is connected
-                eid = data.edge_ids(i - 1, i)
-                edge_feat[eid, 0] = 1.0
-                eid = data.edge_ids(i, i - 1)
-                edge_feat[eid, 0] = 1.0
-        for cys_i, cys_j in cg.ssbond_s:
-            if data.has_edges_between(cys_i, cys_j):
-                eid = data.edge_ids(cys_i, cys_j)
-                edge_feat[eid, 1] = 1.0
-                eid = data.edge_ids(cys_j, cys_i)
-                edge_feat[eid, 1] = 1.0
+        #
+        # bonded
+        pair_s = [(i - 1, i) for i, cont in enumerate(cg.continuous[0]) if cont]
+        pair_s = torch.as_tensor(pair_s, dtype=torch.long)
+        has_edges = data.has_edges_between(pair_s[:, 0], pair_s[:, 1])
+        pair_s = pair_s[has_edges]
+        eid = data.edge_ids(pair_s[:, 0], pair_s[:, 1])
+        edge_feat[eid, 0] = 1.0
+        eid = data.edge_ids(pair_s[:, 1], pair_s[:, 0])
+        edge_feat[eid, 0] = 1.0
+        #
+        # ssbond
+        if len(cg.ssbond_s) > 0:
+            pair_s = torch.as_tensor(cg.ssbond_s, dtype=torch.long)
+            has_edges = data.has_edges_between(pair_s[:, 0], pair_s[:, 1])
+            pair_s = pair_s[has_edges]
+            eid = data.edge_ids(pair_s[:, 0], pair_s[:, 1])
+            edge_feat[eid, 1] = 1.0
+            eid = data.edge_ids(pair_s[:, 1], pair_s[:, 0])
+            edge_feat[eid, 1] = 1.0
+        #
+        # space
         edge_feat[edge_feat.sum(dim=-1) == 0.0, 2] = 1.0
         data.edata["edge_feat_0"] = edge_feat[..., None]
         #
@@ -348,18 +358,28 @@ class PredictionData(Dataset):
         edge_feat = torch.zeros(
             (data.num_edges(), 3), dtype=self.dtype
         )  # bonded / ssbond / space
-        for i, cont in enumerate(cg.continuous[0]):
-            if cont and data.has_edges_between(i - 1, i):  # i-1 and i is connected
-                eid = data.edge_ids(i - 1, i)
-                edge_feat[eid, 0] = 1.0
-                eid = data.edge_ids(i, i - 1)
-                edge_feat[eid, 0] = 1.0
-        for cys_i, cys_j in cg.ssbond_s:
-            if data.has_edges_between(cys_i, cys_j):
-                eid = data.edge_ids(cys_i, cys_j)
-                edge_feat[eid, 1] = 1.0
-                eid = data.edge_ids(cys_j, cys_i)
-                edge_feat[eid, 1] = 1.0
+        #
+        # bonded
+        pair_s = [(i - 1, i) for i, cont in enumerate(cg.continuous[0]) if cont]
+        pair_s = torch.as_tensor(pair_s, dtype=torch.long)
+        has_edges = data.has_edges_between(pair_s[:, 0], pair_s[:, 1])
+        pair_s = pair_s[has_edges]
+        eid = data.edge_ids(pair_s[:, 0], pair_s[:, 1])
+        edge_feat[eid, 0] = 1.0
+        eid = data.edge_ids(pair_s[:, 1], pair_s[:, 0])
+        edge_feat[eid, 0] = 1.0
+        #
+        # ssbond
+        if len(cg.ssbond_s) > 0:
+            pair_s = torch.as_tensor(cg.ssbond_s, dtype=torch.long)
+            has_edges = data.has_edges_between(pair_s[:, 0], pair_s[:, 1])
+            pair_s = pair_s[has_edges]
+            eid = data.edge_ids(pair_s[:, 0], pair_s[:, 1])
+            edge_feat[eid, 1] = 1.0
+            eid = data.edge_ids(pair_s[:, 1], pair_s[:, 0])
+            edge_feat[eid, 1] = 1.0
+        #
+        # space
         edge_feat[edge_feat.sum(dim=-1) == 0.0, 2] = 1.0
         data.edata["edge_feat_0"] = edge_feat[..., None]
 
