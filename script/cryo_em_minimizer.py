@@ -74,13 +74,11 @@ def main():
     model.set_constant_tensors(device)
     model.eval()
     #
-    data = MinimizableData("test/3iyg.pdb", cg_model)
-    loss_f = CryoEMLossFunction("test/emd_5148.map", data, device)
+    data = MinimizableData("3fjv/input.pdb", cg_model)
+    loss_f = CryoEMLossFunction("3fjv/3fjv.mrc", data, device)
     #
     trans = torch.zeros(3, dtype=DTYPE, requires_grad=True)
-    rotation = torch.tensor(
-        [[1, 0, 0], [0, 1, 0]], dtype=DTYPE, requires_grad=True
-    )
+    rotation = torch.tensor([[1, 0, 0], [0, 1, 0]], dtype=DTYPE, requires_grad=True)
     #
     optimizer = torch.optim.Adam([data.r_cg, trans, rotation], lr=0.001)
     #
@@ -92,12 +90,12 @@ def main():
     out_mask = batch.ndata["output_atom_mask"].cpu().detach().numpy()
     #
     ssbond = []
-    for cys_i, cys_j in enumerate( batch.ndata["ssbond_index"].cpu().detach().numpy()):
+    for cys_i, cys_j in enumerate(batch.ndata["ssbond_index"].cpu().detach().numpy()):
         if cys_j != -1:
             ssbond.append((cys_j, cys_i))
     ssbond.sort()
     #
-    out_fn = f"test/min.{0:04d}.pdb"
+    out_fn = f"3fjv/min.{0:04d}.pdb"
     xyz = R.cpu().detach().numpy()[out_mask > 0.0][None, out_atom_index]
     output = mdtraj.Trajectory(xyz=xyz, topology=out_top)
     output = patch_termini(output)
@@ -107,7 +105,9 @@ def main():
     #
     for i in range(1000):
         loss_sum, loss = loss_f.eval(batch, R)
-        print("STEP", i, loss["cryo_em"].detach().cpu().item(), time.time() - time_start)
+        print(
+            "STEP", i, loss["cryo_em"].detach().cpu().item(), time.time() - time_start
+        )
         print({name: value.detach().cpu().item() for name, value in loss.items()})
         loss_sum.backward()
         optimizer.step()
@@ -117,8 +117,8 @@ def main():
         batch = data.convert_to_batch(r_cg).to(device)
         R = model.forward(batch)[0]["R"]
         #
-        if (i+1)%10 == 0:
-            out_fn = f"test/min.{i+1:04d}.pdb"
+        if (i + 1) % 10 == 0:
+            out_fn = f"3fjv/min.{i+1:04d}.pdb"
             xyz = R.cpu().detach().numpy()[out_mask > 0.0][None, out_atom_index]
             output = mdtraj.Trajectory(xyz=xyz, topology=out_top)
             output = patch_termini(output)
