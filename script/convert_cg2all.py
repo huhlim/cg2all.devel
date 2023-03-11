@@ -60,6 +60,9 @@ def main():
         # fmt:on
     )
     arg.add_argument(
+        "--chain-break-cutoff", dest="chain_break_cutoff", default=1.0, type=float
+    )
+    arg.add_argument(
         "-a", "--all", "--is_all", dest="is_all", default=False, action="store_true"
     )
     arg.add_argument("--ckpt", dest="ckpt_fn", default=None)
@@ -145,6 +148,7 @@ def main():
         topology_map=topology_map,
         dcd_fn=arg.in_dcd_fn,
         radius=config.globals.radius,
+        chain_break_cutoff=0.1 * arg.chain_break_cutoff,
         is_all=arg.is_all,
     )
     if arg.in_dcd_fn is not None:
