@@ -54,6 +54,17 @@ def rigid_body_move(r, trans, rotation):
 
 
 def main():
+    arg = argparse.ArgumentParser(prog="cg2all")
+    arg.add_argument("-p", "--pdb", dest="in_pdb_fn", required=True)
+    arg.add_argument("-m", "--map", dest="in_map_fn", required=True)
+    arg.add_argument("-o", "--out", "--output", dest="out_dir", required=True)
+    arg.add_argument(
+        "-a", "--all", "--is_all", dest="is_all", default=False, action="store_true"
+    )
+    arg.add_argument("-n", "--step", dest="n_step", default=1000, type=int)
+    arg.add_argument("--restraint", dest="restraint", default=100.0, type=float)
+    arg = arg.parse_args()
+    #
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     time_start = time.time()
 
@@ -74,8 +85,10 @@ def main():
     model.set_constant_tensors(device)
     model.eval()
     #
-    data = MinimizableData("3fjv/input.pdb", cg_model)
-    loss_f = CryoEMLossFunction("3fjv/3fjv.mrc", data, device)
+    data = MinimizableData(arg.in_pdb_fn, cg_model, is_all=arg.is_all)
+    loss_f = CryoEMLossFunction(arg.in_map_fn, data, device, restraint=arg.restraint)
+    output_dir = pathlib.Path(arg.out_dir)
+    output_dir.mkdir(exist_ok=True)
     #
     trans = torch.zeros(3, dtype=DTYPE, requires_grad=True)
     rotation = torch.tensor([[1, 0, 0], [0, 1, 0]], dtype=DTYPE, requires_grad=True)
@@ -95,7 +108,7 @@ def main():
             ssbond.append((cys_j, cys_i))
     ssbond.sort()
     #
-    out_fn = f"3fjv/min.{0:04d}.pdb"
+    out_fn = output_dir / f"min.{0:04d}.pdb"
     xyz = R.cpu().detach().numpy()[out_mask > 0.0][None, out_atom_index]
     output = mdtraj.Trajectory(xyz=xyz, topology=out_top)
     output = patch_termini(output)
@@ -103,7 +116,7 @@ def main():
     if len(ssbond) > 0:
         write_SSBOND(out_fn, output.top, ssbond)
     #
-    for i in range(1000):
+    for i in range(arg.n_step):
         loss_sum, loss = loss_f.eval(batch, R)
         print(
             "STEP", i, loss["cryo_em"].detach().cpu().item(), time.time() - time_start
@@ -118,7 +131,7 @@ def main():
         R = model.forward(batch)[0]["R"]
         #
         if (i + 1) % 10 == 0:
-            out_fn = f"3fjv/min.{i+1:04d}.pdb"
+            out_fn = output_dir / f"min.{i+1:04d}.pdb"
             xyz = R.cpu().detach().numpy()[out_mask > 0.0][None, out_atom_index]
             output = mdtraj.Trajectory(xyz=xyz, topology=out_top)
             output = patch_termini(output)

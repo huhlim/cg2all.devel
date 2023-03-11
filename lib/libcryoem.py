@@ -281,7 +281,7 @@ class CoarseGrainedGeometryEnergy(object):
 
 
 class CryoEMLossFunction(object):
-    def __init__(self, mrc_fn, data, device):
+    def __init__(self, mrc_fn, data, device, restraint=100.0):
         self.cryoem_loss_f = CryoEM_loss(mrc_fn, data, 0.0, device)
         self.distance_restraint = DistanceRestraint(data, device, radius=1.0)
         self.geometry_energy = CoarseGrainedGeometryEnergy(device)
@@ -291,7 +291,7 @@ class CryoEMLossFunction(object):
         self.weight["bond_length"] = 1.0
         self.weight["bond_length_aux"] = 1.0
         self.weight["geometry"] = 0.1
-        self.weight["restraint"] = 10.0
+        self.weight["restraint"] = restraint
 
     def eval(self, batch, R):
         loss = {}
