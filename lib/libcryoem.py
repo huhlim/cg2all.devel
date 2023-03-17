@@ -31,6 +31,9 @@ from torch_basics import (
 
 from libloss import loss_f_bonded_energy_aux as loss_f_bonded_energy_aa_aux
 
+import openmm
+import openmm.unit
+
 
 SYSTEM_SIZE_DEPENDENT = True
 
@@ -79,7 +82,8 @@ def trilinear_interpolation(
 
 
 class CryoEM_loss(object):
-    def __init__(self, mrc_fn, data, density_threshold, device):
+    def __init__(self, mrc_fn, data, density_threshold, device, is_all=True):
+        self.is_all = is_all
         self.device = device
         self.read_mrc_file(mrc_fn)
         self.set_weights(data)
@@ -132,10 +136,16 @@ class CryoEM_loss(object):
                     self.mask[i_res, i_atm] = mask[i_atm]
                     self.weights[i_res, i_atm] = element.mass
         #
-        self.weights = self.weights[self.mask > 0.0]
+        if self.is_all:
+            self.weights = self.weights[self.mask > 0.0]
+        else:
+            self.weights = self.weights.sum(-1)
 
     def eval(self, R):
-        xyz = (R * 10.0)[self.mask > 0.0]
+        if self.is_all:
+            xyz = (R * 10.0)[self.mask > 0.0]
+        else:
+            xyz = (R * 10.0)[:, 0]
         xyz = (xyz - self.xyz_origin) / self.apix
         rho = trilinear_interpolation(xyz, self.rho, self.xyz_size)
         v_em = 1.0 - (rho - self.rho_thr) / (self.rho_max - self.rho_thr)
@@ -281,8 +291,10 @@ class CoarseGrainedGeometryEnergy(object):
 
 
 class CryoEMLossFunction(object):
-    def __init__(self, mrc_fn, data, device, restraint=100.0):
-        self.cryoem_loss_f = CryoEM_loss(mrc_fn, data, 0.0, device)
+    def __init__(self, mrc_fn, data, device, is_all=True, restraint=100.0):
+        self.is_all = is_all
+        #
+        self.cryoem_loss_f = CryoEM_loss(mrc_fn, data, 0.0, device, is_all=is_all)
         self.distance_restraint = DistanceRestraint(data, device, radius=1.0)
         self.geometry_energy = CoarseGrainedGeometryEnergy(device)
         #
@@ -296,8 +308,9 @@ class CryoEMLossFunction(object):
     def eval(self, batch, R):
         loss = {}
         loss["cryo_em"] = self.cryoem_loss_f.eval(R)
-        loss["bond_length"] = loss_f_bonded_energy_aa(batch, R)
-        loss["bond_length_aux"] = loss_f_bonded_energy_aa_aux(batch, R) * R.size(0)
+        if self.is_all:
+            loss["bond_length"] = loss_f_bonded_energy_aa(batch, R)
+            loss["bond_length_aux"] = loss_f_bonded_energy_aa_aux(batch, R) * R.size(0)
         loss["geometry"] = self.geometry_energy.eval(batch)
         loss["restraint"] = self.distance_restraint.eval(batch)
         #
@@ -305,3 +318,84 @@ class CryoEMLossFunction(object):
         for name, value in loss.items():
             loss_sum = loss_sum + value * self.weight[name]
         return loss_sum, loss
+
+
+class CryoEM_openmm_energy(openmm.openmm.CustomCompoundBondForce):
+    def __init__(self, mrc_fn, psf, density_threshold):
+        super().__init__(1, "")
+        self.read_mrc_file(mrc_fn)
+        self.rho_thr = density_threshold
+        self.set_energy_function(psf)
+
+    def read_mrc_file(self, mrc_fn):
+        with mrcfile.open(mrc_fn) as mrc:
+            header = mrc.header
+            self.header = header
+            #
+            data = mrc.data
+            #
+            axis_order = (3 - header.maps, 3 - header.mapr, 3 - header.mapc)
+            data = np.moveaxis(data, source=(0, 1, 2), destination=axis_order)
+
+            apix = np.array([mrc.voxel_size.x, mrc.voxel_size.y, mrc.voxel_size.z])
+            xyz_origin = np.array([header.origin.x, header.origin.y, header.origin.z])
+            if np.all(xyz_origin == 0.0):
+                xyz_origin = np.array(
+                    [header.nxstart, header.nystart, header.nzstart], dtype=float
+                )
+                xyz_origin *= apix
+            xyz_size = np.array([header.mx, header.my, header.mz], dtype=int)
+        #
+        self.apix = apix * 0.1
+        self.xyz_origin = xyz_origin * 0.1
+        self.xyz_size = xyz_size
+        self.boxsize = (self.xyz_size - 1) * self.apix
+        self.rho = np.swapaxes(data, 0, -1)
+        self.rho_max = self.rho.max()
+
+    def set_energy_function(self, psf):
+        rho = openmm.openmm.Continuous3DFunction(
+            *self.xyz_size,
+            self.rho.flatten(),
+            0.0,
+            self.boxsize[0],
+            0.0,
+            self.boxsize[1],
+            0.0,
+            self.boxsize[2],
+        )
+        #
+        form = "weight * (1 - (density(x1,y1,z1) - d_thr) / (d_max - d_thr)) ; dt=density(x1,y1,z1)"
+        self.setEnergyFunction(form)
+        self.addTabulatedFunction("density", rho)
+        self.addGlobalParameter("d_max", self.rho_max)
+        self.addGlobalParameter("d_thr", self.rho_thr)
+        self.addPerBondParameter("weight")
+        #
+        for i, atom in enumerate(psf.topology.atoms()):
+            self.addBond(
+                [i], [10.0 * atom.element.mass.value_in_unit(openmm.unit.dalton)]
+            )
+
+
+def construct_distance_restraints(psf, crd, force_const):
+    force_const = (
+        force_const * openmm.unit.kilojoules_per_mole / openmm.unit.nanometer**2
+    )
+    bond = openmm.openmm.CustomBondForce("k * (r-r0)^2")
+    bond.addGlobalParameter("k", force_const)
+    bond.addPerBondParameter("r0")
+    #
+    calphaIndex = [atom.index for atom in psf.topology.atoms() if atom.name == "CA"]
+    xyz = crd.positions.value_in_unit(openmm.unit.nanometer)
+    xyz = np.array(xyz)[calphaIndex]
+    #
+    dr = xyz[None, :] - xyz[:, None]
+    d0 = np.sqrt(np.sum(dr**2, -1))
+    pair = np.where(d0 < 1.0)
+    #
+    for i, j in zip(*pair):
+        if i >= j:
+            continue
+        bond.addBond(calphaIndex[i], calphaIndex[j], [d0[i, j] * openmm.unit.nanometer])
+    return bond

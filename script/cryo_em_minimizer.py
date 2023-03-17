@@ -54,7 +54,7 @@ def rigid_body_move(r, trans, rotation):
 
 
 def main():
-    arg = argparse.ArgumentParser(prog="cg2all")
+    arg = argparse.ArgumentParser(prog="cryo_em_minimizer")
     arg.add_argument("-p", "--pdb", dest="in_pdb_fn", required=True)
     arg.add_argument("-m", "--map", dest="in_map_fn", required=True)
     arg.add_argument("-o", "--out", "--output", dest="out_dir", required=True)
@@ -86,7 +86,6 @@ def main():
     model.eval()
     #
     data = MinimizableData(arg.in_pdb_fn, cg_model, is_all=arg.is_all)
-    loss_f = CryoEMLossFunction(arg.in_map_fn, data, device, restraint=arg.restraint)
     output_dir = pathlib.Path(arg.out_dir)
     output_dir.mkdir(exist_ok=True)
     #
@@ -116,21 +115,26 @@ def main():
     if len(ssbond) > 0:
         write_SSBOND(out_fn, output.top, ssbond)
     #
+    loss_f = CryoEMLossFunction(arg.in_map_fn, data, device, restraint=arg.restraint)
     for i in range(arg.n_step):
         loss_sum, loss = loss_f.eval(batch, R)
-        print(
-            "STEP", i, loss["cryo_em"].detach().cpu().item(), time.time() - time_start
-        )
-        print({name: value.detach().cpu().item() for name, value in loss.items()})
         loss_sum.backward()
         optimizer.step()
         optimizer.zero_grad()
+        #
+        print("STEP", i, loss_sum.detach().cpu().item(), time.time() - time_start)
+        print(
+            {
+                name: value.detach().cpu().item() * loss_f.weight[name]
+                for name, value in loss.items()
+            }
+        )
         #
         r_cg = rigid_body_move(data.r_cg, trans, rotation)
         batch = data.convert_to_batch(r_cg).to(device)
         R = model.forward(batch)[0]["R"]
         #
-        if (i + 1) % 10 == 0:
+        if (i + 1) % 100 == 0:
             out_fn = output_dir / f"min.{i+1:04d}.pdb"
             xyz = R.cpu().detach().numpy()[out_mask > 0.0][None, out_atom_index]
             output = mdtraj.Trajectory(xyz=xyz, topology=out_top)
