@@ -6,7 +6,7 @@ pdb/*.dat
 pdb.processed
 pdb.pisces
 pdb.top8000
-pdb.27k
+pdb.29k
 pdb.6k
 top8000/*.pdb
 top8000/*.pkl
@@ -16,3 +16,4 @@ logs
 .DS_Store
 baseline
 */*.pt
+cryoem
