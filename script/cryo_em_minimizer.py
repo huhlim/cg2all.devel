@@ -19,13 +19,13 @@ LIB_HOME = str(BASE / "lib")
 sys.path.insert(0, LIB_HOME)
 
 from libconfig import MODEL_HOME, DTYPE
-from libdata import MinimizableData, create_topology_from_data
+from libdata import create_topology_from_data
 import libcg
 from libpdb import write_SSBOND
 from libter import patch_termini
 import libmodel
 from torch_basics import v_norm_safe, inner_product, rotate_vector
-from libcryoem import CryoEMLossFunction
+from libcryoem import CryoEMLossFunction, MinimizableData
 
 import warnings
 
