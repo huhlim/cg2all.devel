@@ -591,6 +591,7 @@ def build_structure(
 
 def download_ckpt_file(model_type, ckpt_fn):
     import requests
+
     sys.stdout.write(f"Downloading ... {ckpt_fn}\n")
     url = f"https://zenodo.org/record/7742950/files/{ckpt_fn.name}"
     if not ckpt_fn.parent.exists():
