@@ -15,13 +15,6 @@ import dgl
 
 from se3_transformer import Fiber, SE3Transformer
 from se3_transformer.layers import LinearSE3, NormSE3
-# try:
-#     from torch._C import _nvtx
-#     from se3_transformer.model import Fiber, SE3Transformer
-#     from se3_transformer.model.layers import LinearSE3, NormSE3
-# except ImportError:
-#     from se3_transformer.model_no_cuda import Fiber, SE3Transformer
-#     from se3_transformer.model_no_cuda.layers import LinearSE3, NormSE3
 
 from residue_constants import (
     MAX_SS,
@@ -596,7 +589,7 @@ def download_ckpt_file(model_type, ckpt_fn):
         import gdown
 
         #
-        sys.stdout.write(f"Downloading ... {ckpt_fn}\n")
+        sys.stdout.write(f"Downloading from Google Drive ... {ckpt_fn}\n")
         url_s = {
             "CalphaBasedModel": "1uzsVPB_0t0RDp2P8qJ44LzE3JiVowtTx",
             "ResidueBasedModel": "1KsxfB0B90YQQd1iBzw3buznHIwzN_0sA",
@@ -614,7 +607,7 @@ def download_ckpt_file(model_type, ckpt_fn):
         import requests
 
         #
-        sys.stdout.write(f"Downloading ... {ckpt_fn}\n")
+        sys.stdout.write(f"Downloading from Zenodo ... {ckpt_fn}\n")
         url = f"https://zenodo.org/record/7742950/files/{ckpt_fn.name}"
         if not ckpt_fn.parent.exists():
             ckpt_fn.parent.mkdir()
