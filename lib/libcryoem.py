@@ -32,7 +32,6 @@ from libdata import resSeq_to_number
 
 from libloss import loss_f_bonded_energy_aux as loss_f_bonded_energy_aa_aux
 
-
 SYSTEM_SIZE_DEPENDENT = True
 
 
