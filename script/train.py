@@ -8,8 +8,6 @@ import pathlib
 import functools
 import argparse
 
-import numpy as np
-
 import torch
 import dgl
 import pytorch_lightning as pl

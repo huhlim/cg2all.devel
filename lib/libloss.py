@@ -111,6 +111,8 @@ def loss_f(
         )
     if loss_weight.get("ss", 0.0) > 0.0:
         loss["ss"] = loss_f_ss(batch, ret["ss0"]) * loss_weight.ss
+    if loss_weight.get("sequence", 0.0) > 0.0:
+        loss["sequence"] = loss_f_sequence_recover(batch, ret["seq0"]) * loss_weight.sequence
     #
     if loss_prev is not None:
         for k, v in loss_prev.items():
@@ -285,6 +287,7 @@ def loss_f_bonded_energy(batch: dgl.DGLGraph, R: torch.Tensor, weight_s=(1.0, 0.
     #
     d0 = v_size(v0)
     d2 = v_size(v2)
+
     #
     # bond angles
     def bond_angle(v1, v2):
@@ -419,6 +422,7 @@ def loss_f_atomic_clash(
     # this can be approximate if radius is small
     #
     _RIGID_GROUPS_DEP = RIGID_OPs[1][1]
+
     #
     def get_pairs(data, R, g_radius):
         g = dgl.radius_graph(R, g_radius, self_loop=False)
@@ -513,6 +517,13 @@ def loss_f_torsion_energy(
 
 def loss_f_ss(batch: dgl.DGLGraph, ss0: torch.Tensor):
     loss = torch.nn.functional.cross_entropy(ss0, batch.ndata["ss"], reduction="mean")
+    return loss
+
+
+def loss_f_sequence_recover(batch: dgl.DGLGraph, seq0: torch.Tensor):
+    loss = torch.nn.functional.cross_entropy(
+        seq0, batch.ndata["residue_type"], reduction="mean"
+    )
     return loss
 
 

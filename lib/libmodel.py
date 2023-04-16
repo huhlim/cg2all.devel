@@ -122,6 +122,11 @@ STRUCTURE_MODULE["loss_weight"].update(
 )
 CONFIG["structure_module"] = STRUCTURE_MODULE
 
+SEQUENCE_MODULE = copy.deepcopy(STRUCTURE_MODULE)
+SEQUENCE_MODULE["fiber_out"] = [(0, MAX_RESIDUE_TYPE)]
+SEQUENCE_MODULE["loss_weight"].update({"sequence": 1.0, "torsion_angle": 0.0})
+CONFIG["sequence_module"] = SEQUENCE_MODULE
+
 
 def _get_gpu_mem():
     return (
@@ -181,6 +186,11 @@ def set_model_config(arg: dict, cg_model) -> ConfigDict:
     if cg_model.n_edge_vector > 0:
         config.structure_module.fiber_edge.append((1, cg_model.n_edge_vector))
     #
+    for key in config.structure_module:
+        if key not in ["loss_weight", "fiber_out"]:
+            config.sequence_module[key] = config.structure_module[key]
+    config.sequence_module["fiber_init"][0] = (0, cg_model.n_node_scalar)
+    #
     if config.train.get("perturb_pos", 0.0) > 0.0:
         config.train.use_pt = None
     #
@@ -198,11 +208,11 @@ class EmbeddingModule(nn.Module):
             self.use_embedding = False
             self.register_buffer("one_hot_encoding", torch.eye(config.num_embeddings))
 
-    def forward(self, batch: dgl.DGLGraph):
+    def forward(self, sequence):
         if self.use_embedding:
-            return self.layer(batch.ndata["residue_type"])
+            return self.layer(sequence)  # batch.ndata["residue_type"])
         else:
-            return self.one_hot_encoding[batch.ndata["residue_type"]]
+            return self.one_hot_encoding[sequence]  # batch.ndata["residue_type"]]
 
 
 class InitializationModule(nn.Module):
@@ -296,6 +306,54 @@ class InteractionModule(nn.Module):
 
     def forward(self, batch: dgl.DGLGraph, node_feats, edge_feats):
         out = self.graph_module(batch, node_feats=node_feats, edge_feats=edge_feats)
+        return out
+
+
+class SequenceModule(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        #
+        self.loss_weight = config.loss_weight
+        #
+        if config.nonlinearity == "elu":
+            nonlinearity = nn.ELU()
+        elif config.nonlinearity == "relu":
+            nonlinearity = nn.ReLU()
+        elif config.nonlinearity == "tanh":
+            nonlinearity = nn.Tanh()
+        #
+        linear_module = []
+        #
+        if config.norm[0]:
+            linear_module.append(
+                NormSE3(Fiber(config.fiber_struct), nonlinearity=nonlinearity)
+            )
+        linear_module.append(
+            LinearSE3(Fiber(config.fiber_struct), Fiber(config.fiber_pass))
+        )
+        #
+        for _ in range(config.num_linear_layers - 2):
+            if config.norm[0]:
+                linear_module.append(
+                    NormSE3(Fiber(config.fiber_pass), nonlinearity=nonlinearity)
+                )
+            linear_module.append(
+                LinearSE3(Fiber(config.fiber_pass), Fiber(config.fiber_pass))
+            )
+        #
+        if config.norm[0]:
+            linear_module.append(
+                NormSE3(Fiber(config.fiber_pass), nonlinearity=nonlinearity)
+            )
+        linear_module.append(
+            LinearSE3(Fiber(config.fiber_pass), Fiber(config.fiber_out))
+        )
+        #
+        self.linear_module = nn.Sequential(*linear_module)
+
+    def forward(self, feats):
+        out = self.linear_module(feats)["0"]
+        out = torch.nn.functional.softmax(out, dim=-1)
         return out
 
 
@@ -437,10 +495,12 @@ class Model(nn.Module):
         self.compute_loss = compute_loss
         #
         self.embedding_module = EmbeddingModule(_config.embedding_module)
-        #
         self.initialization_module = InitializationModule(_config.structure_module)
         self.interaction_module = InteractionModule(_config.structure_module)
         self.structure_module = StructureModule(_config.structure_module)
+        #
+        self.initialization_module0 = InitializationModule(_config.sequence_module)
+        self.sequence_module = SequenceModule(_config.sequence_module)
 
     def set_constant_tensors(self, device, dtype=DTYPE):
         _RIGID_TRANSFORMS_TENSOR = RIGID_TRANSFORMS_TENSOR.type(dtype)
@@ -466,28 +526,35 @@ class Model(nn.Module):
         loss = {}
         ret = {}
         #
-        # residue_type --> embedding
-        embedding = self.embedding_module(batch)
+        # first, without sequence
+        edge_feats = {"0": batch.edata["edge_feat_0"]}
+        node_feats = {"0": batch.ndata["node_feat_0"], "1": batch.ndata["node_feat_1"]}
+        out0 = self.initialization_module0(node_feats)
+        out = self.interaction_module(batch, node_feats=out0, edge_feats=edge_feats)
+        for degree, out_d in out0.items():
+            out[degree] = out[degree] + out_d
+        seq0 = self.sequence_module(out)
+        seq = torch.argmax(seq0, dim=-1)
         #
+        # second, with predicted sequence
+        embedding = self.embedding_module(seq)
         edge_feats = {"0": batch.edata["edge_feat_0"]}
         node_feats = {
             "0": torch.cat([batch.ndata["node_feat_0"], embedding[..., None]], dim=1),
             "1": batch.ndata["node_feat_1"],
         }
-        #
         out0 = self.initialization_module(node_feats)
-        #
-        # first-pass
         out = self.interaction_module(batch, node_feats=out0, edge_feats=edge_feats)
         for degree, out_d in out0.items():
             out[degree] = out[degree] + out_d
         out0 = {degree: feat.clone() for degree, feat in out.items()}
-        #
         out = self.structure_module(out)
         #
         bb, sc, bb0, sc0, ss0 = self.structure_module.output_to_opr(
             out, ss_dep=self.ss_dep
         )
+        ret["seq"] = seq
+        ret["seq0"] = seq0
         ret["bb"] = bb
         ret["sc"] = sc
         ret["bb0"] = bb0
@@ -497,13 +564,15 @@ class Model(nn.Module):
         ret["ss"] = ss
         ret["ss0"] = ss0
         #
-        ret["R"], ret["opr_bb"] = build_structure(self.RIGID_OPs, batch, ss, bb, sc=sc)
+        ret["R"], ret["opr_bb"] = build_structure(
+            self.RIGID_OPs, batch, seq, ss, bb, sc=sc
+        )
         #
         if self.compute_loss or self.training:
             loss["final"] = loss_f(
                 batch,
                 ret,
-                self.structure_module.loss_weight,
+                self.sequence_module.loss_weight,
                 RIGID_OPs=self.RIGID_OPs,
                 TORSION_PARs=self.TORSION_PARs,
             )
@@ -542,14 +611,13 @@ def combine_operations(X: torch.Tensor, Y: torch.Tensor) -> torch.Tensor:
 def build_structure(
     RIGID_OPs,
     batch: dgl.DGLGraph,
+    residue_type,
     ss: torch.Tensor,
     bb: torch.Tensor,
     sc: Optional[torch.Tensor] = None,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-
     dtype = bb.dtype
     device = bb.device
-    residue_type = batch.ndata["residue_type"]
     #
     transforms = RIGID_OPs[0][0][ss, residue_type]
     rigids = RIGID_OPs[0][1][ss, residue_type]
