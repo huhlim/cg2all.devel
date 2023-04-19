@@ -118,7 +118,11 @@ class Model(pl.LightningModule):
         loss_s = {}
         for module_name, loss_per_module in loss.items():
             for loss_name, loss_value in loss_per_module.items():
-                loss_sum += loss_value
+                try:
+                    loss_sum += loss_value
+                except:
+                    print(module_name, loss_name, loss_value, loss_sum)
+                    raise
                 if isinstance(loss_value, torch.Tensor):
                     loss_s[f"{module_name}-{loss_name}"] = loss_value.item()
                 else:
@@ -286,7 +290,10 @@ def main():
     #
     # set file paths
     dataset = config.train.dataset
-    pdb_dir = pathlib.Path(dataset)
+    if "pdb_dir" in config.train:
+        pdb_dir = pathlib.Path(config.train.pdb_dir)
+    else:
+        pdb_dir = pathlib.Path(dataset)
     pdblist_train = f"set/targets.train.{dataset}"
     if overfit:
         pdblist_test = f"set/targets.train.{dataset}"
