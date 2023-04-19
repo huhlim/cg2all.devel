@@ -62,7 +62,9 @@ def main():
         "-a", "--all", "--is_all", dest="is_all", default=False, action="store_true"
     )
     arg.add_argument("-n", "--step", dest="n_step", default=1000, type=int)
-    arg.add_argument("--freq", "--output_freq", dest="output_freq", default=100, type=int)
+    arg.add_argument(
+        "--freq", "--output_freq", dest="output_freq", default=100, type=int
+    )
     arg.add_argument("--restraint", dest="restraint", default=100.0, type=float)
     arg = arg.parse_args()
     #
@@ -87,6 +89,7 @@ def main():
     model.eval()
     #
     data = MinimizableData(arg.in_pdb_fn, cg_model, is_all=arg.is_all)
+    #
     output_dir = pathlib.Path(arg.out_dir)
     output_dir.mkdir(exist_ok=True)
     #

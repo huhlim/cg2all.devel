@@ -108,9 +108,8 @@ class Residue(object):
         self.torsion_chi_periodic = np.zeros((MAX_TORSION_CHI, 3), dtype=float)
         self.torsion_xi_periodic = np.zeros((MAX_TORSION_XI, 3), dtype=float)
 
-        self.atomic_radius = np.zeros(
-            (MAX_ATOM, 2, 2), dtype=float
-        )  # (normal/1-4, epsilon/r_min)
+        self.atomic_radius = np.zeros((MAX_ATOM, 2, 2), dtype=float)  # (normal/1-4, epsilon/r_min)
+        self.atomic_charge = np.zeros(MAX_ATOM, dtype=float)
 
         self.bonded_pair_s = {2: []}
 
@@ -123,7 +122,7 @@ class Residue(object):
         else:
             return self.residue_name == other
 
-    def append_atom(self, atom_name, atom_type):
+    def append_atom(self, atom_name, atom_type, atom_charge=0.0):
         if atom_name not in BACKBONE_ATOM_s:
             self.atom_s.append(atom_name)
             self.atom_type_s.append(atom_type)
@@ -133,6 +132,7 @@ class Residue(object):
         #
         self.output_atom_s.append(atom_name)
         self.output_atom_index.append(self.atom_s.index(atom_name))
+        self.atomic_charge[self.atom_s.index(atom_name)] = atom_charge
 
     def append_bond(self, pair):
         if not (pair[0][0] == "+" or pair[1][0] == "+"):
@@ -210,9 +210,7 @@ class Residue(object):
             self.rigid_group.append(info[:-1] + [np.array(info[-1])])
         self.transform = []
         for info in transform:
-            self.transform.append(
-                info[:-1] + [(np.array(info[-1][0]), np.array(info[-1][1]))]
-            )
+            self.transform.append(info[:-1] + [(np.array(info[-1][0]), np.array(info[-1][1]))])
 
     def add_radius_info(self, radius_s):
         for i, atom_type in enumerate(self.atom_type_s):
@@ -355,7 +353,8 @@ def read_CHARMM_rtf(fn):
                 x = line.strip().split()
                 atom_name = x[1]
                 atom_type = x[2]
-                residue.append_atom(atom_name, atom_type)
+                atom_charge = float(x[3])
+                residue.append_atom(atom_name, atom_type, atom_charge=atom_charge)
             elif line.startswith("BOND") or line.startswith("DOUBLE"):
                 x = line.strip().split()[1:]
                 for i in range(len(x) // 2):
