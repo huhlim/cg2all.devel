@@ -212,12 +212,14 @@ class DistanceRestraint(object):
 
 
 class CryoEMLossFunction(object):
-    def __init__(self, mrc_fn, data, device, is_all=True, restraint=100.0):
+    def __init__(
+        self, mrc_fn, data, device, model_type="ResidueBasedModel", is_all=True, restraint=100.0
+    ):
         self.is_all = is_all
         #
         self.cryoem_loss_f = CryoEM_loss(mrc_fn, data, 0.0, device, is_all=is_all)
         self.distance_restraint = DistanceRestraint(data, device, radius=1.0)
-        self.geometry_energy = CoarseGrainedGeometryEnergy("CalphaBasedModel", device)
+        self.geometry_energy = CoarseGrainedGeometryEnergy(model_type, device)
         #
         self.weight = {}
         self.weight["cryo_em"] = 1.0

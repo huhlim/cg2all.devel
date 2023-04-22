@@ -560,7 +560,10 @@ def find_atomic_clash(
 class CoarseGrainedGeometryEnergy(object):
     def __init__(self, cg_model_name, device, use_aa_specific=False):
         self.cg_model_name = cg_model_name
-        self.use_aa_specific = use_aa_specific
+        if cg_model_name == "ResidueBasedModel":
+            self.use_aa_specific = True
+        else:
+            self.use_aa_specific = use_aa_specific
         self.set_param(device)
 
     def set_param(self, device):
@@ -605,7 +608,7 @@ class CoarseGrainedGeometryEnergy(object):
                         i = AMINO_ACID_s.index(aa0)
                         j = ["XXX", "PRO", "GLY"].index(aa1)
                         k = ["XXX", "PRO", "GLY"].index(aa2)
-                        jk = j * 3 + kk
+                        jk = j * 3 + k
                         self.b_ang0[i, jk] = p
                 else:
                     i = AMINO_ACID_s.index(x[1])

@@ -58,25 +58,33 @@ def main():
     arg.add_argument("-p", "--pdb", dest="in_pdb_fn", required=True)
     arg.add_argument("-m", "--map", dest="in_map_fn", required=True)
     arg.add_argument("-o", "--out", "--output", dest="out_dir", required=True)
-    arg.add_argument(
-        "-a", "--all", "--is_all", dest="is_all", default=False, action="store_true"
-    )
+    arg.add_argument("-a", "--all", "--is_all", dest="is_all", default=False, action="store_true")
     arg.add_argument("-n", "--step", dest="n_step", default=1000, type=int)
-    arg.add_argument(
-        "--freq", "--output_freq", dest="output_freq", default=100, type=int
-    )
+    arg.add_argument("--freq", "--output_freq", dest="output_freq", default=100, type=int)
     arg.add_argument("--restraint", dest="restraint", default=100.0, type=float)
+    arg.add_argument(
+        "--cg",
+        dest="cg_model",
+        default="ResidueBasedModel",
+        choices=["CalphaBasedModel", "CA", "ca", "ResidueBasedModel", "RES", "res"],
+    )
     arg = arg.parse_args()
     #
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     time_start = time.time()
 
-    model_type = "CalphaBasedModel"
+    if arg.cg_model in ["CalphaBasedModel", "CA", "ca"]:
+        model_type = "CalphaBasedModel"
+    elif arg.cg_model in ["ResidueBasedModel", "RES", "res"]:
+        model_type = "ResidueBasedModel"
     ckpt_fn = MODEL_HOME / f"{model_type}.ckpt"
     ckpt = torch.load(ckpt_fn, map_location=device)
     config = ckpt["hyper_parameters"]
     #
-    cg_model = libcg.CalphaBasedModel
+    if model_type == "CalphaBasedModel":
+        cg_model = libcg.CalphaBasedModel
+    elif model_type == "ResidueBasedModel":
+        cg_model = libcg.ResidueBasedModel
     config = libmodel.set_model_config(config, cg_model)
     model = libmodel.Model(config, cg_model, compute_loss=False)
     #
@@ -119,7 +127,9 @@ def main():
     if len(ssbond) > 0:
         write_SSBOND(out_fn, output.top, ssbond)
     #
-    loss_f = CryoEMLossFunction(arg.in_map_fn, data, device, restraint=arg.restraint)
+    loss_f = CryoEMLossFunction(
+        arg.in_map_fn, data, device, model_type=model_type, restraint=arg.restraint
+    )
     for i in range(arg.n_step):
         loss_sum, loss = loss_f.eval(batch, R)
         loss_sum.backward()
