@@ -269,6 +269,7 @@ def loss_f_bonded_energy(batch: dgl.DGLGraph, R: torch.Tensor, weight_s=(1.0, 0.
     #
     d0 = v_size(v0)
     d2 = v_size(v2)
+
     #
     # bond angles
     def bond_angle(v1, v2):
@@ -399,6 +400,7 @@ def loss_f_atomic_clash(
     # this can be approximate if radius is small
     #
     _RIGID_GROUPS_DEP = RIGID_OPs[1][1]
+
     #
     def get_pairs(data, R, g_radius):
         g = dgl.radius_graph(R, g_radius, self_loop=False)

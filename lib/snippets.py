@@ -73,9 +73,7 @@ def convert_cg2all(
     model.eval()
 
     # prepare input data
-    input_s = PredictionData(
-        in_pdb_fn, cg_model, dcd_fn=in_dcd_fn, radius=config.globals.radius
-    )
+    input_s = PredictionData(in_pdb_fn, cg_model, dcd_fn=in_dcd_fn, radius=config.globals.radius)
     if in_dcd_fn is not None:
         unitcell_lengths = input_s.cg.unitcell_lengths
         unitcell_angles = input_s.cg.unitcell_angles

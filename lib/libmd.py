@@ -34,10 +34,6 @@ from residue_constants import (
     par_dihed_s,
 )
 
-from openmm.unit import *
-from openmm.openmm import *
-from openmm.app import *
-
 KE_CONST = 33.2063684  # kcal/mol * ...
 GAS_CONST = 8.31446261815  # J/mol/K
 GAS_CONST_sq = np.sqrt(0.001 * GAS_CONST)  # sqrt(kJ/mol/K)
@@ -174,6 +170,7 @@ def loss_f_nonbonded(
     # this can be approximate if radius is small
     #
     _RIGID_GROUPS_DEP = RIGID_OPs[1][1]
+
     #
     def get_pairs(data, R, g_radius):
         g = dgl.radius_graph(R, g_radius, self_loop=False)
