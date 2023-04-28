@@ -218,11 +218,12 @@ class PDB(object):
         self.continuous[1, :-1] = same_chain
 
         # chain breaks
-        dr = self.R[:, 1:, ATOM_INDEX_N] - self.R[:, :-1, ATOM_INDEX_C]
-        d = v_size(dr).mean(axis=0)
-        chain_breaks = d > BOND_BREAK
-        self.continuous[0, 1:][chain_breaks] = False
-        self.continuous[1, :-1][chain_breaks] = False
+        if BOND_BREAK > 0.0:
+            dr = self.R[:, 1:, ATOM_INDEX_N] - self.R[:, :-1, ATOM_INDEX_C]
+            d = v_size(dr).mean(axis=0)
+            chain_breaks = d > BOND_BREAK
+            self.continuous[0, 1:][chain_breaks] = False
+            self.continuous[1, :-1][chain_breaks] = False
         #
         has_backbone = np.all(self.atom_mask_pdb[:, :4] > 0.0, axis=-1)
         self.continuous[0, 1:][~has_backbone[:-1]] = False

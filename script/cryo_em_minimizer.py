@@ -24,7 +24,7 @@ import libcg
 from libpdb import write_SSBOND
 from libter import patch_termini
 import libmodel
-from torch_basics import v_norm_safe, inner_product, rotate_vector
+from torch_basics import v_norm_safe, inner_product, rotate_vector, v_size
 from libcryoem import CryoEMLossFunction, MinimizableData
 
 import warnings
@@ -104,11 +104,12 @@ def main():
     trans = torch.zeros(3, dtype=DTYPE, requires_grad=True)
     rotation = torch.tensor([[1, 0, 0], [0, 1, 0]], dtype=DTYPE, requires_grad=True)
     #
-    optimizer = torch.optim.Adam([data.r_cg, trans, rotation], lr=0.001)
+    optimizer = torch.optim.Adam([data.r_cg, trans, rotation], lr=0.005)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=200, eta_min=0.0005)
     #
     r_cg = rigid_body_move(data.r_cg, trans, rotation)
     batch = data.convert_to_batch(r_cg).to(device)
-    R = model.forward(batch)[0]["R"]
+    ret = model.forward(batch)[0]
     #
     out_top, out_atom_index = create_topology_from_data(batch)
     out_mask = batch.ndata["output_atom_mask"].cpu().detach().numpy()
@@ -120,7 +121,7 @@ def main():
     ssbond.sort()
     #
     out_fn = output_dir / f"min.{0:04d}.pdb"
-    xyz = R.cpu().detach().numpy()[out_mask > 0.0][None, out_atom_index]
+    xyz = ret["R"].cpu().detach().numpy()[out_mask > 0.0][None, out_atom_index]
     output = mdtraj.Trajectory(xyz=xyz, topology=out_top)
     output = patch_termini(output)
     output.save(out_fn)
@@ -128,13 +129,15 @@ def main():
         write_SSBOND(out_fn, output.top, ssbond)
     #
     loss_f = CryoEMLossFunction(
-        arg.in_map_fn, data, device, model_type=model_type, restraint=arg.restraint
+        arg.in_map_fn, data, device, model, model_type=model_type, restraint=arg.restraint
     )
     for i in range(arg.n_step):
-        loss_sum, loss = loss_f.eval(batch, R)
+        loss_sum, loss = loss_f.eval(batch, ret)
         loss_sum.backward()
+        torch.nn.utils.clip_grad_norm_([data.r_cg, trans, rotation], max_norm=1e4)
         optimizer.step()
         optimizer.zero_grad()
+        scheduler.step()
         #
         print("STEP", i, loss_sum.detach().cpu().item(), time.time() - time_start)
         print(
@@ -146,11 +149,11 @@ def main():
         #
         r_cg = rigid_body_move(data.r_cg, trans, rotation)
         batch = data.convert_to_batch(r_cg).to(device)
-        R = model.forward(batch)[0]["R"]
+        ret = model.forward(batch)[0]
         #
         if (i + 1) % arg.output_freq == 0:
             out_fn = output_dir / f"min.{i+1:04d}.pdb"
-            xyz = R.cpu().detach().numpy()[out_mask > 0.0][None, out_atom_index]
+            xyz = ret["R"].cpu().detach().numpy()[out_mask > 0.0][None, out_atom_index]
             output = mdtraj.Trajectory(xyz=xyz, topology=out_top)
             output = patch_termini(output)
             output.save(out_fn)
