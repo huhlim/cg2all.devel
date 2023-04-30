@@ -191,15 +191,8 @@ class DistanceRestraint(object):
         self.edge_src, self.edge_dst = g.edges()
         self.d0 = d0[:, 0]
         #
-        # plddt = torch.as_tensor(data.cg.bfactors[0, valid_residue, ATOM_INDEX_CA], dtype=DTYPE)
-        # if plddt.sum() > 0.0:
-        #     plddt = torch.full_like(plddt, 100.0)
-        # plddt_pair = torch.minimum(plddt[self.edge_src], plddt[self.edge_dst])
-        # weight = torch.clamp((plddt_pair - 70.0) / 20.0, min=0.0, max=1.0)
-        # active = weight > 0.0
-        # #
-        # self.d0 = d0[active, 0]
-        # self.weight = weight[active].to(device)
+        # active = torch.abs(self.edge_src - self.edge_dst) <= 10
+        # self.d0 = self.d0[active]
         # self.edge_src = self.edge_src[active]
         # self.edge_dst = self.edge_dst[active]
 
@@ -308,12 +301,12 @@ class MinimizableData(object):
         data.ndata["residue_type"] = torch.as_tensor(self.cg.residue_index, dtype=torch.long)
         data.ndata["continuous"] = torch.as_tensor(self.cg.continuous[0], dtype=self.dtype)
         data.ndata["output_atom_mask"] = torch.as_tensor(self.cg.atom_mask, dtype=self.dtype)  #
-        #
-        # aa-specific
-        data.ndata["output_xyz"] = torch.as_tensor(self.cg.R[0], dtype=self.dtype)
-        data.ndata["atomic_radius"] = torch.as_tensor(self.cg.atomic_radius, dtype=self.dtype)
-        data.ndata["atomic_mass"] = torch.as_tensor(self.cg.atomic_mass, dtype=self.dtype)
-        data.ndata["atomic_charge"] = torch.as_tensor(self.cg.atomic_charge, dtype=self.dtype)
+        # #
+        # # aa-specific
+        # data.ndata["output_xyz"] = torch.as_tensor(self.cg.R[0], dtype=self.dtype)
+        # data.ndata["atomic_radius"] = torch.as_tensor(self.cg.atomic_radius, dtype=self.dtype)
+        # data.ndata["atomic_mass"] = torch.as_tensor(self.cg.atomic_mass, dtype=self.dtype)
+        # data.ndata["atomic_charge"] = torch.as_tensor(self.cg.atomic_charge, dtype=self.dtype)
         #
         ssbond_index = torch.full((data.num_nodes(),), -1, dtype=torch.long)
         for cys_i, cys_j in self.cg.ssbond_s:
