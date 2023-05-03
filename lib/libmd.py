@@ -152,7 +152,6 @@ class MDdata(object):
         # space
         edge_feat[edge_feat.sum(dim=-1) == 0.0, 2] = 1.0
         data.edata["edge_feat_0"] = edge_feat[..., None]
-
         return data
 
 
@@ -243,6 +242,147 @@ def loss_f_nonbonded(
         #
         energy = energy + vdw_ij.sum() + elec_ij.sum()
     return energy
+
+
+class NonbondedEnergy(object):
+    def __init__(self, device, include_one_four_pair=True):
+        #self.g_radius = 1.4
+        self.g_radius = 10.0
+        self.include_one_four_pair = include_one_four_pair
+        #
+        self.exclude_pair = torch.zeros((4, MAX_ATOM, MAX_ATOM), dtype=bool, device=device)
+        # Ala - Ala
+        self.exclude_pair[0, (0, 1, 2, 3, 5, 6), 0] = True
+        self.exclude_pair[0, (1, 2, 3), 1] = True
+        self.exclude_pair[0, (1, 2, 3), 4] = True
+        self.exclude_pair[0, 2, (2, 5, 6)] = True
+        # Pro - Ala
+        self.exclude_pair[1, (0, 1, 2, 3, 7, 8), 0] = True
+        self.exclude_pair[1, (1, 2, 3), 1] = True
+        self.exclude_pair[1, (1, 2, 3), 4] = True
+        self.exclude_pair[1, 2, (2, 5, 6)] = True
+        # Ala - Pro
+        self.exclude_pair[2, (0, 1, 2, 3, 5, 6), 0] = True
+        self.exclude_pair[2, (1, 2, 3), 1] = True
+        self.exclude_pair[2, (1, 2, 3), 4] = True
+        self.exclude_pair[2, 2, (2, 5, 6, 7, 8)] = True
+        # Pro - Pro
+        self.exclude_pair[3, (0, 1, 2, 3, 7, 8), 0] = True
+        self.exclude_pair[3, (1, 2, 3), 1] = True
+        self.exclude_pair[3, (1, 2, 3), 4] = True
+        self.exclude_pair[3, 2, (2, 5, 6, 7, 8)] = True
+        #
+        self.one_four_pair = torch.zeros((4, MAX_ATOM, MAX_ATOM), dtype=bool, device=device)
+        # Ala - Ala
+        self.one_four_pair[0, (0, 5, 6), 0] = True
+        self.one_four_pair[0, (1, 3), 1] = True
+        self.one_four_pair[0, (1, 3), 4] = True
+        self.one_four_pair[0, 2, (2, 5, 6)] = True
+        # Pro - Ala
+        self.one_four_pair[1, (0, 7, 8), 0] = True
+        self.one_four_pair[1, (1, 3), 1] = True
+        self.one_four_pair[1, (1, 3), 4] = True
+        self.one_four_pair[1, 2, (2, 5, 6)] = True
+        # Ala - Pro
+        self.one_four_pair[2, (0, 5, 6), 0] = True
+        self.one_four_pair[2, (1, 3), 1] = True
+        self.one_four_pair[2, (1, 3), 4] = True
+        self.one_four_pair[2, 2, (2, 5, 6, 7, 8)] = True
+        # Pro - Pro
+        self.one_four_pair[3, (0, 7, 8), 0] = True
+        self.one_four_pair[3, (1, 3), 1] = True
+        self.one_four_pair[3, (1, 3), 4] = True
+        self.one_four_pair[3, 2, (2, 5, 6, 7, 8)] = True
+
+    def get_pairs(self, data, R):
+        g = dgl.radius_graph(R, self.g_radius, self_loop=False)
+        #
+        edges = g.edges()
+        ssbond = torch.zeros_like(edges[0], dtype=bool)
+        #
+        cys_i = torch.nonzero(data.ndata["ssbond_index"] >= 0)[:, 0]
+        if cys_i.size(0) > 0:
+            cys_j = data.ndata["ssbond_index"][cys_i]
+            try:
+                eids = g.edge_ids(cys_i, cys_j)
+                ssbond[eids] = True
+            except:
+                pass
+        #
+        subset = edges[0] > edges[1]
+        edges = (edges[0][subset], edges[1][subset])
+        ssbond = ssbond[subset]
+        #
+        return edges, ssbond
+
+    def eval(self, batch, R):
+        (i, j), ssbond = self.get_pairs(batch, R[:, ATOM_INDEX_CA])
+        #
+        mask_i = batch.ndata["output_atom_mask"][i] > 0.0
+        mask_j = batch.ndata["output_atom_mask"][j] > 0.0
+        mask = mask_j[:, :, None] & mask_i[:, None, :]
+        #
+        mask[ssbond, ATOM_INDEX_CYS_CB:, ATOM_INDEX_CYS_CB:] = False
+        mask[ssbond, ATOM_INDEX_CYS_SG, ATOM_INDEX_CA] = False
+        mask[ssbond, ATOM_INDEX_CA, ATOM_INDEX_CYS_SG] = False
+        #
+        # find consecutive residue pairs (i == j + 1)
+        curr_chain_index = batch.ndata["chain_index"][i]
+        prev_chain_index = batch.ndata["chain_index"][j]
+        y = (i == j + 1) & (curr_chain_index == prev_chain_index)
+
+        curr_residue_type = (batch.ndata["residue_type"][i[y]] == PROLINE_INDEX).to(torch.long)
+        prev_residue_type = (batch.ndata["residue_type"][j[y]] == PROLINE_INDEX).to(torch.long)
+        residue_pair_index = prev_residue_type + 2 * curr_residue_type
+        exclude_pair = self.exclude_pair[residue_pair_index]
+        if self.include_one_four_pair:
+            one_four_pair = mask[y] & (self.one_four_pair[residue_pair_index])
+        mask[y] = mask[y] & (~exclude_pair)
+        #
+        dr = R[j][:, :, None] - R[i][:, None, :]
+        dist = v_size(dr)
+        #
+        charge_i = batch.ndata["atomic_charge"][i, :]
+        charge_j = batch.ndata["atomic_charge"][j, :]
+        charge = charge_j[:, :, None] * charge_i[:, None, :]
+        #
+        epsilon_i = batch.ndata["atomic_radius"][i, :, 0, 0]
+        epsilon_j = batch.ndata["atomic_radius"][j, :, 0, 0]
+        epsilon = torch.sqrt(epsilon_j[:, :, None] * epsilon_i[:, None, :]) * mask
+        #
+        radius_i = batch.ndata["atomic_radius"][i, :, 0, 1]
+        radius_j = batch.ndata["atomic_radius"][j, :, 0, 1]
+        radius_sum = radius_j[:, :, None] + radius_i[:, None, :]
+        #
+        dist0 = torch.clamp(radius_sum * 0.8, min=EPS)
+        dist = (torch.nn.functional.elu((dist / dist0) - 1.0, alpha=0.2) + 1.0) * dist0
+        dist = torch.clamp(dist, min=EPS)
+        x6 = torch.pow(radius_sum / dist, 6)
+        #
+        vdw_ij = epsilon * (x6.square() - 2.0 * x6)
+        elec_ij = KE_CONST * (charge * mask) / dist / (40.0 * dist)
+        #
+        if not self.include_one_four_pair:
+            energy = vdw_ij.sum() + elec_ij.sum()
+        else:
+            charge_14 = charge[y] * one_four_pair
+            elec_14 = KE_CONST * charge_14 / dist[y] / (40.0 * dist[y])
+            #
+            epsilon_14_i = batch.ndata["atomic_radius"][i[y], :, 1, 0]
+            epsilon_14_j = batch.ndata["atomic_radius"][j[y], :, 1, 0]
+            epsilon_14 = (
+                torch.sqrt(epsilon_14_j[:, :, None] * epsilon_14_i[:, None, :]) * one_four_pair
+            )
+            #
+            radius_14_i = batch.ndata["atomic_radius"][i[y], :, 1, 1]
+            radius_14_j = batch.ndata["atomic_radius"][j[y], :, 1, 1]
+            radius_14_sum = radius_14_j[:, :, None] + radius_14_i[:, None, :]
+            #
+            x6_14 = torch.pow(radius_14_sum / dist[y], 6)
+            vdw_14 = epsilon_14 * (x6_14.square() - 2.0 * x6_14)
+            #
+            energy = vdw_ij.sum() + elec_ij.sum() + vdw_14.sum() + elec_14.sum()
+        return energy
 
 
 class BackboneTorsionEnergy(object):
@@ -454,6 +594,9 @@ class MolecularMechanicsForceField(object):
         self.TORSION_PARs = model.TORSION_PARs
         self.geometry_energy = CoarseGrainedGeometryEnergy(model_type, device)
         self.backbone_torsion = BackboneTorsionEnergy(data, device=device)
+        self.nonbonded_energy = NonbondedEnergy(
+            device, include_one_four_pair=kwargs.get("include_one_four_pair", True)
+        )
         self.cmap_energy = CMAPTorsionEnergy(data, device=device)
         self.use_constraint = model_type == "CalphaBasedModel"
         #
@@ -483,7 +626,7 @@ class MolecularMechanicsForceField(object):
         else:
             cg_bonded_weight = [1.0, 1.0]
 
-        loss["nb"] = loss_f_nonbonded(batch, R, self.RIGID_OPs)
+        loss["nb"] = self.nonbonded_energy.eval(batch, R)
         loss["cg"] = self.geometry_energy.eval_bonded(
             batch, weight=cg_bonded_weight
         ) + self.geometry_energy.eval_vdw(batch)
@@ -707,16 +850,19 @@ class MDsimulator(object):
 def main():
     import libcg
 
-    pdb_fn = "../cg2all.md/pdb/1ubq_A.pdb"
+    pdb_fn = "cg2all.md/explicit/1plx_A/init/solute.pdb"
     cg_model = libcg.ResidueBasedModel
 
     data = MDdata(pdb_fn, cg_model)
+    batch = data.convert_to_batch(torch.as_tensor(data.r_cg))
+    nb_energy = NonbondedEnergy("cpu", include_one_four_pair=False)
+    nb_energy.eval(batch, torch.as_tensor(data.cg.R[0], dtype=DTYPE))
     # bb_enr = BackboneTorsionEnergy(data)
     # batch = data.convert_to_batch(data.r_cg)
     # print(bb_enr(batch, torch.as_tensor(data.cg.R[0])))
-    cmap_enr = CMAPTorsionEnergy(data)
-    r = torch.tensor(data.cg.R[0], dtype=DTYPE, requires_grad=True)
-    cmap_enr(r)
+    # cmap_enr = CMAPTorsionEnergy(data)
+    # r = torch.tensor(data.cg.R[0], dtype=DTYPE, requires_grad=True)
+    # cmap_enr(r)
 
 
 if __name__ == "__main__":

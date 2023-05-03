@@ -190,17 +190,11 @@ class DistanceRestraint(object):
         g, d0 = dgl.radius_graph(r_cg0, radius, self_loop=False, get_distances=True)
         self.edge_src, self.edge_dst = g.edges()
         self.d0 = d0[:, 0]
-        #
-        # active = torch.abs(self.edge_src - self.edge_dst) <= 10
-        # self.d0 = self.d0[active]
-        # self.edge_src = self.edge_src[active]
-        # self.edge_dst = self.edge_dst[active]
 
     def eval(self, batch):
         r_cg = batch.ndata["pos"]
         dr = r_cg[self.edge_dst] - r_cg[self.edge_src]
         d = torch.sqrt(torch.square(dr).sum(dim=-1))
-        # loss = torch.square(d - self.d0) * self.weight
         loss = torch.square(d - self.d0)
         loss = torch.sum(loss)
         return loss
