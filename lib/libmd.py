@@ -19,8 +19,9 @@ from libloss import (
     CoarseGrainedGeometryEnergy,
 )
 from libter import patch_termini
-from torch_basics import v_size, torsion_angle
+from torch_basics import v_norm, v_size, torsion_angle, inner_product, acos_safe
 from residue_constants import (
+    AMINO_ACID_s,
     residue_s,
     MAX_ATOM,
     GLYCINE_INDEX,
@@ -28,6 +29,7 @@ from residue_constants import (
     ATOM_INDEX_N,
     ATOM_INDEX_CA,
     ATOM_INDEX_C,
+    ATOM_INDEX_O,
     ATOM_INDEX_PRO_CD,
     ATOM_INDEX_CYS_CB,
     ATOM_INDEX_CYS_SG,
@@ -155,98 +157,9 @@ class MDdata(object):
         return data
 
 
-def loss_f_nonbonded(
-    batch: dgl.DGLGraph,
-    R: torch.Tensor,
-    RIGID_OPs,
-    energy_clamp=0.0,
-    g_radius=1.4,
-):
-    # c ~ average number of edges per node
-    # time: O(Nxc) vs. O(N^2) for loss_f_atomic_clash_old
-    # memory: O(Nxc) vs. O(N) for loss_f_atomic_clash_old
-    #   (e.g., 70 MB vs. 20 MB for 855 aa.)
-    # this can be approximate if radius is small
-    #
-    _RIGID_GROUPS_DEP = RIGID_OPs[1][1]
-
-    #
-    def get_pairs(data, R, g_radius):
-        g = dgl.radius_graph(R, g_radius, self_loop=False)
-        #
-        edges = g.edges()
-        ssbond = torch.zeros_like(edges[0], dtype=bool)
-        #
-        cys_i = torch.nonzero(data.ndata["ssbond_index"] >= 0)[:, 0]
-        if cys_i.size(0) > 0:
-            cys_j = data.ndata["ssbond_index"][cys_i]
-            try:
-                eids = g.edge_ids(cys_i, cys_j)
-                ssbond[eids] = True
-            except:
-                pass
-        #
-        subset = edges[0] > edges[1]
-        edges = (edges[0][subset], edges[1][subset])
-        ssbond = ssbond[subset]
-        #
-        return edges, ssbond
-
-    #
-    energy = 0.0
-    for batch_index in range(batch.batch_size):
-        data = dgl.slice_batch(batch, batch_index, store_ids=True)
-        _R = R[data.ndata["_ID"]]
-        (i, j), ssbond = get_pairs(data, _R[:, ATOM_INDEX_CA], g_radius=g_radius)
-        #
-        mask_i = data.ndata["output_atom_mask"][i] > 0.0
-        mask_j = data.ndata["output_atom_mask"][j] > 0.0
-        mask = mask_j[:, :, None] & mask_i[:, None, :]
-        #
-        # find consecutive residue pairs (i == j + 1)
-        y = i == j + 1
-        curr_residue_type = data.ndata["residue_type"][i[y]]
-        prev_residue_type = data.ndata["residue_type"][j[y]]
-        curr_bb = _RIGID_GROUPS_DEP[curr_residue_type] < 3
-        curr_bb[curr_residue_type == PROLINE_INDEX, :7] = True
-        prev_bb = _RIGID_GROUPS_DEP[prev_residue_type] < 3
-        bb_pair = prev_bb[:, :, None] & curr_bb[:, None, :]
-        mask[y] = mask[y] & (~bb_pair)
-        #
-        mask[ssbond, ATOM_INDEX_CYS_CB:, ATOM_INDEX_CYS_CB:] = False
-        mask[ssbond, ATOM_INDEX_CYS_SG, ATOM_INDEX_CA] = False
-        mask[ssbond, ATOM_INDEX_CA, ATOM_INDEX_CYS_SG] = False
-        #
-        dr = _R[j][:, :, None] - _R[i][:, None, :]
-        dist = v_size(dr)
-        #
-        charge_i = data.ndata["atomic_charge"][i, :]
-        charge_j = data.ndata["atomic_charge"][j, :]
-        charge = charge_j[:, :, None] * charge_i[:, None, :] * mask
-        #
-        epsilon_i = data.ndata["atomic_radius"][i, :, 0, 0]
-        epsilon_j = data.ndata["atomic_radius"][j, :, 0, 0]
-        epsilon = torch.sqrt(epsilon_j[:, :, None] * epsilon_i[:, None, :]) * mask
-        #
-        radius_i = data.ndata["atomic_radius"][i, :, 0, 1]
-        radius_j = data.ndata["atomic_radius"][j, :, 0, 1]
-        radius_sum = radius_j[:, :, None] + radius_i[:, None, :]
-        #
-        dist0 = torch.clamp(radius_sum * 0.8, min=EPS)
-        dist = (torch.nn.functional.elu((dist / dist0) - 1.0, alpha=0.2) + 1.0) * dist0
-        dist = torch.clamp(dist, min=EPS)
-        x6 = torch.pow(radius_sum / dist, 6)
-        vdw_ij = epsilon * (x6.square() - 2.0 * x6)
-        #
-        elec_ij = KE_CONST * charge / dist / (40.0 * dist)
-        #
-        energy = energy + vdw_ij.sum() + elec_ij.sum()
-    return energy
-
-
 class NonbondedEnergy(object):
     def __init__(self, device, include_one_four_pair=True):
-        #self.g_radius = 1.4
+        # self.g_radius = 1.4
         self.g_radius = 10.0
         self.include_one_four_pair = include_one_four_pair
         #
@@ -274,10 +187,10 @@ class NonbondedEnergy(object):
         #
         self.one_four_pair = torch.zeros((4, MAX_ATOM, MAX_ATOM), dtype=bool, device=device)
         # Ala - Ala
-        self.one_four_pair[0, (0, 5, 6), 0] = True
-        self.one_four_pair[0, (1, 3), 1] = True
-        self.one_four_pair[0, (1, 3), 4] = True
-        self.one_four_pair[0, 2, (2, 5, 6)] = True
+        self.one_four_pair[0, (0, 5, 6), 0] = True  # psi
+        self.one_four_pair[0, (1, 3), 1] = True  # omega
+        self.one_four_pair[0, (1, 3), 4] = True  # omega
+        self.one_four_pair[0, 2, (2, 5, 6)] = True  # phi
         # Pro - Ala
         self.one_four_pair[1, (0, 7, 8), 0] = True
         self.one_four_pair[1, (1, 3), 1] = True
@@ -315,7 +228,7 @@ class NonbondedEnergy(object):
         #
         return edges, ssbond
 
-    def eval(self, batch, R):
+    def eval(self, batch, R, decompose=False):
         (i, j), ssbond = self.get_pairs(batch, R[:, ATOM_INDEX_CA])
         #
         mask_i = batch.ndata["output_atom_mask"][i] > 0.0
@@ -364,6 +277,10 @@ class NonbondedEnergy(object):
         #
         if not self.include_one_four_pair:
             energy = vdw_ij.sum() + elec_ij.sum()
+            if decompose:
+                energy_s = {}
+                energy_s["vdw"] = vdw_ij.sum().detach().item()
+                energy_s["elec"] = elec_ij.sum().detach().item()
         else:
             charge_14 = charge[y] * one_four_pair
             elec_14 = KE_CONST * charge_14 / dist[y] / (40.0 * dist[y])
@@ -382,7 +299,98 @@ class NonbondedEnergy(object):
             vdw_14 = epsilon_14 * (x6_14.square() - 2.0 * x6_14)
             #
             energy = vdw_ij.sum() + elec_ij.sum() + vdw_14.sum() + elec_14.sum()
-        return energy
+            if decompose:
+                energy_s = {}
+                energy_s["vdw"] = vdw_ij.sum().detach().item()
+                energy_s["elec"] = elec_ij.sum().detach().item()
+                energy_s["vdw_14"] = vdw_14.sum().detach().item()
+                energy_s["elec_14"] = elec_14.sum().detach().item()
+        if decompose:
+            return energy, energy_s
+        else:
+            return energy
+
+
+class BondedEnergy(object):
+    def __init__(self, data, device="cpu"):
+        self.bond_length = torch.tensor((37000.0, 0.1345), dtype=DTYPE, device=device)
+        #
+        bond_angle = torch.zeros((3, 3, 4, 2), dtype=DTYPE)
+        # (O - C) -- N
+        bond_angle[:, :2, 0] = torch.tensor((80.0, np.deg2rad(122.5)))  # O - C - NH1
+        bond_angle[:, 2, 0] = torch.tensor((80.0, np.deg2rad(122.5)))  # O - C - N (for PRO)
+        # (CA - C) -- N
+        bond_angle[0, :2, 1] = torch.tensor((80.0, np.deg2rad(116.5)))  # CT1 - C - NH1
+        bond_angle[1, :2, 1] = torch.tensor((80.0, np.deg2rad(116.5)))  # CT2 - C - NH1
+        bond_angle[2, :2, 1] = torch.tensor((80.0, np.deg2rad(116.5)))  # CP1 - C - NH1
+        bond_angle[0, 2, 1] = torch.tensor((20.0, np.deg2rad(112.5)))  # CT1 - C - N
+        bond_angle[1, 2, 1] = torch.tensor((20.0, np.deg2rad(112.5)))  # CT2 - C - N
+        bond_angle[2, 2, 1] = torch.tensor((20.0, np.deg2rad(112.5)))  # CP1 - C - N
+        # C -- (N - CA)
+        bond_angle[:, 0, 2] = torch.tensor((80.0, np.deg2rad(122.5)))  # C - NH1 - CT1
+        bond_angle[:, 1, 2] = torch.tensor((50.0, np.deg2rad(120.0)))  # C - NH1 - CT2
+        bond_angle[:, 2, 2] = torch.tensor((60.0, np.deg2rad(117.0)))  # C - N - CP1
+        # C -- (N - H)
+        bond_angle[:, :2, 3] = torch.tensor((80.0, np.deg2rad(122.5)))  # C - NH1 - H
+        self.bond_angle = bond_angle.to(device)
+        #
+        bond_length_index = []
+        bond_angle_index = []
+        bond_angle_type = []
+        for i_res, continuous in enumerate(data.cg.continuous[1]):
+            if not continuous:
+                continue
+            #
+            bond_length_index.append(((i_res, ATOM_INDEX_C), (i_res + 1, ATOM_INDEX_N)))
+            #
+            residue_curr = data.cg.residue_index[i_res]
+            if residue_curr == PROLINE_INDEX:
+                residue_curr = 2
+            elif residue_curr == GLYCINE_INDEX:
+                residue_curr = 1
+            else:
+                residue_curr = 0
+            #
+            residue_next = data.cg.residue_index[i_res + 1]
+            residue_next_name = AMINO_ACID_s[residue_next]
+            if residue_next == PROLINE_INDEX:
+                residue_next = 2
+                atom_index_H = ATOM_INDEX_CA
+            elif residue_next == GLYCINE_INDEX:
+                residue_next = 1
+                atom_index_H = residue_s[residue_next_name].atom_s.index("HN")
+            else:
+                residue_next = 0
+                atom_index_H = residue_s[residue_next_name].atom_s.index("HN")
+            bond_angle_type.append((residue_curr, residue_next))
+            #
+            index = []
+            index.append(((i_res, ATOM_INDEX_O), (i_res, ATOM_INDEX_C), (i_res + 1, ATOM_INDEX_N)))
+            index.append(((i_res, ATOM_INDEX_CA), (i_res, ATOM_INDEX_C), (i_res + 1, ATOM_INDEX_N)))
+            index.append(
+                ((i_res, ATOM_INDEX_C), (i_res + 1, ATOM_INDEX_N), (i_res + 1, ATOM_INDEX_CA))
+            )
+            index.append(
+                ((i_res, ATOM_INDEX_C), (i_res + 1, ATOM_INDEX_N), (i_res + 1, atom_index_H))
+            )
+            bond_angle_index.append(index)
+        self.bond_length_index = torch.as_tensor(bond_length_index, dtype=torch.long, device=device)
+        self.bond_angle_index = torch.as_tensor(bond_angle_index, dtype=torch.long, device=device)
+        self.bond_angle_type = torch.as_tensor(bond_angle_type, dtype=torch.long, device=device)
+
+    def eval(self, R):
+        ri = R[self.bond_length_index[..., 0], self.bond_length_index[..., 1]]
+        bond_length = v_size(ri[:, 1] - ri[:, 0])
+        bond_length_energy = self.bond_length[0] * (bond_length - self.bond_length[1]).square()
+        #
+        rj = R[self.bond_angle_index[..., 0], self.bond_angle_index[..., 1]]
+        dr0 = v_norm(rj[:, :, 0] - rj[:, :, 1])
+        dr2 = v_norm(rj[:, :, 2] - rj[:, :, 1])
+        bond_angle = acos_safe(inner_product(dr0, dr2))
+        bond_angle0 = self.bond_angle[self.bond_angle_type[..., 0], self.bond_angle_type[..., 1]]
+        bond_angle_energy = bond_angle0[..., 0] * (bond_angle - bond_angle0[..., 1]).square()
+        #
+        return bond_length_energy.sum() + bond_angle_energy.sum()
 
 
 class BackboneTorsionEnergy(object):
@@ -590,24 +598,34 @@ class DCDReporter(mdtraj.reporters.DCDReporter):
 
 class MolecularMechanicsForceField(object):
     def __init__(self, data, model, model_type, device, **kwargs):
-        self.RIGID_OPs = model.RIGID_OPs
-        self.TORSION_PARs = model.TORSION_PARs
-        self.geometry_energy = CoarseGrainedGeometryEnergy(model_type, device)
+        self.weight = {}
+        self.weight["bond"] = kwargs.get("bond_weight", 1.0)
+        self.weight["torsion"] = kwargs.get("torsion_weight", 0.0)
+        self.weight["backbone"] = 1.0
+        self.weight["nb"] = 1.0
+        #
         self.backbone_torsion = BackboneTorsionEnergy(data, device=device)
+        self.bonded_energy = BondedEnergy(data, device=device)
         self.nonbonded_energy = NonbondedEnergy(
             device, include_one_four_pair=kwargs.get("include_one_four_pair", True)
         )
         self.cmap_energy = CMAPTorsionEnergy(data, device=device)
         self.use_constraint = model_type == "CalphaBasedModel"
+        if model_type == "CalphaBasedModel":
+            self.geometry_energy = CoarseGrainedGeometryEnergy(
+                model_type, device, use_aa_specific=False, use_harmonic=True
+            )
+            self.weight["cg"] = kwargs.get("cg_weight", 1.0)
+        else:
+            self.geometry_energy = CoarseGrainedGeometryEnergy(
+                model_type, device, use_aa_specific=True, use_harmonic=False
+            )
+            self.weight["cg"] = kwargs.get("cg_weight", 1.0) * 100.0
         #
-        self.weight = {}
-        self.weight["bond"] = kwargs.get("bond_weight", 0.0)
-        self.weight["torsion"] = kwargs.get("torsion_weight", 0.0)
-        self.weight["backbone"] = kwargs.get("backbone_weight", 1.0)
-        self.weight["nb"] = kwargs.get("nb_weight", 1.0)
-        self.weight["cg"] = kwargs.get("cg_weight", 1.0)
+        if self.weight.get("torsion", 0.0) > 0.0:
+            self.TORSION_PARs = model.TORSION_PARs
 
-    def __call__(self, batch, ret):
+    def eval(self, batch, ret):
         R = ret["R"]
         #
         loss = {}
@@ -624,13 +642,16 @@ class MolecularMechanicsForceField(object):
         if self.use_constraint:
             cg_bonded_weight = [0.0, 1.0]
         else:
-            cg_bonded_weight = [1.0, 1.0]
+            cg_bonded_weight = [1.0, 0.0]
 
-        loss["nb"] = self.nonbonded_energy.eval(batch, R)
-        loss["cg"] = self.geometry_energy.eval_bonded(
-            batch, weight=cg_bonded_weight
-        ) + self.geometry_energy.eval_vdw(batch)
-        #
+        if self.weight.get("nb", 0.0) > 0.0:
+            loss["nb"] = self.nonbonded_energy.eval(batch, R)
+        if self.weight.get("cg", 0.0) > 0.0:
+            loss["cg"] = self.geometry_energy.eval_bonded(batch, weight=cg_bonded_weight)
+        return loss
+
+    def __call__(self, batch, ret):
+        loss = self.eval(batch, ret)
         loss_sum = 0.0
         for name, value in loss.items():
             loss_sum = loss_sum + value * self.weight[name]
@@ -849,20 +870,16 @@ class MDsimulator(object):
 
 def main():
     import libcg
+    import glob
 
-    pdb_fn = "cg2all.md/explicit/1plx_A/init/solute.pdb"
     cg_model = libcg.ResidueBasedModel
+    pdb_fn = "cg2all.md/pdb/1plx_A.pdb"
 
     data = MDdata(pdb_fn, cg_model)
-    batch = data.convert_to_batch(torch.as_tensor(data.r_cg))
-    nb_energy = NonbondedEnergy("cpu", include_one_four_pair=False)
-    nb_energy.eval(batch, torch.as_tensor(data.cg.R[0], dtype=DTYPE))
-    # bb_enr = BackboneTorsionEnergy(data)
-    # batch = data.convert_to_batch(data.r_cg)
-    # print(bb_enr(batch, torch.as_tensor(data.cg.R[0])))
-    # cmap_enr = CMAPTorsionEnergy(data)
-    # r = torch.tensor(data.cg.R[0], dtype=DTYPE, requires_grad=True)
-    # cmap_enr(r)
+    bonded_potential = BondedPotential(data)
+    #
+    R = torch.as_tensor(data.cg.R[0], dtype=DTYPE)
+    bonded_potential.eval(R)
 
 
 if __name__ == "__main__":

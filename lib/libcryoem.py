@@ -295,12 +295,6 @@ class MinimizableData(object):
         data.ndata["residue_type"] = torch.as_tensor(self.cg.residue_index, dtype=torch.long)
         data.ndata["continuous"] = torch.as_tensor(self.cg.continuous[0], dtype=self.dtype)
         data.ndata["output_atom_mask"] = torch.as_tensor(self.cg.atom_mask, dtype=self.dtype)  #
-        # #
-        # # aa-specific
-        # data.ndata["output_xyz"] = torch.as_tensor(self.cg.R[0], dtype=self.dtype)
-        # data.ndata["atomic_radius"] = torch.as_tensor(self.cg.atomic_radius, dtype=self.dtype)
-        # data.ndata["atomic_mass"] = torch.as_tensor(self.cg.atomic_mass, dtype=self.dtype)
-        # data.ndata["atomic_charge"] = torch.as_tensor(self.cg.atomic_charge, dtype=self.dtype)
         #
         ssbond_index = torch.full((data.num_nodes(),), -1, dtype=torch.long)
         for cys_i, cys_j in self.cg.ssbond_s:

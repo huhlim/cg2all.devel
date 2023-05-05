@@ -58,12 +58,12 @@ def main():
         default="ResidueBasedModel",
         choices=["CalphaBasedModel", "CA", "ca", "ResidueBasedModel", "RES", "res"],
     )
-    arg.add_argument("--bond_weight", dest="bond_weight", default=0.0, type=float)
+    arg.add_argument(
+        "--exclude_one_four_pair", dest="include_one_four_pair", action="store_false", default=True
+    )
+    arg.add_argument("--bond_weight", dest="bond_weight", default=1.0, type=float)
     arg.add_argument("--torsion_weight", dest="torsion_weight", default=0.0, type=float)
-    arg.add_argument("--backbone_weight", dest="backbone_weight", default=1.0, type=float)
-    arg.add_argument("--nb_weight", dest="nb_weight", default=1.0, type=float)
     arg.add_argument("--cg_weight", dest="cg_weight", default=1.0, type=float)
-    arg.add_argument("--include_one_four_pair", dest="include_one_four_pair", action="store_true", default=False)
     arg = arg.parse_args()
     #
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -140,12 +140,10 @@ def main():
         model,
         model_type,
         device,
+        include_one_four_pair=arg.include_one_four_pair,
         bond_weight=arg.bond_weight,
         torsion_weight=arg.torsion_weight,
-        backbone_weight=arg.backbone_weight,
-        nb_weight=arg.nb_weight,
         cg_weight=arg.cg_weight,
-        include_one_four_pair=arg.include_one_four_pair
     )
     simulation = MDsimulator(model, loss_f, integrator, device)
 

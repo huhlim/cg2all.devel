@@ -560,23 +560,30 @@ def find_atomic_clash(
 
 
 class CoarseGrainedGeometryEnergy(object):
-    def __init__(self, cg_model_name, device, use_aa_specific=False):
+    def __init__(self, cg_model_name, device, use_aa_specific=False, use_harmonic=True):
         self.cg_model_name = cg_model_name
         if cg_model_name == "ResidueBasedModel":
             self.use_aa_specific = True
+            self.use_harmonic = use_harmonic
         else:
             self.use_aa_specific = use_aa_specific
+            self.use_harmonic = True
         self.set_param(device)
 
     def set_param(self, device):
         if self.cg_model_name == "CalphaBasedModel":
             data_fn = DATA_HOME / "calpha_geometry_params.dat"
         elif self.cg_model_name == "ResidueBasedModel":
-            data_fn = DATA_HOME / "residue_geometry_params.dat"
+            if self.use_harmonic:
+                data_fn = DATA_HOME / "residue_geometry_params.harmonic.dat"
+            else:
+                data_fn = DATA_HOME / "residue_geometry_params.bound.dat"
         else:
             raise ValueError(self.cg_model_name)
         #
-        self.angle_aa_map = torch.zeros((MAX_RESIDUE_TYPE, MAX_RESIDUE_TYPE), dtype=torch.long, device=device)
+        self.angle_aa_map = torch.zeros(
+            (MAX_RESIDUE_TYPE, MAX_RESIDUE_TYPE), dtype=torch.long, device=device
+        )
         for i, aa_i in enumerate(AMINO_ACID_s):
             ii = {"PRO": 1, "GLY": 2}.get(aa_i, 0)
             for j, aa_j in enumerate(AMINO_ACID_s):
@@ -617,10 +624,42 @@ class CoarseGrainedGeometryEnergy(object):
                     j = AMINO_ACID_s.index(x[2])
                     self.vdw[i, j] = float(x[3])
 
-    def eval(self, batch):
-        return self.eval_bonded(batch) + self.eval_vdw(batch)
+    def eval(self, batch, weight=[1.0, 1.0, 1.0]):
+        return self.eval_bonded(batch, weight=weight[:2]) + self.eval_vdw(batch) * weight[2]
 
     def eval_bonded(self, batch, weight=[1.0, 1.0]):
+        if self.use_harmonic:
+            return self.eval_bonded_harmonic(batch, weight=weight)
+        else:
+            return self.eval_bonded_bound(batch, weight=weight)
+
+    def eval_bonded_bound(self, batch, weight=[1.0, 1.0]):
+        r_cg = batch.ndata["pos"]
+        residue_type = batch.ndata["residue_type"]
+        #
+        bonded = batch.ndata["continuous"][1:]
+        n_bonded = torch.sum(bonded)
+        b_len0 = self.b_len0[residue_type[1:], residue_type[:-1]]
+        v1 = r_cg[1:] - r_cg[:-1]
+        b_len = v_size(v1)
+        x_lb = torch.clamp(b_len - b_len0[:, 0], max=0.0)
+        x_ub = torch.clamp(b_len - b_len0[:, 1], min=0.0)
+        bond_energy = torch.sum((x_lb.square() + x_ub.square()) * bonded)
+        #
+        angled = bonded[1:] * bonded[:-1]
+        n_angled = torch.sum(angled)
+        angle_type = self.angle_aa_map[residue_type[:-2], residue_type[2:]]
+        b_ang0 = self.b_ang0[residue_type[1:-1], angle_type]
+        v1 = v_norm(v1)
+        v0 = -v1
+        angle = acos_safe(inner_product(v0[:-1], v1[1:]))
+        x_lb = torch.clamp(angle - b_ang0[:, 0], max=0.0)
+        x_ub = torch.clamp(angle - b_ang0[:, 1], min=0.0)
+        angle_energy = torch.sum((x_lb.square() + x_ub.square()) * angled)
+        #
+        return bond_energy * weight[0] + angle_energy * weight[1]
+
+    def eval_bonded_harmonic(self, batch, weight=[1.0, 1.0]):
         r_cg = batch.ndata["pos"]
         residue_type = batch.ndata["residue_type"]
         #
