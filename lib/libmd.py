@@ -620,7 +620,7 @@ class MolecularMechanicsForceField(object):
             self.geometry_energy = CoarseGrainedGeometryEnergy(
                 model_type, device, use_aa_specific=True, use_harmonic=False
             )
-            self.weight["cg"] = kwargs.get("cg_weight", 1.0) * 100.0
+            self.weight["cg"] = kwargs.get("cg_weight", 1.0)
         #
         if self.weight.get("torsion", 0.0) > 0.0:
             self.TORSION_PARs = model.TORSION_PARs

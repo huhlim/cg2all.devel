@@ -591,17 +591,31 @@ class CoarseGrainedGeometryEnergy(object):
                 self.angle_aa_map[i, j] = ii * 3 + jj
         #
         with open(data_fn) as fp:
-            self.b_len0 = torch.zeros(
-                (MAX_RESIDUE_TYPE, MAX_RESIDUE_TYPE, 2), dtype=DTYPE, device=device
-            )
-            self.b_ang0 = torch.zeros((MAX_RESIDUE_TYPE, 9, 2), dtype=DTYPE, device=device)
+            if self.use_harmonic:
+                self.b_len0 = torch.zeros(
+                    (MAX_RESIDUE_TYPE, MAX_RESIDUE_TYPE, 2), dtype=DTYPE, device=device
+                )
+                self.b_ang0 = torch.zeros((MAX_RESIDUE_TYPE, 9, 2), dtype=DTYPE, device=device)
+            else:
+                self.b_len0 = torch.zeros(
+                    (MAX_RESIDUE_TYPE, MAX_RESIDUE_TYPE, 2, 2), dtype=DTYPE, device=device
+                )
+                self.b_ang0 = torch.zeros((MAX_RESIDUE_TYPE, 9, 2, 2), dtype=DTYPE, device=device)
             self.vdw = torch.zeros((MAX_RESIDUE_TYPE, MAX_RESIDUE_TYPE), dtype=DTYPE, device=device)
             #
             for line in fp:
                 x = line.strip().split()
                 if x[0] == "BOND_LENGTH":
                     aa0, aa1 = x[1], x[2]
-                    p = torch.as_tensor([float(x[3]), float(x[4])])
+                    if self.use_harmonic:
+                        p = torch.as_tensor([float(x[3]), float(x[4])])
+                    else:
+                        p = torch.as_tensor(
+                            [
+                                [float(x[3]), float(x[4])],
+                                [float(x[5]), float(x[6])],
+                            ]
+                        )
                     if aa0 == "ANY":
                         self.b_len0[:, :] = p[None, None, :]
                     elif self.use_aa_specific:
@@ -610,7 +624,15 @@ class CoarseGrainedGeometryEnergy(object):
                         self.b_len0[i, j] = p
                 elif x[0] == "BOND_ANGLE":
                     aa0, aa1, aa2 = x[1], x[2], x[3]
-                    p = torch.as_tensor([float(x[4]), float(x[5])])
+                    if self.use_harmonic:
+                        p = torch.as_tensor([float(x[4]), float(x[5])])
+                    else:
+                        p = torch.as_tensor(
+                            [
+                                [float(x[4]), float(x[5])],
+                                [float(x[6]), float(x[7])],
+                            ]
+                        )
                     if aa0 == "ANY":
                         self.b_ang0[:, :] = p[None, None, :]
                     elif self.use_aa_specific:
@@ -642,8 +664,8 @@ class CoarseGrainedGeometryEnergy(object):
         b_len0 = self.b_len0[residue_type[1:], residue_type[:-1]]
         v1 = r_cg[1:] - r_cg[:-1]
         b_len = v_size(v1)
-        x_lb = torch.clamp(b_len - b_len0[:, 0], max=0.0)
-        x_ub = torch.clamp(b_len - b_len0[:, 1], min=0.0)
+        x_lb = torch.clamp((b_len - b_len0[:, 1, 0]) / (2.0 * b_len0[:, 0, 0]), max=0.0)
+        x_ub = torch.clamp((b_len - b_len0[:, 1, 1]) / (2.0 * b_len0[:, 0, 1]), min=0.0)
         bond_energy = torch.sum((x_lb.square() + x_ub.square()) * bonded)
         #
         angled = bonded[1:] * bonded[:-1]
@@ -653,8 +675,8 @@ class CoarseGrainedGeometryEnergy(object):
         v1 = v_norm(v1)
         v0 = -v1
         angle = acos_safe(inner_product(v0[:-1], v1[1:]))
-        x_lb = torch.clamp(angle - b_ang0[:, 0], max=0.0)
-        x_ub = torch.clamp(angle - b_ang0[:, 1], min=0.0)
+        x_lb = torch.clamp((angle - b_ang0[:, 1, 0]) / (2.0 * b_ang0[:, 0, 0]), max=0.0)
+        x_ub = torch.clamp((angle - b_ang0[:, 1, 1]) / (2.0 * b_ang0[:, 0, 1]), min=0.0)
         angle_energy = torch.sum((x_lb.square() + x_ub.square()) * angled)
         #
         return bond_energy * weight[0] + angle_energy * weight[1]
