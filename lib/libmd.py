@@ -630,8 +630,7 @@ class MolecularMechanicsForceField(object):
         #
         loss = {}
         if self.weight.get("bond", 0.0) > 0.0:
-            loss["bond"] = loss_f_bonded_energy(batch, R) + loss_f_bonded_energy_aux(batch, R)
-            loss["bond"] = loss["bond"] * R.size(0)
+            loss["bond"] = self.bonded_energy.eval(R)
         if self.weight.get("torsion", 0.0) > 0.0:
             loss["torsion"] = loss_f_torsion_energy(batch, R, ret["ss"], self.TORSION_PARs)
             loss["torsion"] = loss["torsion"] * R.size(0)
@@ -873,13 +872,22 @@ def main():
     import glob
 
     cg_model = libcg.ResidueBasedModel
-    pdb_fn = "cg2all.md/pdb/1plx_A.pdb"
+    pdb_fn_s = sys.argv[1:]
+    ff = None
+    for pdb_fn in pdb_fn_s:
+        data = MDdata(pdb_fn, cg_model)
+        if ff is None:
+            ff = MolecularMechanicsForceField(data, None, "ResidueBasedModel", "cpu")
+        R = torch.as_tensor(data.cg.R[0], dtype=DTYPE)
+        loss = ff.eval(data.convert_to_batch(data.r_cg), {"R": R})
+        loss_sum = loss["bond"] + loss["cg"] + loss["nb"] + loss["backbone"]
 
-    data = MDdata(pdb_fn, cg_model)
-    bonded_potential = BondedPotential(data)
-    #
-    R = torch.as_tensor(data.cg.R[0], dtype=DTYPE)
-    bonded_potential.eval(R)
+        wrt = []
+        wrt.append(f"{loss_sum.detach().item():8.4f}")
+        for key in ["bond", "backbone", "cg", "nb"]:
+            wrt.append(f"{loss[key].detach().item():8.4f}")
+        wrt.append(pdb_fn)
+        print(" ".join(wrt))
 
 
 if __name__ == "__main__":
