@@ -125,7 +125,7 @@ def main():
     else:
         topology_map = None
     #
-    config = libmodel.set_model_config(config, cg_model)
+    config = libmodel.set_model_config(config, cg_model, flattened=False)
     model = libmodel.Model(config, cg_model, compute_loss=False)
     #
     state_dict = ckpt["state_dict"]
@@ -146,6 +146,7 @@ def main():
         radius=config.globals.radius,
         chain_break_cutoff=0.1 * arg.chain_break_cutoff,
         is_all=arg.is_all,
+        fix_atom=config.globals.fix_atom,
     )
     if arg.in_dcd_fn is not None:
         unitcell_lengths = input_s.cg.unitcell_lengths

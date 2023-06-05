@@ -267,6 +267,7 @@ class PredictionData(Dataset):
         self_loop=False,
         chain_break_cutoff=1.0,
         is_all=False,
+        fix_atom=False,
         dtype=DTYPE,
     ):
         super().__init__()
@@ -282,6 +283,7 @@ class PredictionData(Dataset):
         self.dtype = dtype
         self.chain_break_cutoff = chain_break_cutoff
         self.is_all = is_all
+        self.fix_atom = fix_atom
         #
         if self.dcd_fn is None:
             self.n_frame = 1
@@ -339,6 +341,16 @@ class PredictionData(Dataset):
         data.ndata["residue_type"] = torch.as_tensor(cg.residue_index, dtype=torch.long)
         data.ndata["continuous"] = torch.as_tensor(cg.continuous[0], dtype=self.dtype)
         data.ndata["output_atom_mask"] = torch.as_tensor(cg.atom_mask, dtype=self.dtype)
+        #
+        if self.fix_atom:
+            if self.cg_model.NAME in ["MainchainModel", "BackboneModel"]:
+                atom_order = [cg.WRITE_BEAD.index(atom_name) for atom_name in cg.NAME_BEAD]
+                cg.atom_mask_pdb = cg.atom_mask_cg[:, atom_order]
+                cg.R = cg.R_cg[:, :, atom_order]
+                cg.get_structure_information(bb_only=True)
+                data.ndata["correct_bb"] = torch.as_tensor(cg.bb[0], dtype=self.dtype)
+                data.ndata["output_xyz"] = torch.as_tensor(cg.R[0], dtype=self.dtype)
+                data.ndata["pdb_atom_mask"] = torch.as_tensor(cg.atom_mask_pdb, dtype=self.dtype)
         #
         ssbond_index = torch.full((data.num_nodes(),), -1, dtype=torch.long)
         for cys_i, cys_j in cg.ssbond_s:

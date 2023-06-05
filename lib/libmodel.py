@@ -23,6 +23,9 @@ from residue_constants import (
     MAX_TORSION,
     MAX_RIGID,
     ATOM_INDEX_CA,
+    ATOM_INDEX_N,
+    ATOM_INDEX_C,
+    ATOM_INDEX_O,
     RIGID_TRANSFORMS_TENSOR,
     RIGID_TRANSFORMS_DEP,
     RIGID_GROUPS_TENSOR,
@@ -61,6 +64,7 @@ CONFIG["train"]["perturb_pos"] = -1.0
 CONFIG["globals"] = ConfigDict()
 CONFIG["globals"]["radius"] = 1.0
 CONFIG["globals"]["ss_dep"] = True
+CONFIG["globals"]["fix_atom"] = False
 
 # embedding module
 EMBEDDING_MODULE = ConfigDict()
@@ -128,9 +132,12 @@ def _get_gpu_mem():
     )
 
 
-def set_model_config(arg: dict, cg_model) -> ConfigDict:
+def set_model_config(arg: dict, cg_model, flattened=True) -> ConfigDict:
     config = copy.deepcopy(CONFIG)
-    config.update_from_flattened_dict(arg)
+    if flattened:
+        config.update_from_flattened_dict(arg)
+    else:
+        config.update(arg)
     #
     embedding_dim = config.embedding_module.embedding_dim
     if embedding_dim > 0:
@@ -170,6 +177,24 @@ def set_model_config(arg: dict, cg_model) -> ConfigDict:
                 n_feats += MAX_SS
             fiber_out.append((degree, n_feats))
         config.structure_module.fiber_out = fiber_out
+    #
+    if config.globals.get("fix_atom", False):
+        cg_model_name = cg_model.NAME
+        if cg_model_name in ["CalphaBasedModel", "CalphaCMModel"]:
+            fix_atom = [True, False, False]
+        elif cg_model_name in ["BackboneModel"]:
+            fix_atom = [True, True, False]
+        elif cg_model_name in ["MainchainModel"]:
+            fix_atom = [True, True, True]
+        else:
+            fix_atom = [False, False, False]
+    else:
+        fix_atom = [False, False, False]
+    config.structure_module.fix_atom = fix_atom
+    if fix_atom[1]:
+        config.structure_module.loss_weight["rigid_body"] = 0.0
+        config.structure_module.loss_weight["rotation_matrix"] = 0.0
+        config.structure_module.loss_weight["FAPE_CA"] = 0.0
     #
     config.structure_module.fiber_edge = []
     if cg_model.n_edge_scalar > 0:
@@ -289,6 +314,7 @@ class StructureModule(nn.Module):
         #
         self.loss_weight = config.loss_weight
         self.rotation_rep = config.rotation_rep
+        self.fix_atom = config.get("fix_atom", [False, False, False])
         #
         if config.nonlinearity == "elu":
             nonlinearity = nn.ELU()
@@ -456,6 +482,10 @@ class Model(nn.Module):
         out = self.structure_module(out)
         #
         bb, sc, bb0, sc0, ss0 = self.structure_module.output_to_opr(out, ss_dep=self.ss_dep)
+        if self.structure_module.fix_atom[0]:
+            bb[:, 3] = bb[:, 3] * 0.0
+        if self.structure_module.fix_atom[1]:
+            bb[:, :3] = batch.ndata["correct_bb"][:, :3]
         ret["bb"] = bb
         ret["sc"] = sc
         ret["bb0"] = bb0
@@ -466,6 +496,12 @@ class Model(nn.Module):
         ret["ss0"] = ss0
         #
         ret["R"], ret["opr_bb"] = build_structure(self.RIGID_OPs, batch, ss, bb, sc=sc)
+        if self.structure_module.fix_atom[1]:
+            ret["R"][:, ATOM_INDEX_N] = batch.ndata["output_xyz"][:, ATOM_INDEX_N]
+            ret["R"][:, ATOM_INDEX_C] = batch.ndata["output_xyz"][:, ATOM_INDEX_C]
+        if self.structure_module.fix_atom[2]:
+            mask = batch.ndata["pdb_atom_mask"][:, ATOM_INDEX_O] > 0.0
+            ret["R"][mask, ATOM_INDEX_O] = batch.ndata["output_xyz"][mask, ATOM_INDEX_O]
         #
         if self.compute_loss or self.training:
             loss["final"] = loss_f(
