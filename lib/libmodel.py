@@ -49,18 +49,18 @@ CONFIG["train"] = ConfigDict()
 CONFIG["train"]["dataset"] = "pdb.processed"
 CONFIG["train"]["md_frame"] = -1
 CONFIG["train"]["batch_size"] = 4
-CONFIG["train"]["crop_size"] = 256
+CONFIG["train"]["crop_size"] = 384
 CONFIG["train"]["lr"] = 1e-3
 CONFIG["train"]["lr_sc"] = 1e-2
 CONFIG["train"]["lr_gamma"] = 0.995
 CONFIG["train"]["use_pt"] = "CA"
 CONFIG["train"]["augment"] = ""
 CONFIG["train"]["min_cg"] = ""
-CONFIG["train"]["perturb_pos"] = 0.0
+CONFIG["train"]["perturb_pos"] = -1.0
 
 CONFIG["globals"] = ConfigDict()
 CONFIG["globals"]["radius"] = 1.0
-CONFIG["globals"]["ss_dep"] = False
+CONFIG["globals"]["ss_dep"] = True
 
 # embedding module
 EMBEDDING_MODULE = ConfigDict()
@@ -71,8 +71,8 @@ CONFIG["embedding_module"] = EMBEDDING_MODULE
 # the base config for using ConvLayer or SE3Transformer
 STRUCTURE_MODULE = ConfigDict()
 STRUCTURE_MODULE["low_memory"] = True
-STRUCTURE_MODULE["num_graph_layers"] = 4
-STRUCTURE_MODULE["num_linear_layers"] = 4
+STRUCTURE_MODULE["num_graph_layers"] = 6
+STRUCTURE_MODULE["num_linear_layers"] = 6
 STRUCTURE_MODULE["num_heads"] = 8  # number of attention heads
 STRUCTURE_MODULE["norm"] = [
     True,

@@ -399,9 +399,10 @@ def create_topology_from_data(data: dgl.DGLGraph, write_native: bool = False) ->
     atom_index = []
     for i_res in range(data.ndata["residue_type"].size(0)):
         chain_index = data.ndata["chain_index"][i_res]
+        continuous = data.ndata["continuous"][i_res].cpu().detach().item()
+        #
         resNum = data.ndata["resSeq"][i_res].cpu().detach().item()
         resSeqIns = data.ndata["resSeqIns"][i_res].cpu().detach().item()
-        continuous = data.ndata["continuous"][i_res].cpu().detach().item()
         if resSeqIns == 0:
             resSeq = resNum
         else:
@@ -486,70 +487,3 @@ def create_trajectory_from_batch(
         traj = mdtraj.Trajectory(xyz=xyz, topology=top)
         traj_s.append(traj)
     return traj_s, ssbond_s
-
-
-def to_pt():
-    base_dir = BASE / "pdb.6k"
-    pdblist = "set/targets.pdb.6k"
-    #
-    cg_model = libcg.Martini
-    topology_map = read_coarse_grained_topology("martini")
-    #
-    augment = ""
-    use_pt = None  # "Martini"
-    #
-    train_set = PDBset(
-        base_dir,
-        pdblist,
-        cg_model,
-        topology_map=topology_map,
-        use_pt=use_pt,
-        augment=augment,
-    )
-    #
-    train_loader = dgl.dataloading.GraphDataLoader(
-        train_set, batch_size=8, shuffle=False, num_workers=16
-    )
-    for _ in train_loader:
-        pass
-
-
-def test():
-    return
-    base_dir = BASE / "pdb.6k"
-    pdblist = "set/targets.pdb.6k"
-    #
-    cg_model = libcg.Martini
-    topology_map = read_coarse_grained_topology("martini")
-    #
-    augment = ""
-    use_pt = None  # "Martini"
-    #
-    train_set = PDBset(
-        base_dir,
-        pdblist,
-        cg_model,
-        topology_map=topology_map,
-        use_pt=use_pt,
-        augment=augment,
-    )
-    batch = train_set[0]
-    R = torch.zeros((batch.num_nodes(), 24, 3))
-    traj_s, ssbond_s = create_trajectory_from_batch(batch, R, write_native=True)
-    traj_s[0].save("test.pdb")
-
-
-if __name__ == "__main__":
-    m = MinimizableData("pdb.processed/1ab1_A.pdb", libcg.CalphaBasedModel)
-    for i in range(1000):
-        batch = m.convert_to_batch(m.r_cg)
-        #
-        optimizer = torch.optim.Adam([m.r_cg], lr=0.001)
-        optimizer.zero_grad()
-        #
-        loss = 0.0
-        loss = loss + torch.sum(batch.ndata["node_feat_0"])
-        loss = loss + torch.sum(batch.ndata["node_feat_1"])
-        print(loss.item())
-        loss.backward()
-        optimizer.step()

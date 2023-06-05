@@ -32,7 +32,8 @@ from libdata import resSeq_to_number
 
 from libloss import loss_f_bonded_energy_aux as loss_f_bonded_energy_aa_aux
 from libloss import CoarseGrainedGeometryEnergy, loss_f_torsion_energy
-from libmd import loss_f_nonbonded, BackboneTorsionEnergy
+
+# from libmd import loss_f_nonbonded, BackboneTorsionEnergy
 
 
 def trilinear_interpolation(
@@ -245,8 +246,8 @@ class CryoEMLossFunction(object):
                 ) * R.size(0)
             if self.weight.get("backbone", 0.0) > 0.0:
                 loss["backbone"] = self.backbone_torsion(R)
-            if self.weight.get("nb", 0.0) > 0.0:
-                loss["nb"] = loss_f_nonbonded(batch, R, self.RIGID_OPs)
+            # if self.weight.get("nb", 0.0) > 0.0:
+            #     loss["nb"] = loss_f_nonbonded(batch, R, self.RIGID_OPs)
 
         loss["cg"] = self.geometry_energy.eval(batch)
         loss["restraint"] = self.distance_restraint.eval(batch)
