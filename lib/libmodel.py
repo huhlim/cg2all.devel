@@ -590,7 +590,12 @@ def build_structure(
     return R, opr[:, 0]
 
 
-def download_ckpt_file(model_type, ckpt_fn):
+def download_ckpt_file(_model_type, ckpt_fn, fix_atom=False):
+    if fix_atom:
+        model_type = f"{_model_type}-FIX"
+    else:
+        model_type = _model_type
+
     try:
         import gdown
 
@@ -604,6 +609,10 @@ def download_ckpt_file(model_type, ckpt_fn):
             "MainchainModel": "1Q6Xlop_u1hQdLwTlHHdCDxWTC34I8TQg",
             "Martini": "1GiEtLiIOotLrj--7-jJI8aRE10duQoBE",
             "PRIMO": "1FW_QFijewI-z48GC-aDEjHMO_8g1syTH",
+            "CalphaBasedModel-FIX": "16FfIW72BDy-RT46kgVoRsGYCcpHOeee1",
+            "CalphaCMModel-FIX": "1xdDT-6kkkNiXcg3WxJm1gkw7wDj07Mw9",
+            "BackboneModel-FIX": "1uosDHt20KokQBMqyZylO0m8VEONcEuK6",
+            "MainchainModel-FIX": "1TaOn42s-3HPlxB4sJ8V21g8rO447F4_v",
         }
         url = url_s[model_type]
         if not ckpt_fn.parent.exists():
@@ -614,7 +623,7 @@ def download_ckpt_file(model_type, ckpt_fn):
 
         #
         sys.stdout.write(f"Downloading from Zenodo ... {ckpt_fn}\n")
-        url = f"https://zenodo.org/record/7742950/files/{ckpt_fn.name}"
+        url = f"https://zenodo.org/record/8015059/files/{ckpt_fn.name}"
         if not ckpt_fn.parent.exists():
             ckpt_fn.parent.mkdir()
         with open(ckpt_fn, "wb") as fout:
