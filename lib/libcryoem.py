@@ -220,14 +220,10 @@ class CryoEMLossFunction(object):
         self.cryoem_loss_f = CryoEM_loss(mrc_fn, data, 0.0, device, is_all=is_all)
         self.distance_restraint = DistanceRestraint(data, device, radius=1.0)
         self.geometry_energy = CoarseGrainedGeometryEnergy(model_type, device)
-        # self.backbone_torsion = BackboneTorsionEnergy(data, device=device)
         #
         self.weight = {}
         self.weight["cryo_em"] = 1.0
         self.weight["bond"] = 1.0
-        # self.weight["torsion"] = 0.1
-        # self.weight["backbone"] = 0.1
-        # self.weight["nb"] = 0.1
         self.weight["cg"] = 0.1
         self.weight["restraint"] = restraint
 
@@ -244,10 +240,6 @@ class CryoEMLossFunction(object):
                 loss["torsion"] = loss_f_torsion_energy(
                     batch, R, ret["ss"], self.TORSION_PARs
                 ) * R.size(0)
-            if self.weight.get("backbone", 0.0) > 0.0:
-                loss["backbone"] = self.backbone_torsion(R)
-            # if self.weight.get("nb", 0.0) > 0.0:
-            #     loss["nb"] = loss_f_nonbonded(batch, R, self.RIGID_OPs)
 
         loss["cg"] = self.geometry_energy.eval(batch)
         loss["restraint"] = self.distance_restraint.eval(batch)
