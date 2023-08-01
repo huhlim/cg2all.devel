@@ -85,7 +85,7 @@ def main():
         cg_model = libcg.CalphaBasedModel
     elif model_type == "ResidueBasedModel":
         cg_model = libcg.ResidueBasedModel
-    config = libmodel.set_model_config(config, cg_model)
+    config = libmodel.set_model_config(config, cg_model, flattened=False)
     model = libmodel.Model(config, cg_model, compute_loss=False)
     #
     state_dict = ckpt["state_dict"]
