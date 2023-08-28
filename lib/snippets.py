@@ -62,17 +62,21 @@ def convert_cg2all(
         cg_model = libcg.CalphaBasedModel
     elif config["cg_model"] == "ResidueBasedModel":
         cg_model = libcg.ResidueBasedModel
+    elif config["cg_model"] == "SidechainModel":
+        cg_model = libcg.SidechainModel
     elif config["cg_model"] == "Martini":
         cg_model = libcg.Martini
     elif config["cg_model"] == "PRIMO":
         cg_model = libcg.PRIMO
     elif config["cg_model"] == "CalphaCMModel":
         cg_model = libcg.CalphaCMModel
+    elif config["cg_model"] == "CalphaSCModel":
+        cg_model = libcg.CalphaSCModel
     elif config["cg_model"] == "BackboneModel":
         cg_model = libcg.BackboneModel
     elif config["cg_model"] == "MainchainModel":
         cg_model = libcg.MainchainModel
-    config = libmodel.set_model_config(config, cg_model)
+    config = libmodel.set_model_config(config, cg_model, flattened=False)
     model = libmodel.Model(config, cg_model, compute_loss=False)
 
     # update state_dict
@@ -86,7 +90,11 @@ def convert_cg2all(
 
     # prepare input data
     input_s = PredictionData(
-        in_pdb_fn, cg_model, dcd_fn=in_dcd_fn, radius=config.globals.radius, fix_atom=config.globals.fix_atom
+        in_pdb_fn,
+        cg_model,
+        dcd_fn=in_dcd_fn,
+        radius=config.globals.radius,
+        fix_atom=config.globals.fix_atom,
     )
     if in_dcd_fn is not None:
         unitcell_lengths = input_s.cg.unitcell_lengths
