@@ -256,6 +256,14 @@ def main():
         else:
             arg.name = "devel"
     #
+    logdir = pathlib.Path(f"lightning_logs/{arg.name}")
+    prev_s = list(logdir.glob("version_*"))
+    prev_s.sort(key=lambda x: int(x.name.split("_")[-1]))
+    if arg.ckpt_fn is None and len(prev_s) > 0:
+        for prev in prev_s:
+            if (prev / "last.ckpt").exists():
+                arg.ckpt_fn = prev / "last.ckpt"
+    #
     if arg.ckpt_fn is not None:
         arg.max_epochs += torch.load(arg.ckpt_fn)["epoch"]
     #
@@ -283,6 +291,12 @@ def main():
         cg_model = libcg.PRIMO
     elif config["cg_model"] == "CalphaCMModel":
         cg_model = libcg.CalphaCMModel
+        topology_map = None
+    elif config["cg_model"] == "CalphaSCModel":
+        cg_model = libcg.CalphaSCModel
+        topology_map = None
+    elif config["cg_model"] == "SidechainModel":
+        cg_model = libcg.SidechainModel
         topology_map = None
     config = libmodel.set_model_config(config, cg_model)
     #

@@ -11,6 +11,8 @@ import argparse
 import torch
 import dgl
 
+N_PROC = int(os.getenv("OMP_NUM_THREADS", 8)) // 2
+os.environ["OMP_NUM_THREADS"] = str(N_PROC)
 os.environ["OPENMM_PLUGIN_DIR"] = "/dev/null"
 import mdtraj
 
