@@ -29,7 +29,8 @@ def main():
         # fmt:off
         choices=["CalphaBasedModel", "CA", "ca", \
                 "ResidueBasedModel", "RES", "res", \
-                "Martini", "martini", \
+                "Martini", "martini", "Martini2", "martini2", \
+                "Martini3", "martini3", \
                 "PRIMO", "primo", \
                 "CACM", "cacm", "CalphaCM", "CalphaCMModel",\
                 "BB", "bb", "backbone", "Backbone", "BackboneModel", \
@@ -46,9 +47,13 @@ def main():
         cg_model = libcg.CalphaBasedModel
     elif arg.cg_model in ["RES", "res", "ResidueBasedModel"]:
         cg_model = libcg.ResidueBasedModel
-    elif arg.cg_model in ["Martini", "martini"]:
+    elif arg.cg_model in ["Martini", "martini", "Martini2", "martini2"]:
         cg_model = functools.partial(
             libcg.Martini, topology_map=read_coarse_grained_topology("martini")
+        )
+    elif arg.cg_model in ["Martini3", "martini3"]:
+        cg_model = functools.partial(
+            libcg.Martini3, topology_map=read_coarse_grained_topology("martini3")
         )
     elif arg.cg_model in ["PRIMO", "primo"]:
         cg_model = functools.partial(

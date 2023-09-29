@@ -280,6 +280,9 @@ def main():
     elif config["cg_model"] == "Martini":
         topology_map = read_coarse_grained_topology("martini")
         cg_model = libcg.Martini
+    elif config["cg_model"] == "Martini3":
+        topology_map = read_coarse_grained_topology("martini3")
+        cg_model = libcg.Martini3
     elif config["cg_model"] == "BackboneModel":
         cg_model = libcg.BackboneModel
         topology_map = None
