@@ -27,6 +27,7 @@ from libdata import (
     PredictionData,
     create_trajectory_from_batch,
     create_topology_from_data,
+    standardize_atom_name,
 )
 import libcg
 from libpdb import write_SSBOND
@@ -65,6 +66,7 @@ def main():
     arg.add_argument("--chain-break-cutoff", dest="chain_break_cutoff", default=10.0, type=float)
     arg.add_argument("-a", "--all", "--is_all", dest="is_all", default=False, action="store_true")
     arg.add_argument("--fix", "--fix_atom", dest="fix_atom", default=False, action="store_true")
+    arg.add_argument("--standard-name", dest="standard_names", default=False, action="store_true")
     arg.add_argument("--ckpt", dest="ckpt_fn", default=None)
     arg.add_argument("--time", dest="time_json", default=None)
     arg.add_argument("--device", dest="device", default=None)
@@ -198,6 +200,8 @@ def main():
         timing["writing_output"] = time.time()
         traj_s, ssbond_s = create_trajectory_from_batch(batch, R)
         output = patch_termini(traj_s[0])
+        if arg.standard_names:
+            standardize_atom_name(output)
         output.save(arg.out_fn)
         if len(ssbond_s[0]) > 0:
             write_SSBOND(arg.out_fn, output.top, ssbond_s[0])
@@ -234,6 +238,8 @@ def main():
             unitcell_angles=unitcell_angles,
         )
         output = patch_termini(traj)
+        if arg.standard_names:
+            standardize_atom_name(output)
         output.save(arg.out_fn)
         #
         if arg.outpdb_fn is not None:
