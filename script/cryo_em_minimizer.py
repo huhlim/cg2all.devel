@@ -182,6 +182,7 @@ def main():
         restraint=arg.restraint,
         uniform_restraint=arg.uniform_restraint,
     )
+    #
     for i in range(arg.n_step):
         loss_sum, loss = loss_f.eval(batch, ret)
         loss_sum.backward()
