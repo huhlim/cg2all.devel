@@ -8,14 +8,17 @@ import tqdm
 import pathlib
 import argparse
 
-import numpy as np
-import torch
-import dgl
-
 N_PROC = int(os.getenv("OMP_NUM_THREADS", 8)) // 2
+N_PROC = 1
 os.environ["OMP_NUM_THREADS"] = str(N_PROC)
+os.environ["OPENBLAS_NUM_THREADS"] = str(N_PROC)
+os.environ["MKL_NUM_THREADS"] = str(N_PROC)
 os.environ["OPENMM_PLUGIN_DIR"] = "/dev/null"
 import mdtraj
+import numpy as np
+
+import torch
+import dgl
 
 BASE = pathlib.Path(__file__).parents[1].resolve()
 LIB_HOME = str(BASE / "lib")
